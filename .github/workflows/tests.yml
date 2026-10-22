@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: The kit's tests (selftests, manifests, skills, the README's commands)
+        run: python3 tests/run.py
+      - name: The package builds and its console scripts import
+        run: |
+          python3 -m pip install --quiet build
+          python3 -m build --wheel --outdir dist
+          python3 -m pip install --quiet dist/*.whl
+          flow --help > /dev/null && library --help > /dev/null && dashboard --help > /dev/null && formal --help > /dev/null

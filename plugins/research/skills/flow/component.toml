@@ -1,0 +1,2 @@
+command = ["python3", "scripts/flow.py"]
+bindings = "flow.toml"

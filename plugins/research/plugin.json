@@ -1,0 +1,36 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "research",
+  "version": "0.1.0",
+  "description": "Research records for a coding agent, changed through transitions and held together by a check: ideas, questions, tasks and findings as typed Markdown records, a reference library that refuses an unread citation, a dashboard over both, and the method a session works by.",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Mykola Palamarchuk"
+  },
+  "homepage": "https://research-kit.livid.work",
+  "repository": "https://github.com/lividgreen/research-kit",
+  "keywords": [
+    "research",
+    "records",
+    "reference-library",
+    "skills"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "research",
+        "shortDescription": "Typed research records, a reference library, a dashboard and the method.",
+        "longDescription": "The flow of ideas, tasks, questions and findings as one Markdown record each, moved by transitions through the `flow` CLI and validated by a check; one card per referred work with read grades and extracts through the `library` CLI; one read-only dashboard over both; and the method rules a session works by.",
+        "defaultPrompt": [
+          "Use research to read the records and pick up the next item.",
+          "Use research to register the work I just cited in the reference library."
+        ],
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ]
+      }
+    }
+  }
+}

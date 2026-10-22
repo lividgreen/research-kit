@@ -1,0 +1,32 @@
+{
+  "name": "research-kit",
+  "interface": {
+    "displayName": "research-kit"
+  },
+  "plugins": [
+    {
+      "name": "research",
+      "source": {
+        "source": "local",
+        "path": "./plugins/research"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "formal",
+      "source": {
+        "source": "local",
+        "path": "./plugins/formal"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

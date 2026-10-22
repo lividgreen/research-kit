@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: >-
+  If you use research-kit, please cite it as below. A paper describing the
+  method is in preparation and will supersede this repository-level entry
+  when it is posted.
+title: >-
+  research-kit: agent skills for running a research project as checked records,
+  with a reference library, a dashboard, working rules, and a checked prover
+  handoff and landing for Lean
+abstract: >-
+  research-kit is two plugins for coding agents (Claude Code, Codex and any
+  agent that reads the Agent Skills layout). The research plugin keeps a
+  project's ideas, questions with kill criteria, tasks and findings as typed
+  Markdown records moved through their states by transitions, and one card per
+  cited work recording how far it was read and what may be claimed from it; a
+  check on every commit fails a hand-edited state, a citation of a work with no
+  card or one nobody read, and evidence that does not resolve. It adds a
+  read-only dashboard over both and working rules for review, evidence, design
+  and debugging. The formal plugin serves a project with a Lean 4 library: the
+  prompt a prover session gets is checked before it is sent, and the session's
+  report is verified against the built tree, by the declaration manifest's diff
+  and a cold read-back of each landed statement, before any document changes.
+  Every tool is a single Python 3.11 script on the standard library, and all
+  data is plain Markdown in the project's repository.
+type: software
+authors:
+  - family-names: Palamarchuk
+    given-names: Mykola
+    email: lividgreen@gmail.com
+    orcid: https://orcid.org/0009-0007-2106-5777
+    affiliation: Independent researcher
+repository-code: https://github.com/lividgreen/research-kit
+url: https://research-kit.livid.work
+license: Apache-2.0
+# The concept DOI is added here once Zenodo mints it at the first release; only the concept
+# DOI, never a version DOI (Zenodo's record lists the versions).
+keywords:
+  - research workflow
+  - agent skills
+  - coding agents
+  - typed records
+  - reference library
+  - citations
+  - formal verification
+  - Lean

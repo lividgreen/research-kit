@@ -1,0 +1,42 @@
+name: changelog
+
+# A pull request adds at least one line under `## Unreleased` in CHANGELOG.md, which becomes the
+# release's notes.  The label `skip-changelog`, which only a maintainer can set, waives it for a
+# change no user would notice.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The pull request adds a line under `## Unreleased`
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 - <<'EOF'
+          import os, re, subprocess, sys
+
+          def unreleased(text):
+              m = re.search(r"^## Unreleased\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+              return None if m is None else {ln.strip() for ln in m.group(1).splitlines() if ln.strip()}
+
+          base = subprocess.run(["git", "show", f"{os.environ['BASE']}:CHANGELOG.md"], capture_output=True, text=True).stdout
+          head = unreleased(open("CHANGELOG.md", encoding="utf-8").read())
+          if head is None:
+              print("::error file=CHANGELOG.md::no `## Unreleased` heading; add it above the last release")
+              sys.exit(1)
+          if not head - (unreleased(base) or set()):
+              print("::error file=CHANGELOG.md::no new line under `## Unreleased`; say what the change does for a user")
+              sys.exit(1)
+          print("new under Unreleased:", *sorted(head - (unreleased(base) or set())), sep="\n  ")
+          EOF

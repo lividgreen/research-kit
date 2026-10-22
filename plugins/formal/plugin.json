@@ -1,0 +1,36 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "formal",
+  "version": "0.1.0",
+  "description": "The prover side of research-kit, for a project with a Lean library: the handoff a prover session gets, composed statement-first and checked, its report verified at the tree before any document moves, the prover session as an agent, and the package's declaration manifest.",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Mykola Palamarchuk"
+  },
+  "homepage": "https://research-kit.livid.work",
+  "repository": "https://github.com/lividgreen/research-kit",
+  "keywords": [
+    "research",
+    "formal-verification",
+    "lean",
+    "skills"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "formal",
+        "shortDescription": "The prover side: handoff, landing, the prover agent, the manifest generator.",
+        "longDescription": "Three skills and an agent for a project that pairs its documents with a machine-checked library: `formal-init` sets the prover side up and checks it, `handoff` composes and checks the prompt a prover session gets, `land` verifies its report at the tree with the manifest diff and a cold read-back before any document moves, `prover` is the session itself as a subagent; `DeclManifest.lean` writes a Lean package's declaration manifest. Needs the research plugin.",
+        "defaultPrompt": [
+          "Use formal to compose and check a handoff for the next formal target.",
+          "Use formal to land the prover session's report: the manifest diff and the read-back first."
+        ],
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ]
+      }
+    }
+  }
+}

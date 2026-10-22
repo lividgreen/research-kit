@@ -1,0 +1,21 @@
+{
+  "name": "formal",
+  "displayName": "formal",
+  "version": "0.1.0",
+  "description": "The prover side of research-kit, for a project with a Lean library: the handoff a prover session gets, composed statement-first and checked, its report verified at the tree before any document moves, the prover session as an agent, and the package's declaration manifest.",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Mykola Palamarchuk"
+  },
+  "homepage": "https://research-kit.livid.work",
+  "repository": "https://github.com/lividgreen/research-kit",
+  "agents": [
+    "./claude-agents/prover.md"
+  ],
+  "keywords": [
+    "research",
+    "formal-verification",
+    "lean",
+    "skills"
+  ]
+}

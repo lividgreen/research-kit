@@ -1,0 +1,30 @@
+# Remote hooks a project pins by `rev`: pre-commit installs this repository as a Python package
+# (pyproject.toml) and runs the console scripts, so the project keeps no copy of the scripts.
+#
+#   - repo: https://github.com/lividgreen/research-kit
+#     rev: <tag>
+#     hooks:
+#       - id: flow-check
+#       - id: library-check
+#       - id: formal-check
+#
+# Each check reads its bindings file at the project root; a project with no flow.toml or no
+# library.toml leaves that hook out.
+- id: flow-check
+  name: flow check (records, their references and evidence, index freshness)
+  entry: flow check
+  language: python
+  pass_filenames: false
+  always_run: true
+- id: library-check
+  name: library check (cards, kept copies, extracts, reference entries, index freshness)
+  entry: library check
+  language: python
+  pass_filenames: false
+  always_run: true
+- id: formal-check
+  name: formal check (the manifests parse, the prover bindings resolve)
+  entry: formal check
+  language: python
+  pass_filenames: false
+  always_run: true

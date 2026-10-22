@@ -1,0 +1,115 @@
+name: release
+
+# A pushed tag v* runs the tests, creates the GitHub Release from the tag's section of
+# CHANGELOG.md, then tells www.livid.work, which records the release on the project card and
+# republishes https://research-kit.livid.work at the tag.  The dispatch is a job of this run
+# and not an `on: release` workflow: a Release created with GITHUB_TOKEN fires no other workflow.
+# workflow_dispatch with a tag resends the announcement for a release that already exists.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release tag (vX.Y.Z); its Release is created if missing"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: The kit's tests (selftests, manifests, skills, the README's commands)
+        run: python3 tests/run.py
+
+  release:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: The tag is the version the manifests carry
+        run: |
+          # Claude Code refreshes an installed plugin only when its manifest's version changes, so a
+          # tag cut without the bump would publish a release nobody receives.  The tests hold the
+          # other version fields equal to these.
+          python3 - <<'EOF'
+          import glob, json, os, sys, tomllib
+          tag = os.environ["TAG"]
+          found = {"pyproject.toml": tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]}
+          for p in sorted(glob.glob("plugins/*/.claude-plugin/plugin.json") + glob.glob("plugins/*/plugin.json")):
+              found[p] = json.load(open(p))["version"]
+          bad = {p: v for p, v in found.items() if f"v{v}" != tag}
+          for p, v in bad.items():
+              print(f"::error file={p}::version {v} where the tag is {tag}")
+          sys.exit(1 if bad else 0)
+          EOF
+      - name: The tag's section of CHANGELOG.md becomes the notes
+        run: |
+          # The section opens with a heading `## <tag>` (the date may follow on the same line)
+          # and runs to the next `## ` heading.
+          awk -v tag="$TAG" '
+            /^## / {
+              on = (substr($0, 4, length(tag)) == tag && substr($0, 4 + length(tag), 1) ~ /^ ?$/)
+              next
+            }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q "[^[:space:]]" notes.md; then
+            echo "::error file=CHANGELOG.md::no section '## $TAG'; the release needs its notes"
+            exit 1
+          fi
+          cat notes.md
+      - name: The GitHub Release, unless it already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "release $TAG exists; left as it is"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md
+          fi
+
+  announce:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the release back
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release view "$TAG" --json name,url,publishedAt,tagName > release.json
+      - name: Tell www.livid.work (repository_dispatch project-release)
+        env:
+          GH_TOKEN: ${{ secrets.WWW_DISPATCH_TOKEN }}
+          PROJECT: ${{ github.event.repository.name }}
+          WWW_REPO: lividgreen/www.livid.work
+        run: |
+          jq --arg project "$PROJECT" '{
+            event_type: "project-release",
+            client_payload: {
+              project: $project,
+              tag: .tagName,
+              name: .name,
+              url: .url,
+              published_at: .publishedAt
+            }
+          }' release.json > dispatch.json
+          cat dispatch.json
+          gh api --method POST "repos/$WWW_REPO/dispatches" --input dispatch.json

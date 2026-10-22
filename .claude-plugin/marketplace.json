@@ -1,0 +1,35 @@
+{
+  "name": "research-kit",
+  "owner": {
+    "name": "Mykola Palamarchuk"
+  },
+  "metadata": {
+    "description": "Two plugins: research (the setup, the flow, the reference library, the dashboard, the method, design, debug) and formal (the prover side: formal-init, handoff, land, the prover agent, the manifest generator)."
+  },
+  "plugins": [
+    {
+      "name": "research",
+      "source": "./plugins/research",
+      "description": "Research records for a coding agent, changed through transitions and held together by a check: ideas, questions, tasks and findings as typed Markdown records, a reference library that refuses an unread citation, a dashboard over both, and the method a session works by.",
+      "category": "productivity",
+      "tags": [
+        "research",
+        "records",
+        "reference-library",
+        "skills"
+      ]
+    },
+    {
+      "name": "formal",
+      "source": "./plugins/formal",
+      "description": "The prover side of research-kit, for a project with a Lean library: the handoff a prover session gets, composed statement-first and checked, its report verified at the tree before any document moves, the prover session as an agent, and the package's declaration manifest.",
+      "category": "productivity",
+      "tags": [
+        "research",
+        "formal-verification",
+        "lean",
+        "skills"
+      ]
+    }
+  ]
+}

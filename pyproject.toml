@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "research-kit"
+version = "0.1.0"
+description = "The command set of research-kit, the skills for a coding agent that runs a research project as typed records: flow (the records, their transitions and the validator), library (one card per referred work, with read grades and extracts, and the check that ties a document's references to cards), dashboard (a read-only site over both) and formal (a prover session's handoff checked and its landing verified at the tree)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+dependencies = []
+authors = [{ name = "Mykola Palamarchuk" }]
+keywords = ["research", "records", "reference-library", "skills", "agents", "coding-agents", "claude-code", "codex", "citations", "lean", "formal-verification"]
+
+[project.optional-dependencies]
+dashboard = ["markdown"]
+
+[project.urls]
+Homepage = "https://research-kit.livid.work"
+Documentation = "https://research-kit.livid.work"
+Repository = "https://github.com/lividgreen/research-kit"
+
+# The four console scripts are the skills' own scripts, carried into one package at build time;
+# the scripts stay one self-contained file each inside their skill directories.
+[project.scripts]
+flow = "research_kit.flow:main"
+library = "research_kit.library:main"
+dashboard = "research_kit.dashboard:main"
+formal = "research_kit.formal:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["packaging/research_kit"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"plugins/research/skills/flow/scripts/flow.py" = "research_kit/flow.py"
+"plugins/research/skills/library/scripts/library.py" = "research_kit/library.py"
+"plugins/research/skills/dashboard/scripts/dashboard.py" = "research_kit/dashboard.py"
+"plugins/formal/skills/land/scripts/formal.py" = "research_kit/formal.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["plugins", "packaging", "tests", "tools", "docs", ".claude-plugin", ".cursor-plugin", ".agents", ".github", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "CITATION.cff", "LICENSE", "NOTICE", "pyproject.toml", ".pre-commit-hooks.yaml", ".markdownlint.jsonc"]
