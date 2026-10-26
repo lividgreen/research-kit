@@ -5,6 +5,8 @@ Each release is a tag; the version is read from the tag and the version fields `
 ## Unreleased
 
 - The Zenodo concept DOI, 10.5281/zenodo.23664863, in `CITATION.cff` and the README, and the citation abstract names the agents the kit supports.
+- `library check`'s L12 reads a line under the references heading as an entry, or names it as one it cannot read, only where it is written like one — a list item, a line opening with a surname and an initial, or a year in parentheses with names before it — so a paragraph of prose that mentions a year is left alone; an author with a particle such as d'Alembert is read.
+- L12 names, for an entry no card agrees with, the nearest card and which of title, first author and year disagreed, and where the card's venue names the entry's year, says so: the mark of a card typed from its preprint.
 
 ## v0.1.0 — 2026-10-26
 
