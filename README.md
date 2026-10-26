@@ -11,7 +11,7 @@ It keeps a project's ideas, questions, tasks, findings and cited works as checke
 [![Agent Skills](https://img.shields.io/badge/Agent_Skills-compatible-4B5563)](https://agentskills.io)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB)](docs/install.md#requirements)
 [![licence Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue)](LICENSE)
-<!-- The Zenodo concept-DOI badge is added here when the first release is archived. -->
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23664863.svg)](https://doi.org/10.5281/zenodo.23664863)
 
 ## What is in the kit
 
@@ -125,6 +125,6 @@ A vulnerability is reported privately, as [SECURITY.md](SECURITY.md) says, never
 ## Licence and citation
 
 Apache License 2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-To cite the kit, use [CITATION.cff](CITATION.cff); a paper on the method is in preparation.
+To cite the kit, use [CITATION.cff](CITATION.cff) or the concept DOI [10.5281/zenodo.23664863](https://doi.org/10.5281/zenodo.23664863), which resolves to the latest version; a paper on the method is in preparation.
 
 research-kit is not related to Apple's ResearchKit, a framework for medical studies on iOS.

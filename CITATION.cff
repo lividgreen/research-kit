@@ -8,8 +8,10 @@ title: >-
   with a reference library, a dashboard, working rules, and a checked prover
   handoff and landing for Lean
 abstract: >-
-  research-kit is two plugins for coding agents (Claude Code, Codex and any
-  agent that reads the Agent Skills layout). The research plugin keeps a
+  research-kit is two plugins for coding agents: native plugins for Claude
+  Code, Grok Build and Factory Droid, Agent Plugins for Codex, GitHub Copilot,
+  Cursor and the other clients of that standard, and Agent Skills for any agent
+  that reads them. The research plugin keeps a
   project's ideas, questions with kill criteria, tasks and findings as typed
   Markdown records moved through their states by transitions, and one card per
   cited work recording how far it was read and what may be claimed from it; a
@@ -32,8 +34,8 @@ authors:
 repository-code: https://github.com/lividgreen/research-kit
 url: https://research-kit.livid.work
 license: Apache-2.0
-# The concept DOI is added here once Zenodo mints it at the first release; only the concept
-# DOI, never a version DOI (Zenodo's record lists the versions).
+# The concept DOI, which resolves to the latest version; never a version DOI (Zenodo's record lists the versions).
+doi: 10.5281/zenodo.23664863
 keywords:
   - research workflow
   - agent skills
