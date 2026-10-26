@@ -4,6 +4,8 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+- The Zenodo concept DOI, 10.5281/zenodo.23664863, in `CITATION.cff` and the README, and the citation abstract names the agents the kit supports.
+
 ## v0.1.0 — 2026-10-26
 
 The first release: two plugins in one repository, installed as plugins in Claude Code, Grok Build and Factory Droid, as Agent Plugins in Codex, GitHub Copilot, Cursor, Kiro, OpenHands, Devin, Cline, Goose and Antigravity CLI, and as skills in any agent that reads the Agent Skills layout.
