@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "research-kit"
-version = "0.1.0"
+version = "0.1.1"
 description = "The command set of research-kit, the skills for a coding agent that runs a research project as typed records: flow (the records, their transitions and the validator), library (one card per referred work, with read grades and extracts, and the check that ties a document's references to cards), dashboard (a read-only site over both) and formal (a prover session's handoff checked and its landing verified at the tree)."
 readme = "README.md"
 requires-python = ">=3.11"

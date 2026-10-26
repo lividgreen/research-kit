@@ -4,7 +4,7 @@ description: The typed flow of research work — ideas, tasks, questions with ki
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), a project reflow module (one sentence per line; built in otherwise); a declaration manifest and a probes register for the findings' evidence, without which declaration and probe evidence is reported unchecked.
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   script: scripts/flow.py
 ---
 

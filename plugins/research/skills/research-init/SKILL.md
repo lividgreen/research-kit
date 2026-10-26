@@ -4,7 +4,7 @@ description: Sets a project up for the research plugin — the flow, the referen
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only, for `scripts/setup.py`; git for the project; a pre-commit runner (`prek` or `pre-commit`) for the hooks, proposed when absent; the `flow` and `library` skills beside this one, whose scripts the setup runs.
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   script: scripts/setup.py
 ---
 

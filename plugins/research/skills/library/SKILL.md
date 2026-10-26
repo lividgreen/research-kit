@@ -4,7 +4,7 @@ description: The reference library — one card per referred work (a paper, a bo
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only. Optional - pdftotext (poppler) or another text command for kept PDFs, SQLite with FTS5 for stemmed search (whole words otherwise), network access for resolve, verify, fetch, restore and watch (never needed by the check).
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   script: scripts/library.py
 ---
 
