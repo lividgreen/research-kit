@@ -394,8 +394,9 @@ def selftest():
         expect("the instructions file is found", rep["facts"]["instructions"] == ["CLAUDE.md"] and by["instructions file"]["ok"])
         expect("no log is found and the init's start is proposed", rep["facts"]["logs"] == [] and "flow init --log" in by["log"]["detail"])
         log_line = next(l for l in render(rep).splitlines() if " log [" in l)
-        expect("a log not yet written is absent, marked neither ok nor missing, and no required item is missing",
-               by["log"]["need"] == "absent" and log_line.lstrip().startswith("--") and "every required item is present" in render(rep))
+        summary = render(rep).splitlines()[-1]
+        expect("a log not yet written is absent, marked neither ok nor missing, and not counted among the missing items",
+               by["log"]["need"] == "absent" and log_line.lstrip().startswith("--") and " log" not in summary.split(";")[0])
         expect("a pre-commit config without the kit is reported as such", "without the kit's hooks" in by[".pre-commit-config.yaml"]["detail"])
         expect("the bindings files are reported absent", all(by[n]["need"] == "absent" for n in ("flow.toml", "library.toml", "formal.toml")))
         (root / "flow.toml").write_text("", encoding="utf-8")
