@@ -15,7 +15,7 @@ These are one project's rules, earned over a research programme that pairs writt
 
 - A structural pass and a correctness pass find disjoint defect classes; a section is reviewed only after both.
 - The citation discipline applies inward: open the exporting statement before citing it, even when it sits three paragraphs up in the same file.
-- A correction reaches every summary site — the headline, the abstract, the registry, the companion prose — not only the detailed site where it was found; the project binds the list.
+- A correction reaches every summary site — the headline, the abstract, the registry, the companion prose, a library docstring that summarizes the result — not only the detailed site where it was found; the project binds the list.
 - A scope qualifier sits on the claim, not on the sentence's conclusion.
 - A negative-coverage sentence ("nothing in this work does X") is a claim about every document at once; its counterexample is usually a companion's own headline result under a hypothesis — and every landing re-reads such sentences for the landed result's kind, since no gate does.
 - A sentence found false of the artifact is corrected by the session that finds it, at its exact size, in that session; it is never put to the project's owner as a choice. The owner decides scope and significance; whether a false sentence stands is not a decision. A project whose instructions file says the owner is asked before any correction has opted out, and the session then puts the sentence, its evidence and the correction to them instead.
@@ -25,6 +25,7 @@ These are one project's rules, earned over a research programme that pairs writt
 
 - A counting or closed-form claim gets its planted-defect probe in the same round it is made.
 - Unverified code is not evidence; a numerical check a reader would need is an argument for checking it mechanically, not for shipping the script.
+- A probe that ports a machine-checked statement is checked against the prover, never the other way round: where the two disagree, the port is what broke.
 - Suspect the bound, not the witness: a residue that keeps coming out wrong is a fact about the bound until the bound has been pushed.
 - A row or a remark about a checked artifact is written from the landed artifact, never from the design record that commissioned it.
 - A record paraphrase can name the wrong referent; agreement between two citations is not verification — open what they point at.

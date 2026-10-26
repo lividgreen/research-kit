@@ -579,7 +579,7 @@ def file_sha256(path):
 
 # the date of an entry: a year (1990, 1990a, 1990/1991, 2005, March 3), or none yet (n.d., in press, forthcoming)
 ENTRY_DATE = r"\((?:\d{4}[a-z]?(?:/\d{4})?(?:, [^()]{1,30}?)?|n\. ?d\.(?:-[a-z])?|in press|forthcoming)\)"
-ENTRY_RE = re.compile(r"^(?:[-*+][ \t]+)?(?:\*\*?|__?)?((?:[a-z]+ ){0,2}[A-ZÀ-Ž](?:[^()]|\((?!\d{4}|n\. ?d\.|in press|forthcoming)[^()]{1,20}\)){0,300}?)(" + ENTRY_DATE + ")")
+ENTRY_RE = re.compile(r"^(?:[-*+][ \t]+)?(?:\*\*?|__?)?((?:[a-z]+ |[a-z]{1,2}['’]){0,2}[A-ZÀ-Ž](?:[^()]|\((?!\d{4}|n\. ?d\.|in press|forthcoming)[^()]{1,20}\)){0,300}?)(" + ENTRY_DATE + ")")
 
 
 def year_in(year, words):
@@ -608,11 +608,41 @@ def reference_lines(cfg):
                     yield f, n, line
 
 
+# the lowercase words a run of author names carries: particles, conjunctions, an editor's mark, and the
+# small words of a body's name (Bureau of Labor Statistics, Institut für …)
+NAME_WORDS = {"and", "with", "et", "al", "ed", "eds", "van", "von", "der", "den", "de", "del", "della", "di", "da",
+              "du", "dos", "das", "la", "le", "ten", "ter", "zu", "y", "bin", "ibn", "of", "the", "for", "on", "in",
+              "at", "und", "für", "des"}
+
+
+def names_only(text):
+    """Whether text reads as a run of names: at most two lowercase words (The mathlib Community) beside the
+    particles and small words above, where a sentence of prose has more; a word with a capital (d'Alembert,
+    McKay) is a name."""
+    return len([w for w in re.findall(r"[^\W\d_][\w'’-]*", text)
+                if w[0].islower() and not any(c.isupper() for c in w) and w not in NAME_WORDS]) <= 2
+
+
+def entry_shaped(line):
+    """Whether a line reads as a reference entry: a list item, a line opening with a surname and an initial,
+    or a year in parentheses with only names before it.  A paragraph of prose that mentions a year late is not."""
+    if re.match(r"^\s*(?:[-*+]|\d+[.)]|\[\d+\])\s", line) or re.match(r"^\W*(?:[a-z]+ |[a-z]{1,2}['’]){0,2}[A-ZÀ-Ž][^\s,()]*,\s+[A-ZÀ-Ž]\.", line):
+        return True
+    m = re.search(r"\(\d{4}|\(n\. ?d\.\)", line)
+    return bool(m) and names_only(line[:m.start()])
+
+
 def unread_lines(cfg):
-    """The lines under the bound heading written like an entry — a list item, or a year in parentheses —
-    that are not read as one, so a document's reference the check cannot see is named, not skipped."""
-    return [(rel(cfg, f), n, line) for f, n, line in reference_lines(cfg) if not ENTRY_RE.match(line)
-            and re.search(r"^\s*(?:[-*+]|\d+[.)]|\[\d+\])\s|\(\d{4}|\(n\. ?d\.\)", line)]
+    """The lines under the bound heading written like an entry that are not read as one, so a document's
+    reference the check cannot see is named, not skipped."""
+    return [(rel(cfg, f), n, line) for f, n, line in reference_lines(cfg) if not entry_match(line) and entry_shaped(line)]
+
+
+def entry_match(line):
+    """The match of a reference entry: authors, then the date in parentheses — and only names before it, so a
+    sentence of prose that reaches a year in parentheses is not read as an entry."""
+    m = ENTRY_RE.match(line)
+    return m if m and names_only(m.group(1)) else None
 
 
 def reference_entries(cfg):
@@ -620,7 +650,7 @@ def reference_entries(cfg):
     heading of its level or a rule, that opens with its authors and a year in parentheses."""
     out = []
     for f, n, line in reference_lines(cfg):
-        m = ENTRY_RE.match(line)
+        m = entry_match(line)
         if m:
             entry, note = cut_entry(line)
             out.append({"doc": rel(cfg, f), "line": n, "entry": entry, "annotation": note,
@@ -964,9 +994,11 @@ def validate(cfg, cards, broken, today):
         where = f"{e['doc']}:{e['line']}"
         if not e["keys"]:
             inside = ties(cards, e, internal=True)
+            near = None if inside else nearest_miss(cards, e)
             problems.append({"code": "L12", "key": None, "path": where,
                              "msg": (f"this reference entry names an internal document ({', '.join(inside)}), which a bound document does not cite: "
-                                     if inside else "no card agrees with this reference entry on title, first author and year: ") + e["entry"][:110]})
+                                     if inside else "no card agrees with this reference entry on title, first author and year"
+                                     + (f" — {near}" if near else "") + ": ") + e["entry"][:110]})
         elif len(e["keys"]) > 1:
             problems.append({"code": "L12", "key": None, "path": where,
                              "msg": f"this reference entry agrees with {len(e['keys'])} cards ({', '.join(e['keys'])}): {e['entry'][:90]}"})
@@ -2032,6 +2064,41 @@ def ties(cards, entry, internal=False):
         if like >= 0.85:
             out.append(c.key)
     return out
+
+
+def nearest_miss(cards, entry):
+    """Of an entry no card agrees with, the registered card nearest it and what of title, first author and
+    year disagreed, as a clause; a year the card's venue names that stands in the entry is said, the mark of a
+    card typed from its preprint.  Only a card agreeing on the first author or the year is weighed, so the
+    titles compared are few and a check over many cards and failing entries stays quick; None where none of
+    those agrees on the title or the first author."""
+    text = entry["entry"].replace("*", "")
+    words, title = f" {norm(text)} ", guess_title(entry["entry"])
+    best = None
+    for c in cards.values():
+        if c["state"] != "registered" or c["file"]:
+            continue
+        sur = norm(surname(c["authors"][0])) if c["authors"] else ""
+        agree = {"first author": bool(sur) and f" {sur} " in words,
+                 "year": bool(c["year"]) and year_in(c["year"], words) if (c["year"] or entry.get("year")) else True}
+        if not agree["first author"] and not agree["year"]:
+            continue
+        like = title_same(c["title"] or "", title) if title else title_match(c["title"] or "", text)
+        agree = {"title": like >= 0.85, **agree}
+        rank = (agree["title"] + agree["first author"], agree["year"], like)
+        if (agree["title"] or agree["first author"]) and (best is None or rank > best[0]):
+            best = (rank, c, agree)
+    if best is None:
+        return None
+    _, c, agree = best
+    off = [k for k, v in agree.items() if not v]
+    said = f"the nearest card, {c.key}, disagrees on {' and '.join(off)}"
+    if "year" in off:
+        said += f" (the card's {c['year'] or 'none'}"
+        y = str(entry.get("year") or "")
+        said += f"; its venue names {y}, the entry's: a year typed from a preprint?)" \
+            if y and y != str(c["year"]) and re.search(rf"(?<![\d-]){y}(?![\d-])", str(c["venue"] or "")) else ")"
+    return said
 
 
 def tied_entries(cfg, cards):
@@ -3623,6 +3690,22 @@ def selftest():
         doc.write_text(keep_doc.replace("Kneser, M. (1953).", "1. Kneser, M. (1953).", 1))
         expect("a line under the heading written like an entry and not read as one → L12",
                [(pr["code"], "not read as an entry" in pr["msg"]) for pr in validate(cfg, *load_all(cfg), today)[0]] == [("L12", True)])
+        doc.write_text(keep_doc.replace("Kneser, M. (1953).", "- Kneser, M. 1953.", 1))
+        expect("a list item under the heading that does not parse → L12",
+               [(pr["code"], "not read as an entry" in pr["msg"]) for pr in validate(cfg, *load_all(cfg), today)[0]] == [("L12", True)])
+        doc.write_text(keep_doc.replace("Kneser, M. (1953).", "Kneser, M. 1953.", 1))
+        expect("a line opening with a surname and an initial, its year not in parentheses → L12",
+               [(pr["code"], "not read as an entry" in pr["msg"]) for pr in validate(cfg, *load_all(cfg), today)[0]] == [("L12", True)])
+        doc.write_text(keep_doc.replace("\n## Appendix", "\nTools cited by repository rather than author-year: `org/audit` (2026; an audit tool), "
+                                        "`org/replay` (2025).\n\nTools cited by repository: `org/replay` (2025).\n\nThe entries below follow APA; a work republished later, "
+                                        "as Hilbert (1899) was, gives its first year.\n\nde Bruijn, N. G. & van Lint, J. H. (1953; reprinted). "
+                                        "Names before the year.\n\n## Appendix", 1))
+        expect("prose under the heading passes, a year in parentheses late or well-formed; names before a year that does not parse → L12",
+               [(pr["code"], "de Bruijn" in pr["msg"]) for pr in validate(cfg, *load_all(cfg), today)[0]] == [("L12", True)])
+        doc.write_text(keep_doc.replace("\n## Appendix", "\nBureau of Labor Statistics (2020). A table of wages.\n\n"
+                                        "d'Alembert, J. (1743). Traité de dynamique.\n\nThe mathlib Community (2020). The Lean mathematical library.\n\n## Appendix", 1))
+        expect("a body's name with its small words or a lowercase word, and a name with a lowercase particle, read as authors",
+               [e["authors"] for e in reference_entries(cfg)][-3:] == ["Bureau of Labor Statistics", "d'Alembert, J.", "The mathlib Community"])
         doc.write_text(keep_doc.replace("Kneser, M. (1953).", "Kneser, M. (n.d.).", 1))
         expect("an entry with no year (n.d.) is read, and ties no card that carries one",
                [e["year"] for e in reference_entries(cfg) if "n.d." in e["entry"]] == [None]
@@ -3633,6 +3716,26 @@ def selftest():
         expect("planted: a card that is not UTF-8 → L0", any(pr["code"] == "L0" and pr["key"] == "zz-bytes" for pr in validate(cfg, *load_all(cfg), today)[0]))
         bad_card.unlink()
         doc_plant("a reference entry whose year no card carries", "L12", head + good.split("\n\n")[0].replace("1953", "1955") + "\n")
+        doc.write_text(head + good.split("\n\n")[0].replace("1953", "1955") + "\n")
+        keep_card = (cfg.cards / "kneser1953.md").read_text()
+        l12 = lambda: [pr["msg"] for pr in validate(cfg, *load_all(cfg), today)[0] if pr["code"] == "L12"]
+        msgs = l12()
+        expect("L12 names the nearest card and what of it disagreed",
+               len(msgs) == 1 and "the nearest card, kneser1953, disagrees on year (the card's 1953)" in msgs[0])
+        edit("kneser1953", lambda fm: fm.update(venue="Math. Z. 58 (1955)"))
+        msgs = l12()
+        expect("L12 says where the nearest card's venue names the entry's year, the mark of a preprint's year",
+               len(msgs) == 1 and "its venue names 1955" in msgs[0])
+        edit("kneser1953", lambda fm: fm.update(venue="Math. Z. 58, 1601-1605"))
+        doc.write_text(head + good.split("\n\n")[0].replace("1953", "1955").replace("459–484", "1601-1605") + "\n")
+        msgs = l12()
+        expect("a page range in the venue is not read as the year it names", len(msgs) == 1 and "its venue names" not in msgs[0])
+        (cfg.cards / "kneser1953.md").write_text(keep_card)
+        doc.write_text(head + good.split("\n\n")[0].replace("Kneser, M.", "Knesser, M.") + "\n")
+        msgs = l12()
+        expect("L12 names a first author the nearest card disagrees on",
+               len(msgs) == 1 and "kneser1953, disagrees on first author:" in msgs[0])
+        doc.write_text(keep_doc)
         doc_plant("a reference entry two cards agree with", "L12", doc.read_text(),
                   lambda: (cfg.cards / "kneser1953b.md").write_text((cfg.cards / "kneser1953.md").read_text().replace(
                       "key: kneser1953", "key: kneser1953b").replace('doi: "10.9/kneser"', "doi: null")))

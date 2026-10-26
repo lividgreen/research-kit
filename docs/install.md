@@ -185,4 +185,27 @@ Each check reads its bindings file at the project root; a project with no `flow.
 A bindings file names code that runs — the reflow module, the library's command and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
 To update the hooks, set `rev` to the next tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it).
 
+### The plugins at the hooks' tag
+
+A marketplace added as `lividgreen/research-kit` follows the repository's default branch, while the hooks pin a tag, so between a push to `main` and a project's own bump its skills' text and scripts can be newer than its checks.
+A project keeps the two at one tag by pinning the marketplace to the tag its `rev` names, in the form each agent documents:
+
+| Agent | The marketplace at a tag |
+| --- | --- |
+| Claude Code | `/plugin marketplace add lividgreen/research-kit#v0.2.0`; in `.claude/settings.json`, `"ref": "v0.2.0"` beside `"repo"` in the source |
+| Codex | `codex plugin marketplace add lividgreen/research-kit --ref v0.2.0` |
+| GitHub Copilot | `copilot plugin marketplace add lividgreen/research-kit#v0.2.0`; in VS Code, `"lividgreen/research-kit#v0.2.0"` in `chat.plugins.marketplaces` |
+| Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#v0.2.0'` |
+
+A pinned marketplace updates to its tag and no further; the project moves it and the hooks' `rev` to the next tag together, in one commit where the pin is in a committed settings file.
+In Claude Code, `add` writes the `ref` into the user's settings, and `/plugin marketplace remove research-kit` also deletes the project's own entry from `.claude/settings.json`: after re-pinning, check that the project's settings still declare the marketplace with its `ref`.
+Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move together by hand.
+The setup probe, run from the installed plugin, says whether the hooks' `rev`, the marketplace's `ref` in the project's `.claude/settings.json` and the plugin's own version name one tag.
+
+### Outside the agent
+
+A Makefile target or a CI job runs the checks through the hooks, `prek run --all-files` or `pre-commit run --all-files`, which pin the tag and need no path to the kit.
+A script that calls a skill's script for anything else runs it from the installed plugin, whose path moves with every version: Claude Code keeps it under `~/.claude/plugins/cache/research-kit/research/<version>/` (`CLAUDE_CODE_PLUGIN_CACHE_DIR` moves that root) and records each install, with its scope, project and `installPath`, in `~/.claude/plugins/installed_plugins.json`, where the `research@research-kit` entry of scope `local`, else `project`, for the repository, else the `user` one, names it (`CLAUDE_CONFIG_DIR` moves `~/.claude`).
+Such a script checks that the entry's `version` is the tag the hooks pin before it runs anything.
+
 research-kit installs no command and is not published to PyPI: the agent runs the scripts from their skills, and the pre-commit hooks build their own environment from this repository at the pinned tag; the `research-kit` project on PyPI is an unrelated one.

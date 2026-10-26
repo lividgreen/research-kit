@@ -37,7 +37,7 @@ A closed task moves to the archive at its closing transition, so the record dire
 | make | active task → done and archived; follow-up tasks and ideas | `flow make task-0001 --resolution FILE --task "…" --idea "…"`; `--question SUMMARY KILL` mints a question |
 | abort | active task → abandoned and archived | `flow abort task-0001 --reason "…"`; `--resolution FILE` |
 | kill | idea, ready task, or open or decomposed question → abandoned with a dated reason; an active task is aborted instead | `flow kill idea-0001 --reason "…"` |
-| rank | the ranked next list: one record's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1 --why "…" --first-move "…"`; `--direction D`; `flow rank --set ID…`; `flow rank task-0001 --clear` |
+| rank | the ranked next list: one record's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1 --why "…" --first-move "…"`; `--direction D`; `--insert` to take a held rank and move the rest down; `flow rank --set ID…`; `flow rank task-0001 --clear` |
 | set | one hand-editable field: summary, size, dod, rider on or off | `flow set task-0001 size small` |
 
 Views: `flow find --type task --state ready` (also `--kind`, `--status`, `--tag`, `--owner`, `--question Q`, `--paper P`, `--requires ID`, `--depends-on ID`, `--parked`, `--ranked`, `--grep WORD`), `flow show ID` (the record, its links and its back-references), `flow graph --from ID` (`--dot` for Graphviz), `flow state` (the cold-start bundle; `--from N` continues it, `--budget N` bounds it), `flow directions` (the directions file), `flow index` (`--print` to stdout, `--check` for drift), `flow check`.

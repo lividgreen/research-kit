@@ -53,8 +53,11 @@ runs each script's `--selftest` (one planted defect per rule; `formal`'s over a 
 - [The bindings files](bindings.md) equals what each `init` writes, and [The checks](checks.md) names every code the scripts can report.
 
 It also runs `markdownlint` over the repository's Markdown with `.markdownlint.jsonc` where it is on PATH, and `claude plugin validate --strict` where the Claude CLI is on PATH.
+The flow's selftest writes records under its built-in markdownlint configuration where `markdownlint` is on PATH, and fails without it in CI (`CI` set), where the workflows install it.
 The workflow in `.github/workflows/tests.yml` runs the same on every push and pull request, on Python 3.11, 3.13 and 3.14, then builds the wheel the hooks install and runs each of its four console scripts.
 A checkout's hooks are tried in a project with `prek try-repo /path/to/research-kit flow-check --all-files` (or `pre-commit try-repo`); the package is the hooks' alone, and its console scripts import the skills' scripts the wheel build carries into it, so an editable install does not work.
+A checkout's plugins are tried in Claude Code by adding the checkout as a marketplace by its path, `/plugin marketplace add /path/to/research-kit`, which takes the name `research-kit` the released marketplace has.
+A trial install can stay in `~/.claude/plugins/cache/research-kit/<plugin>/<version>/`, and Claude Code reuses a cached copy whose version matches, so a release carrying the version the trial carried would run the trial's files: after a trial, remove the marketplace (`/plugin marketplace remove research-kit`) and delete `~/.claude/plugins/cache/research-kit` before adding the released one.
 
 ## Releases
 

@@ -15,7 +15,8 @@ The question is: what do we do next, for the whole project?
    Where the project pairs documents with a machine-checked library, the `method` skill's rules under "With a prover" order ties among its formal targets.
 3. **Write the ranks.**
    For each item `flow rank ID N --why "…" --first-move "…" [--direction "…"]` — a pointer by ID, never a restatement; why now, one clause; the first move, or "none yet".
-   Then `flow rank --set ID …` fixes the whole order at once: it clears every other rank and refreshes the ranked questions' checked dates.
+   A rank another record holds is refused; `--insert` takes it, moving that record and the ones below it down by one, and puts a new item at the top in one step: `flow rank ID 1 --insert --why "…" --first-move "…"`.
+   Then `flow rank --set ID …` fixes the whole order at once: it clears every other rank and refreshes the ranked questions' checked dates; every record it names already carries its why-now and first move.
    Draft long why-now or first-move text in a scratch file and pass it through the project's text gates before writing it.
 4. **Intake.**
    Park or unpark only for a reason the record carries with a date — `flow park ID --reason "…" --revival "…"`, `flow unpark ID` — never "no route".
