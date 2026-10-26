@@ -15,6 +15,7 @@ A directions file written by v0.1.0 keeps its title `# Directions` beside its `#
 - The flow's built-in markdownlint configuration, used where a project has none, turns MD013 off, since a record is one sentence per line; the files `flow init` writes pass it — the directions file is titled `# The owner's directions`, and the index's table has a delimiter row markdownlint's MD060 accepts — and the form of a direction in that file's comment is no longer read as a direction.
 - V11 says when an index differs from the render only in its form, its records unchanged.
 - The setup probe skips a git submodule or a vendored clone when it looks for documents and Lean workspaces; shows a log or an instructions file not yet written as absent, marked `--`, rather than as present or missing; says when it runs from a git clone of the kit; compares the hooks' `rev`, the marketplace's `ref` in the project's settings and the plugin's own version; and reads a Makefile for a `check` target that runs the hooks rather than assuming one.
+- The `method` skill checks a probe that ports a machine-checked statement against the prover, and counts a library docstring that summarizes a result among the summary sites a correction reaches; the `handoff` skill's refactor warning says the sweep touches names, visibility and file boundaries only.
 
 ## v0.1.0 — 2026-10-26
 

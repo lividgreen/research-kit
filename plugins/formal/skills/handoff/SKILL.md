@@ -46,7 +46,7 @@ Its record (the bar it states: axiom-clean, guard, scope); the document section 
 3. Target-specific warnings only, chosen by what the work touches:
    - a construction near a known trap of the workspace's instructions: the trap, said by name;
    - a guard-adding target: drift lists are reported verbatim, never swept;
-   - a refactor: what stays byte-identical (guards, public docstrings, statement texts);
+   - a refactor: what stays byte-identical (guards, public docstrings, statement texts), and that the sweep touches names, visibility and file boundaries only — a move that needs a proof to change means the boundary is wrong, and the session stops and reports it;
    - a multi-piece bundle: the docstrings name no piece of any handoff, no bundle, no landing, no session and no record;
    - a prompt naming a record as a source: this sentence verbatim — "The records named above are sources to READ, not citations: a docstring renders verbatim into the public artifact, so it cites the document's section and row ids — never a record or the log.";
    - a witness or guard at a named object: a public statement cannot name a private declaration, so the object is made public rather than the statement weakened to an existential, and a commissioned existential pins every quantity it is about;
