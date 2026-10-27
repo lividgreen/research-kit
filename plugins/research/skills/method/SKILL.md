@@ -4,7 +4,7 @@ description: Method rules for a project that writes documents and makes claims â
 license: Apache-2.0
 compatibility: No tooling; read before design, review and target changes.
 metadata:
-  version: "0.1.1"
+  version: "0.2.0"
 ---
 
 # Research method

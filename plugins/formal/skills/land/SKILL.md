@@ -4,7 +4,7 @@ description: Land a prover session's handback — verify the report at the tree 
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only, for `scripts/formal.py` (`formal probe`, `init`, `check`, `handoffcheck`, `handback`, `readback`, `cite`, `anchors`, `register`, `hypotheses`, `witnesses`); git for the manifest diff; the prover, its build and the manifest generator `scripts/DeclManifest.lean` (Lean 4; another prover writes the same rows its own way) are the project's. Needs `formal.toml` at the project root, which `formal init` writes.
 metadata:
-  version: "0.1.1"
+  version: "0.2.0"
   script: scripts/formal.py
 ---
 

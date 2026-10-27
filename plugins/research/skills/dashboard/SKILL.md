@@ -4,7 +4,7 @@ description: One read-only browser dashboard over the flow's records, the refere
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only; a browser. Optional - the `markdown` package for rendered bodies (paragraphs otherwise). Renders only components that answer `--json pages`, today the `flow` and `library` skills' CLIs.
 metadata:
-  version: "0.1.1"
+  version: "0.2.0"
   script: scripts/dashboard.py
 ---
 

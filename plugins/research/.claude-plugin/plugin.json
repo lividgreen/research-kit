@@ -1,7 +1,7 @@
 {
   "name": "research",
   "displayName": "research",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Research records for a coding agent, changed through transitions and held together by a check: ideas, questions, tasks and findings as typed Markdown records, a reference library that refuses an unread citation, a dashboard over both, and the method a session works by.",
   "license": "Apache-2.0",
   "author": {
