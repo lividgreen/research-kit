@@ -39,7 +39,7 @@ Three gates read what a landing touches: `formal cite` resolves every declaratio
 
 ## The prover-side setup
 
-`/formal:formal-init` reads the Lean workspaces under the root with their roots and toolchains, proposes what is missing, writes `formal.toml`, places the manifest generator, writes the prover session's standing instructions from the template, and binds the flow's declaration evidence and the `formal-check` hook.
+`/formal:formal-init` reads the Lean workspaces under the root with their roots and toolchains, proposes what is missing, writes `formal.toml`, places the manifest generator, writes the prover session's standing instructions from the template, and binds the flow's declaration evidence and the `formal-check` hook, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
 
 ### The `formal-init` skill
 

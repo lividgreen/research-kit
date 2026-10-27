@@ -27,6 +27,7 @@ The [`formal` plugin](plugins/formal/README.md), for a project with a Lean 4 lib
 
 - **A checked handoff.** The prompt a prover session gets is checked before it is sent.
 - **A verified landing.** What the session reports is checked against the built library before any document changes.
+- **Checks on the documents.** Every Lean name a document cites resolves, every section a Lean file cites exists, and what ships carries none of the project's internal vocabulary, each a pre-commit hook.
 
 Each plugin has a setup skill that proposes what the project needs and writes it on your word.
 Every tool is a single Python 3.11 script with no dependencies, and all the data is plain Markdown you can read without the kit.

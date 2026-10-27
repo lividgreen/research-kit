@@ -1,6 +1,6 @@
 ---
 name: formal-init
-description: Sets a project up for the formal plugin — `formal.toml` over its Lean workspace, the manifest generator in the workspace, the prover session's standing instructions, the flow's declaration evidence, the `formal-check` hook — and checks an existing setup. Use as `/formal:formal-init`, or when asked to set up the prover side, the formal plugin or the handoff and landing of Lean work in a project. Probes the workspace, the project and the machine with `formal probe`, proposes what is missing and installs it only on the person's word, writes what is absent and nothing that exists, and reports. Needs the research plugin's setup first.
+description: Sets a project up for the formal plugin — `formal.toml` over its Lean workspace, the manifest generator in the workspace, the prover session's standing instructions, the flow's declaration evidence, the `formal-check` hook and the document gates' hooks — and checks an existing setup. Use as `/formal:formal-init`, or when asked to set up the prover side, the formal plugin or the handoff and landing of Lean work in a project. Probes the workspace, the project and the machine with `formal probe`, proposes what is missing and installs it only on the person's word, writes what is absent and nothing that exists, and reports. Needs the research plugin's setup first.
 license: Apache-2.0
 compatibility: Python 3.11 or later for `scripts/formal.py` of the `land` skill; git; the prover, its build and `lake` are the project's, proposed when absent.
 metadata:

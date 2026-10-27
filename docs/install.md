@@ -196,7 +196,7 @@ A project keeps the two at one tag by pinning the marketplace to the tag its `re
 
 | Agent | The marketplace at a tag |
 | --- | --- |
-| Claude Code | `/plugin marketplace add lividgreen/research-kit#v0.2.0`; in `.claude/settings.json`, `"ref": "v0.2.0"` beside `"repo"` in the source |
+| Claude Code | `claude plugin marketplace add 'lividgreen/research-kit#v0.2.0' --scope project`, which writes `"ref": "v0.2.0"` beside `"repo"` in the source of `.claude/settings.json` |
 | Codex | `codex plugin marketplace add lividgreen/research-kit --ref v0.2.0` |
 | GitHub Copilot | `copilot plugin marketplace add lividgreen/research-kit#v0.2.0`; in VS Code, `"lividgreen/research-kit#v0.2.0"` in `chat.plugins.marketplaces` |
 | Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#v0.2.0'` |
