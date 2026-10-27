@@ -95,7 +95,7 @@ The other task is killed with its reason, since the result settles the question,
 The check passes with one warning: no probes register is bound, so the probe is reported unchecked rather than resolved (`[evidence] probes` in `flow.toml` binds one, a Markdown table naming each self-asserting script).
 
 The log is not a transition.
-The entry for the result is written by the agent, or by you, in the same commit as the transitions, newest first, and `flow state` prints the top one:
+The entry for the result is written by the agent, or by you, in the same commit as the transitions, newest first — `flow log add entry.md` puts the file's entry at the top, reflowed and linted as a record is — and `flow state` prints the top one:
 
 ```markdown
 ## 2026-10-23 — A implies B

@@ -29,7 +29,8 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **rider** — a ready or active task marked as riding the next piece of work handed to another owner; the index lists it under "Rider for the next hand-over".
 - **direction** — the owner's dated statement of what interests them, in the directions file: a hint that ranks items first, never a gate.
 - **the inbox** — the slot at the top of the directions file where the owner leaves mail for the next session, which processes it first and empties it.
-- **the log** — dated entries, newest first, each opening with a State paragraph; the top one is what a cold session trusts.
+- **the log** — dated entries, newest first, each opening with a State paragraph; the top one is what a cold session trusts; `flow log add` writes one at the top, `flow log archive` moves the old ones to one file per month.
+- **the close** — the end of a session: what a machine can see of it, `flow state --check` decides — the inbox emptied, the hand, the log's date and the records it names — and the rest is the session's.
 - **the registry** — the one place the project's deliverables and their order are stated; the ranked list orders the work, the registry the products.
 - **evidence, status** — a finding's evidence items and the status they imply: `verified` (a declaration resolves in the manifest), `stated` (a document's statement or row), `empirical` (a probe), `refuted` (a guard or a probe as counterexample); the names are the project's.
 - **declaration manifest** — a text file a prover's build regenerates, one `Module.Path name` line per declaration; the evidence resolver for declarations.
@@ -38,12 +39,14 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **do-not-reopen** — a tag on a question the index lists under "Settled, do not re-open" whatever its state, so a settled matter is seen before it is asked again.
 - **legacy** — the `origin` of a record imported from before the flow, the one record written by hand; it gains its kill criteria at its first round.
 - **text gates** — the project's own checks on prose, such as a linter or a one-sentence-per-line rule, run on a draft before a body or a row is written.
+- **clone test** — a session is closed when a clone of the repository on another computer could continue from it; the agent's memory, the scratchpad and a running subagent do not travel.
+- **annex** — an optional directory for the artifacts a recorded claim depends on that no other container owns.
 - **coverage line** — the last line of a check, saying which resolvers it looked at, so a green says what it did not look at (also `library`).
 
 ## The library
 
 - **card** — one file per referred work: its fields, how it was read, our notes, its extracts, its copy.
-- **key** — a card's pinned name, the first author's surname and the year by default, `--key` for another; a record cites a work as `lib:<key>`.
+- **key** — a card's pinned name, the first author's surname and the year by default and an internal document's file stem, `--key` for another; a record cites a work as `lib:<key>`.
 - **register (a work)** — `library register`: a new card for a work; distinct from registering a result, below.
 - **read grade** — `unread`, `skimmed`, `parts`, `full`: a claim about the reader, not the work; a resolver's answer is never a read.
 - **via** — the card a work is known through when it was not read itself.
@@ -55,6 +58,7 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **seeded** — a card loaded from an older list of works rather than registered for a citation, marked so.
 - **internal document** — a document of the project itself with a card of an internal kind naming its tracked file; cited by key, never from a document's reference entries.
 - **reference entry** — a line of a document's `## References` section, tied to exactly one card by title, first author and year.
+- **author-year citation** — `Jen (1990)` or `(Jen, 1990)` in a document's text, answered by the entry of its references with that first author and date; `library citecheck` holds the two to each other.
 
 ## The method
 

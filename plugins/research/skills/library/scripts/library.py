@@ -76,6 +76,8 @@ Views (one line per card; a card is named by its key or by any of its identifier
   library entries [--untied]           the documents' reference entries, each with the card it is tied to
   library claims [DOC...] [--uncovered]   the documents' claim-shaped sentences naming a carded work,
                                        each with the extracts its card carries
+  library citecheck [DOC...]           every author-year citation of a document's text answered by an
+                                       entry of its own references, and every entry cited; exit 1 otherwise
   library keys                         every key with its state and grade, as JSON (the consumer's contract)
   library index [--check]              the generated INDEX.md
   library check                        every rule, and a coverage line saying what was not looked at
@@ -142,6 +144,10 @@ INDEX_VERSION = "2"
 
 class Refused(Exception):
     pass
+
+
+class NotRun(Refused):
+    """A check that could not run — a file it was given is missing, no document to read — exits 2, never 1."""
 
 
 # --- configuration -----------------------------------------------------------
@@ -247,14 +253,24 @@ def as_tuple(v):
 
 
 _SENT = re.compile(r"([.?!])([\"”’')\]*`]*)[ \t]+(?=[A-Z0-9*`(\[“\"§_])")
+FENCE_RUN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def fence_after(fence, line):
+    """The code fence open after `line`, by CommonMark's rule, given `fence`, the one open before it (its opening
+    run of backticks or tildes, or None): a fence closes only on a run of its own character at least as long,
+    with nothing after it."""
+    m = FENCE_RUN.match(line)
+    if fence is None:
+        return m.group(1) if m and not (m.group(1)[0] == "`" and "`" in m.group(2)) else None
+    return None if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip() else fence
 
 
 def _builtin_reflow(text):
-    out, fence = [], False
+    out, fence = [], None
     for line in text.split("\n"):
-        if line.startswith(("```", "~~~")):
-            fence = not fence
-        if fence or not line.strip() or line.lstrip().startswith(("#", "|", ">")) or line.startswith("    "):
+        was, fence = fence, fence_after(fence, line)
+        if was or fence or not line.strip() or line.lstrip().startswith(("#", "|", ">")) or line.startswith("    "):
             out.append(line)
             continue
         m = re.match(r"^( *)([-*+] |\d+[.)] )?", line)
@@ -262,14 +278,20 @@ def _builtin_reflow(text):
         body, cont = line[m.end():], indent + " " * len(marker)
         parts, start = [], 0
         for b in _SENT.finditer(body):
-            if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]):
+            if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
+                    or re.fullmatch(r"(\*\*|__)(?:[^*_\s]+ ){0,3}[^*_\s]+(?: \([^()]*\))?\.\1", body[start:b.end(2)].strip()):  # a label, **State.**, **Lemma 2 (Jen 1990).**
                 continue
             parts.append(body[start:b.end(2)].strip())
             start = b.end()
         parts.append(body[start:].strip())
         parts = [p for p in parts if p]
-        out.append(indent + marker + parts[0] if parts else line.rstrip())
+        if len(parts) < 2:  # a line not split is left as written, a hard break's two trailing spaces with it
+            out.append(line)
+            continue
+        out.append(indent + marker + parts[0])
         out += [cont + p for p in parts[1:]]
+        if line.endswith("  "):  # a hard break's two trailing spaces stay where the line ends
+            out[-1] += "  "
     return "\n".join(out)
 
 
@@ -529,13 +551,15 @@ def label(fm):
     return f"{who}{year} — {fm.get('title')}" if who else f"{fm.get('title')}{year}"
 
 
-def make_key(cards, authors, year, title):
-    """The pinned key: first surname and year, a letter added on a clash; never regenerated afterwards."""
-    stem = authors and surname(authors[0]) or (str(title).split() or ["work"])[0]
+def make_key(cards, authors, year, title, file=None):
+    """The pinned key: first surname and year, a letter added on a clash; never regenerated afterwards.
+    An internal document's is its file's stem, which names the work where an author and a year do not:
+    a project's reports share their author and carry no year of publication."""
+    stem = Path(file).stem if file else authors and surname(authors[0]) or (str(title).split() or ["work"])[0]
     letters = re.sub(r"[^a-z0-9]+", "-", fold(stem).encode("ascii", "ignore").decode()).strip("-")
     if not letters:
         raise Refused(f"no key can be made of {stem!r} in ASCII letters: give one with --key")
-    base = letters + (str(year) if year else "")
+    base = letters + (str(year) if year and not file else "")
     key, n = base, 1
     while key in cards:
         n += 1
@@ -595,17 +619,16 @@ def cut_entry(line):
     return (text[:(m.end() if m else 0) + k.start() + 1] if k else text).strip(), (text[(m.end() if m else 0) + k.end() - 1:].strip() if k else "")
 
 
-def reference_lines(cfg):
-    """(file, line number, line) for every line under the bound heading of the configured documents, up to
-    the next heading of its level or a rule."""
-    for pattern in cfg.entry_docs:
-        for f in sorted(cfg.root.glob(pattern)):
-            on = False
-            for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
-                if re.match(r"^#{1,2} ", line) or re.match(r"^---\s*$", line):
-                    on = bool(re.match(r"^## %s\s*$" % re.escape(cfg.entry_heading), line))
-                elif on:
-                    yield f, n, line
+def reference_lines(cfg, files=None):
+    """(file, line number, line) for every line under the bound heading of the configured documents, or of
+    the files given, up to the next heading of its level or a rule."""
+    for f in files if files is not None else (f for pattern in cfg.entry_docs for f in sorted(cfg.root.glob(pattern))):
+        on = False
+        for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+            if re.match(r"^#{1,2} ", line) or re.match(r"^---\s*$", line):
+                on = bool(re.match(r"^## %s\s*$" % re.escape(cfg.entry_heading), line))
+            elif on:
+                yield f, n, line
 
 
 # the lowercase words a run of author names carries: particles, conjunctions, an editor's mark, and the
@@ -613,6 +636,8 @@ def reference_lines(cfg):
 NAME_WORDS = {"and", "with", "et", "al", "ed", "eds", "van", "von", "der", "den", "de", "del", "della", "di", "da",
               "du", "dos", "das", "la", "le", "ten", "ter", "zu", "y", "bin", "ibn", "of", "the", "for", "on", "in",
               "at", "und", "für", "des"}
+# the particles a surname opens with (van der Waals), kept with it
+PARTICLES = {"van", "von", "de", "der", "den", "del", "della", "di", "da", "la", "le", "ten", "ter", "dos", "du"}
 
 
 def names_only(text):
@@ -632,10 +657,10 @@ def entry_shaped(line):
     return bool(m) and names_only(line[:m.start()])
 
 
-def unread_lines(cfg):
+def unread_lines(cfg, files=None):
     """The lines under the bound heading written like an entry that are not read as one, so a document's
     reference the check cannot see is named, not skipped."""
-    return [(rel(cfg, f), n, line) for f, n, line in reference_lines(cfg) if not entry_match(line) and entry_shaped(line)]
+    return [(rel(cfg, f), n, line) for f, n, line in reference_lines(cfg, files) if not entry_match(line) and entry_shaped(line)]
 
 
 def entry_match(line):
@@ -645,11 +670,11 @@ def entry_match(line):
     return m if m and names_only(m.group(1)) else None
 
 
-def reference_entries(cfg):
-    """Every reference entry of the configured documents: a line under the bound heading, up to the next
-    heading of its level or a rule, that opens with its authors and a year in parentheses."""
+def reference_entries(cfg, files=None):
+    """Every reference entry of the configured documents, or of the files given: a line under the bound
+    heading, up to the next heading of its level or a rule, that opens with its authors and a year in parentheses."""
     out = []
-    for f, n, line in reference_lines(cfg):
+    for f, n, line in reference_lines(cfg, files):
         m = entry_match(line)
         if m:
             entry, note = cut_entry(line)
@@ -1081,7 +1106,17 @@ def cmd_register(cfg, cards, a, today):
     except ValueError:
         raise Refused(f"year {a.year!r} is not a number")
     authors = [x.strip() for x in a.author or []]
-    key = a.key or make_key(cards, authors, year, a.title)
+    if a.file:
+        if not (cfg.root / a.file).is_file():
+            raise Refused(f"--file {a.file}: no such file in the tree")
+        a.file = Path(rel(cfg, cfg.root / a.file)).as_posix()
+        if a.kind not in cfg.internal_kinds:
+            raise Refused(f"a card naming a file of the project is of an internal kind, one of {cfg.internal_kinds}")
+        if any(c["file"] and Path(rel(cfg, cfg.root / str(c["file"]))).as_posix() == a.file for c in cards.values()):
+            raise Refused(f"{a.file} has a card already")
+    elif a.kind in cfg.internal_kinds:
+        raise Refused(f"a card of kind {a.kind} names the project's file it stands for (--file)")
+    key = a.key or make_key(cards, authors, year, a.title, a.file)
     if not KEY_RE.match(key):
         raise Refused(f"key {key!r} is not lowercase letters, digits and hyphens")
     if key in cards or (cfg.cards / f"{key}.md").exists():
@@ -1093,16 +1128,6 @@ def cmd_register(cfg, cards, a, today):
                 raise Refused(f"{f} {v} is already {c.key}")
     if a.via and (a.via not in cards):
         raise Refused(f"--via names {a.via}, which is not a card")
-    if a.file:
-        if not (cfg.root / a.file).is_file():
-            raise Refused(f"--file {a.file}: no such file in the tree")
-        a.file = Path(rel(cfg, cfg.root / a.file)).as_posix()
-        if a.kind not in cfg.internal_kinds:
-            raise Refused(f"a card naming a file of the project is of an internal kind, one of {cfg.internal_kinds}")
-        if any(c["file"] and Path(rel(cfg, cfg.root / str(c["file"]))).as_posix() == a.file for c in cards.values()):
-            raise Refused(f"{a.file} has a card already")
-    elif a.kind in cfg.internal_kinds:
-        raise Refused(f"a card of kind {a.kind} names the project's file it stands for (--file)")
     read = grade in ("skimmed", "parts", "full")
     fm = {"key": key, "state": "registered", "excluded": None, "kind": a.kind, "title": a.title,
           "authors": authors, "year": year, "venue": a.venue, **ids, "url": a.url,
@@ -1677,6 +1702,104 @@ def claims(cfg, cards, docs=None):
     return out
 
 
+# --- citecheck: a document's author-year citations against its own reference entries ---
+#
+# `check` ties each reference entry to a card; this ties the text to its own list, so the two close
+# the chain from a sentence to a card.  Offline, and read from the document alone.
+
+CITE_NAME = r"(?:(?:%s) )*[A-ZÀ-Ž][\w'’-]*" % "|".join(sorted(PARTICLES))
+CITE_AUTHORS = rf"(?P<name>{CITE_NAME})(?:(?:, {CITE_NAME})*,? (?:and|&) {CITE_NAME}| et al\.?)?"
+CITE_YEAR = r"(?:1[5-9]|20)\d\d[a-z]?|n\. ?d\.|in press|forthcoming"
+# a letter alone continues the year before it: `Smith (2001a, b)` cites 2001a and 2001b
+CITE_YEARS = rf"(?P<years>(?:{CITE_YEAR})(?:, ?(?:{CITE_YEAR}|[a-z](?=\s*(?:[,;)]|$))))*)"
+CITE_NARRATIVE = re.compile(rf"(?<![\w'’-]){CITE_AUTHORS}(?:['’]s)? \({CITE_YEARS}(?:[,;][^()]*)?\)")
+CITE_PAREN = re.compile(rf"(?<![\w'’-]){CITE_AUTHORS},? {CITE_YEARS}(?![\w])")
+# the capitalized words a year follows in prose that are no author: (In 2020), (March 1990)
+NOT_AUTHORS = {"in", "on", "at", "by", "since", "from", "until", "before", "after", "during", "the", "a", "an", "see", "cf",
+               "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
+               "december", "spring", "summer", "autumn", "fall", "winter"}
+
+
+def year_token(text):
+    """A citation's or an entry's date as one comparable word: 1990, 1990a, n.d., in press, forthcoming."""
+    t = re.sub(r"\s+", " ", text.strip("() ").lower())
+    m = re.match(r"\d{4}[a-z]?", t)
+    return m.group(0) if m else "n.d." if t.startswith(("n. d", "n.d")) else t
+
+
+def citations(text_lines):
+    """(line number, name, year, the citation as written) of every author-year citation in the lines given:
+    `Jen (1990)`, `Jen and Rowland (1990a, b)`, `Jen et al.'s (1990)`, and inside parentheses `(Jen, 1990;
+    see Rowland 2001, p. 4)`.  A code span is not read."""
+    out = []
+    for n, line in text_lines:
+        line = re.sub(r"`[^`]*`", "", line)
+        found = [(m.start(), m) for m in CITE_NARRATIVE.finditer(line)]
+        for group in re.finditer(r"\(([^()]*)\)", line):
+            for part in group.group(1).split(";"):
+                found += [(group.start(), m) for m in CITE_PAREN.finditer(part)]
+        for _, m in sorted(found, key=lambda x: x[0]):
+            if norm(m.group("name")) in NOT_AUTHORS:
+                continue
+            year = ""
+            for y in re.split(r", ?", m.group("years")):
+                year = year[:4] + y if len(y) == 1 and year[:4].isdigit() else year_token(y)
+                out.append((n, m.group("name"), year, m.group(0).strip()))
+    return out
+
+
+def no_surname(name):
+    """A word written as no surname is: in capitals (ICML), with three capitals in one of its hyphen-joined parts
+    (NeurIPS, never Garcia-MacDonald), or with a digit (Q3)."""
+    word = name.split()[-1]
+    return any(c.isdigit() for c in word) or (len(word) > 1 and word.isupper()) \
+        or any(sum(c.isupper() for c in part) >= 3 for part in word.split("-"))
+
+
+def citecheck(cfg, files):
+    """Every author-year citation of each file's text that no entry of its references section answers, and every
+    entry its text never cites, as problems; and the counts the coverage line says.  A citation is answered by
+    an entry whose first author's surname is the cited name and whose date is the cited one, a letter suffix
+    (1990a) included; a second author's name answers nothing.  A name written as no surname is (NeurIPS 2019,
+    Q3 2021) is read as a citation only where an entry's first author bears it (OECD)."""
+    problems, n_cites, n_entries = [], 0, 0
+    for f in files:
+        lines = f.read_text(encoding="utf-8", errors="replace").split("\n")
+        under = {n for _, n, _ in reference_lines(cfg, [f])}
+        heading = {n for n, l in enumerate(lines, 1) if re.match(r"^## %s\s*$" % re.escape(cfg.entry_heading), l)}
+        text, fence = [], None
+        for n, line in enumerate(lines, 1):
+            was, fence = fence, fence_after(fence, line)
+            if not was and not fence and n not in under and n not in heading:
+                text.append((n, line))
+        if lines[0] == FENCE:  # a front matter block is not the text
+            end = next((i for i in range(1, len(lines)) if lines[i] == FENCE), 0)
+            text = [(n, l) for n, l in text if n > end + 1]
+        entries = []
+        for e in reference_entries(cfg, [f]):
+            first = re.split(r",| and | & ", e["authors"])[0].strip()  # the first author's surname alone
+            entries.append((norm(first), year_token(entry_match(e["raw"]).group(2)), e))
+        firsts = {sur for sur, _, _ in entries}
+        cited = [c for c in citations(text) if not no_surname(c[1]) or norm(c[1]) in firsts]
+        n_cites, n_entries = n_cites + len(cited), n_entries + len(entries)
+        hit = set()
+        for n, name, year, said in cited:
+            who = norm(name)
+            match = [i for i, (sur, y, _) in enumerate(entries) if y == year and (sur == who or sur.endswith(" " + who))]
+            hit.update(match)
+            if not match:
+                problems.append({"code": "CITE", "key": None, "path": f"{rel(cfg, f)}:{n}",
+                                 "msg": f"{said}: no entry under `## {cfg.entry_heading}` is by {name} and dated {year}"})
+        for i, (_, _, e) in enumerate(entries):
+            if i not in hit:
+                problems.append({"code": "CITE", "key": None, "path": f"{rel(cfg, f)}:{e['line']}",
+                                 "msg": f"the entry {e['entry'][:160]} is cited nowhere in the text"})
+        for doc, n, line in unread_lines(cfg, [f]):
+            problems.append({"code": "CITE", "key": None, "path": f"{doc}:{n}",
+                             "msg": f"a line written like an entry is not read as one, so no citation reaches it: {line.strip()[:160]}"})
+    return sorted(problems, key=lambda p: (p["path"].rsplit(":", 1)[0], int(p["path"].rsplit(":", 1)[1]))), n_cites, n_entries
+
+
 # --- online: resolvers answering candidates; nothing below is reached from `check` ---
 
 TYPE_KINDS = {"journal-article": "article", "article-journal": "article", "article": "article",
@@ -1685,7 +1808,6 @@ TYPE_KINDS = {"journal-article": "article", "article-journal": "article", "artic
               "book-chapter": "chapter", "chapter": "chapter", "book-section": "chapter", "book-part": "chapter",
               "posted-content": "preprint", "preprint": "preprint", "dissertation": "thesis", "thesis": "thesis",
               "report": "report", "dataset": "dataset", "software": "repository", "webpage": "web"}
-PARTICLES = {"van", "von", "de", "der", "den", "del", "della", "di", "da", "la", "le", "ten", "ter", "dos", "du"}
 ARXIV_ID = r"(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})"
 DEFAULT_ORDER = ("crossref", "openalex")
 ADAPTERS = ("crossref", "openalex", "zbmath", "semantic-scholar")
@@ -3602,6 +3724,41 @@ def selftest():
         expect("an online command nothing answered exits 2, could not run", rc == 2)
         FETCH = real
 
+        # a document's author-year citations against its own reference entries, offline
+        rc, _ = dispatch(cfg, ["citecheck"], today=today, as_json=True, quiet=True)
+        expect("citecheck with no document given and none bound could not run: exit 2", rc == 2)
+        rc, _ = dispatch(cfg, ["citecheck", str(root / "absent.md")], today=today, as_json=True, quiet=True)
+        expect("citecheck on a file that is not there could not run: exit 2", rc == 2)
+        cite = root / "cite.md"
+        text = ("# A paper\n\nJen (1990) proves it, as Brummitt and Rowland (2012) and van der Waals (1873) note.\n"
+                "The bound is known (Kneser, 1953; see also Jen, 1990a, b, p. 4), and Smith et al.'s (2001) result is here.\n"
+                "In 2020 it was revisited (March 2021) by everybody (In 2019), and `Code (1999)` is not read.\n"
+                "It was shown at a venue (NeurIPS 2019) in a quarter (Q3 2021), and counted by a body (OECD, 2019).\n\n"
+                "````text\n```\nFenced (1999) is not read, a shorter run closing no fence.\n````\n\n## References\n\n"
+                "Jen, E. (1990). Aperiodicity in cellular automata. *Physica D* 45.\n\nJen, E. (1990a). A second paper. *Physica D* 46.\n\n"
+                "Jen, E. (1990b). A third paper. *Physica D* 47.\n\n"
+                "- Brummitt & Rowland (2012). Boundary growth. *Complex Systems* 21.\n\n"
+                "van der Waals, J. D. (1873). On the continuity. Thesis.\n\nKneser, M. (1953). Abschätzung. *Math. Z.* 58.\n\n"
+                "Smith, A., Jones, B., & Lee, C. (2001). A result. *J.* 1.\n\nOECD (2019). *Counting the counts*. OECD.\n\n"
+                "## Appendix\n\nNothing here.\n")
+        cite.write_text(text)
+        p = run(["citecheck", str(cite)])
+        expect("citecheck passes a text whose every author-year citation has its entry and every entry a citation, in the forms it reads: "
+               "a letter continuing a year, a body's name in capitals that an entry bears, no venue or quarter, and nothing inside a "
+               "fence a shorter run does not close",
+               p["coverage"] == {"documents": 1, "citations": 8, "entries": 8})
+        cite.write_text(text.replace("Nothing here.", "Nobody (2005) is cited, Garcia-MacDonald (2003) too, and Rowland (2012), "
+                                     "the second author.")
+                        .replace("Jen, E. (1990a). A second paper.", "Jen, E. (1990c). A second paper.")
+                        + "\n## References\n\n1. Numbered, N. (2000). Not read as an entry.\n")
+        p = run(["citecheck", str(cite)], ok=False)
+        expect("planted: a citation no entry answers, a hyphenated surname's among them, one of the second author of an entry "
+               "written with no comma, an entry its text never cites, a line written like an entry and not read as one",
+               [(pr["path"], pr["msg"][:12]) for pr in p["problems"]] == [("cite.md:4", "Jen, 1990a, "), ("cite.md:17", "the entry Je"),
+                                                                       ("cite.md:33", "Nobody (2005"), ("cite.md:33", "Garcia-MacDo"),
+                                                                       ("cite.md:33", "Rowland (201"), ("cite.md:37", "a line writt")])
+        cite.unlink()
+
         # the tie between a document's reference entries and the cards, offline
         (root / "library.toml").write_text(SELFTEST_TOML + '[entries]\ndocuments = ["papers/*.md"]\n')
         cfg = Config(root)
@@ -3655,6 +3812,20 @@ def selftest():
         run(["register", "A survey of slices", "--kind", "report", "--file", "reports/A Survey 2026.md", "--author", "Surveyor, A.",
              "--year", "2026", "--key", "report-survey", "--read", "full"])
         run(["register", "The same survey again", "--kind", "report", "--file", "reports/A Survey 2026.md", "--key", "report-twice"], ok=False)
+        # an internal document's key is its file's stem: a project's reports share an author and carry no year
+        (root / "reports" / "cycles").mkdir()
+        for f in ("review-1.md", "review-2.md", "cycles/review-1.md"):
+            (root / "reports" / f).write_text("# A review\n\nIt reviews.\n")
+        keys = [run(["register", f"Review of the kit, cycle {n}", "--kind", "report", "--file", f"reports/{f}", *who])["created"][0]
+                for n, f, who in ((1, "review-1.md", ["--author", "Doe, J.", "--year", "2026"]), (2, "review-2.md", ["--author", "Doe, J."]),
+                                  (3, "cycles/review-1.md", []))]
+        expect("planted: an internal document's key is its file's stem, with or without an author, with no year though it has one, a letter added on a clash",
+               keys == ["review-1", "review-2", "review-1b"])
+        for k in keys:
+            (cfg.cards / f"{k}.md").unlink()
+        shutil.rmtree(root / "reports" / "cycles")
+        for f in ("review-1.md", "review-2.md"):
+            (root / "reports" / f).unlink()
         rc, pl = dispatch(cfg, ["page", "report-survey"], today=today, as_json=True, quiet=True)
         expect("an internal document is read from its tracked file, by section",
                [u["label"] for u in pl["units"]] == ["A survey of slices", "Findings", "Sources"])
@@ -3924,6 +4095,7 @@ def build_parser():
     p = sp.add_parser("cited"); p.add_argument("ref")
     p = sp.add_parser("entries"); p.add_argument("--untied", action="store_true")
     p = sp.add_parser("claims"); p.add_argument("docs", nargs="*"); p.add_argument("--uncovered", action="store_true")
+    p = sp.add_parser("citecheck"); p.add_argument("docs", nargs="*", metavar="DOC", help="the bound documents where none is given")
     sp.add_parser("keys")
     p = sp.add_parser("index"); p.add_argument("--check", action="store_true")
     sp.add_parser("check")
@@ -4060,6 +4232,22 @@ def _dispatch(cfg, a, today, as_json, quiet):
                      + f" | {c['sentence'][:200]}")
             emit(f"claims: {len(found)} claim-shaped sentence(s) naming a carded work in {len({c['doc'] for c in found})} document(s); "
                  f"{len(bare)} at a card with no extract, so unverifiable from the library; a sentence naming no carded work is not listed")
+        elif a.cmd == "citecheck":
+            files = [Path(d) for d in a.docs] or [f for pattern in cfg.entry_docs for f in sorted(cfg.root.glob(pattern))]
+            if not files:
+                raise NotRun("citecheck takes DOC…, and no document is bound ([entries] documents in library.toml)")
+            for f in files:
+                if not f.is_file():
+                    raise NotRun(f"{f}: no such file")
+            problems, n_cites, n_entries = citecheck(cfg, files)
+            out.update({"problems": problems, "coverage": {"documents": len(files), "citations": n_cites, "entries": n_entries}})
+            for p in problems:
+                emit(f"{p['path']}: {p['msg']}")
+            emit(f"citecheck: {len(files)} document(s), {n_cites} author-year citation(s) in their text, {n_entries} "
+                 f"entr{'y' if n_entries == 1 else 'ies'} under `## {cfg.entry_heading}`; {len(problems)} problem(s); "
+                 "a numbered citation, a key or a footnote is not read, and `library check` ties the entries to cards")
+            if problems:
+                out["ok"] = False
         elif a.cmd == "related":
             c = by_ref(cards, a.ref)
             rows = related_cards(cfg, cards, c)
@@ -4141,10 +4329,10 @@ def _dispatch(cfg, a, today, as_json, quiet):
         else:
             raise Refused("no command (see --help)")
     except Refused as e:
-        out["ok"] = False
+        out["ok"], offline = False, offline or isinstance(e, NotRun)
         out["problems"].append({"code": "REFUSED", "key": None, "path": None, "msg": str(e)})
         if not quiet and not as_json:
-            print(f"library: refused — {e}", file=sys.stderr)
+            print(f"library: {'could not run' if isinstance(e, NotRun) else 'refused'} — {e}", file=sys.stderr)
     if as_json and not quiet:
         print(json.dumps(out, ensure_ascii=False, indent=1, default=str))
     return (0 if out["ok"] else 2 if offline else 1), out

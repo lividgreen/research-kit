@@ -30,7 +30,7 @@ CONTRIBUTING.md, SECURITY.md      what a change carries; how a vulnerability is 
 ```
 
 Each script is one file on purpose: a per-skill install carries the skill directory and nothing beside it.
-The helpers the scripts share (the sentence splitter) are duplicated and held byte-identical by the tests.
+The helpers the scripts share (the sentence splitter and the code-fence rule it reads by) are duplicated and held byte-identical by the tests.
 The package build carries the four command scripts, `flow`, `library`, `dashboard` and `formal`, from their skill directories into one package (`pyproject.toml`'s force-include), so the scripts stay where the skills are.
 
 A change is welcome as an issue or a pull request; [CONTRIBUTING.md](../CONTRIBUTING.md) says what a pull request carries, and [SECURITY.md](../SECURITY.md) how a vulnerability is reported privately.

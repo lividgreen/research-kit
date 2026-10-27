@@ -1,6 +1,6 @@
 # The checks
 
-Every problem `flow check` and `library check` report carries a code; this page names each, then says what the `formal` plugin's checks verify.
+Every problem `flow check` and `library check` report carries a code; this page names each, then says what the checks reporting in words verify: `flow state --check`, `flow reflow`, `library citecheck` and the `formal` plugin's checks.
 The kit's tests hold it to the scripts: a code a script can report and this page does not name fails them.
 Each check ends with coverage lines saying what it looked at and what it did not, and each script's `--selftest` plants one defect per code and fails when a code it can report is planted nowhere.
 
@@ -8,6 +8,7 @@ Each check ends with coverage lines saying what it looked at and what it did not
 
 Every check exits 0 when clean, 1 when it found problems, each printed with its place, and 2 when it could not run: no bindings file at the root, or one that does not parse.
 The 2 is its own code so that a hook or a CI job never reads "did not run" as "clean".
+`flow reflow --check` and `library citecheck` given a file that is not there, `library citecheck` with no document given and none bound, and `flow state --check` without an owner `flow.toml` lists, exit 2 as well; `flow state --check` exits 1 when a part fails, else 2 when a part could not be decided, else 0.
 
 ## `flow check`
 
@@ -40,6 +41,23 @@ The 2 is its own code so that a hook or a CI job never reads "did not run" as "c
 The codes are names, not a sequence: V7 is unassigned.
 The one warning (which does not fail the check) names a decomposed question whose tasks are all closed, which needs refine or answer.
 
+## `flow state --check`
+
+`flow state --check --owner O` checks what a machine can see of a session's close, O the working session's owner, and prints one line per failure, each with its file:
+
+- the directions file's inbox holds a line outside a comment;
+- an active task is held by another owner than O, a decision owner `flow.toml` names aside;
+- the log's top entry is not dated today, and the tree has changed since the commit of the newest committed entry, another's commit on a shared repository included;
+- a record changed since that commit, and no entry from the top down to that one names its id.
+
+Its last line says what it checked; a part it could not decide — no inbox section, no log bound, no git, no committed entry — is named on a line of its own and is not counted as passed: with no failure, the check exits 2.
+Under `--json` each failure is a problem of code `STATE`.
+
+## `flow reflow`
+
+`flow reflow --check PATH…` prints each line, as file and line, that the reflow would change, and `flow reflow --as DEST DRAFT` each line of the draft that the reflow would change and each markdownlint violation the draft adds appended to DEST, never one DEST had already.
+Under `--json` they are problems of code `REFLOW` and `MARKDOWNLINT`; the last line says which reflow ran and whether markdownlint did.
+
 ## `library check`
 
 | Code | What it says |
@@ -62,6 +80,17 @@ The one warning (which does not fail the check) names a decomposed question whos
 | L15 | an extract the kept copy does not bear out: its quotation is not in the kept text, or its locator names a section, page or statement that is not |
 | L16 | an extract is malformed — its id, locator, words, caveat, rule or date — or its `checked` date is not a date or is in the future, or an unread card with no `via` carries an extract |
 | L17 | a card naming a project file whose file is not in the tree or whose kind is not internal, an internal document recording another copy, or a card of an internal kind naming no file |
+
+## `library citecheck`
+
+`library citecheck [DOC…]` reads each document's text against its own `## References` section, the bound documents where none is given, and prints, as file and line:
+
+- an author-year citation that no entry answers: none whose first author is the cited name, with the cited date, a letter suffix included;
+- an entry the text never cites;
+- a line under the heading written like an entry and not read as one, which no citation can reach.
+
+Under `--json` each is a problem of code `CITE`; the last line counts the documents, the citations and the entries read.
+It ties no entry to a card, which is `library check`'s L12.
 
 ## `formal check`
 

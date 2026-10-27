@@ -39,6 +39,14 @@ Transitions (the only writers of state and provenance):
 
 Views: find, show, graph, state (the cold-start bundle), directions, index [--check | --print], check;
 `pages` (the dashboard's page manifest); `--json` on every command.
+
+  flow state --check --owner O   a session's close, as far as a machine sees it: the inbox empty, every
+                                 active task in O's hand, the log's top entry today's where the tree changed
+                                 since the newest committed entry, every record changed since then named
+  flow log add FILE              one entry at the top of the log, reflowed and linted as a record is
+  flow log archive --before DATE the older entries moved verbatim, one file per month, into `[paths] log_archive`
+  flow reflow --check PATH...    the lines of the project's other prose that are not one sentence per line
+  flow reflow --as DEST DRAFT    a draft checked as if appended to DEST: the reflow, then markdownlint
 `flow init [--records DIR] [--log FILE] [--owner O]... [--force]` writes a project's `flow.toml` and its
 directories, and prints the paragraph the project's instructions should carry.
 A referred work is not a record: it is a card in the reference library the project binds
@@ -59,6 +67,7 @@ The index is a pure function of the records; `check` fails when the committed co
 import argparse
 import contextlib
 import datetime as dt
+import difflib
 import hashlib
 import importlib.util
 import json
@@ -103,6 +112,10 @@ FENCE = "---"
 
 class Refused(Exception):
     pass
+
+
+class NotRun(Refused):
+    """A check that could not run — a file it was given is missing, an owner not named — exits 2, never 1."""
 
 
 # --- configuration -----------------------------------------------------------
@@ -151,6 +164,9 @@ class Config:
                           f"{rec_dir!r}, where the records are read and their ids counted")
         self.directions = self.root / paths.get("directions", f"{rec_dir}/directions.md")
         self.log = self.root / paths["log"] if paths.get("log") else None
+        # where `flow log archive` moves the log's old entries, one file per month: beside the log unless bound
+        self.log_archive = self.root / paths["log_archive"] if paths.get("log_archive") else \
+            self.log.with_name(self.log.stem + "-archive") if self.log else None
         self.reflow_module = paths.get("reflow_module")
         self.mdlint_config = paths.get("markdownlint_config")
         # Evidence resolvers ([evidence]).  The manifest lists declaration names, one per line, as
@@ -280,14 +296,24 @@ class Config:
 
 MANIFEST_FIELD = re.compile(r"(?:«[^»]*»|[^\s«])+")
 _SENT = re.compile(r"([.?!])([\"”’')\]*`]*)[ \t]+(?=[A-Z0-9*`(\[“\"§_])")
+FENCE_RUN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def fence_after(fence, line):
+    """The code fence open after `line`, by CommonMark's rule, given `fence`, the one open before it (its opening
+    run of backticks or tildes, or None): a fence closes only on a run of its own character at least as long,
+    with nothing after it."""
+    m = FENCE_RUN.match(line)
+    if fence is None:
+        return m.group(1) if m and not (m.group(1)[0] == "`" and "`" in m.group(2)) else None
+    return None if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip() else fence
 
 
 def _builtin_reflow(text):
-    out, fence = [], False
+    out, fence = [], None
     for line in text.split("\n"):
-        if line.startswith(("```", "~~~")):
-            fence = not fence
-        if fence or not line.strip() or line.lstrip().startswith(("#", "|", ">")) or line.startswith("    "):
+        was, fence = fence, fence_after(fence, line)
+        if was or fence or not line.strip() or line.lstrip().startswith(("#", "|", ">")) or line.startswith("    "):
             out.append(line)
             continue
         m = re.match(r"^( *)([-*+] |\d+[.)] )?", line)
@@ -295,14 +321,20 @@ def _builtin_reflow(text):
         body, cont = line[m.end():], indent + " " * len(marker)
         parts, start = [], 0
         for b in _SENT.finditer(body):
-            if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]):
+            if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
+                    or re.fullmatch(r"(\*\*|__)(?:[^*_\s]+ ){0,3}[^*_\s]+(?: \([^()]*\))?\.\1", body[start:b.end(2)].strip()):  # a label, **State.**, **Lemma 2 (Jen 1990).**
                 continue
             parts.append(body[start:b.end(2)].strip())
             start = b.end()
         parts.append(body[start:].strip())
         parts = [p for p in parts if p]
-        out.append(indent + marker + parts[0] if parts else line.rstrip())
+        if len(parts) < 2:  # a line not split is left as written, a hard break's two trailing spaces with it
+            out.append(line)
+            continue
+        out.append(indent + marker + parts[0])
         out += [cont + p for p in parts[1:]]
+        if line.endswith("  "):  # a hard break's two trailing spaces stay where the line ends
+            out[-1] += "  "
     return "\n".join(out)
 
 
@@ -660,23 +692,34 @@ def write_record(cfg, rec, reflow=True):
             rec.fm[f] = []
     body = cfg.reflow(rec.body) if reflow and rec.body else rec.body
     rec.body = body
-    text = render(rec.fm, body)
-    path = rec.path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    before = mdlint(cfg, path) if path.is_file() else (Counter(), "")
-    old = path.read_text(encoding="utf-8") if path.is_file() else None
-    _JOURNAL.append(("file", path, old))
-    write_whole(path, text)
-    after = mdlint(cfg, path)
-    if after is not None and before is not None:
-        new = {k: v for k, v in after[0].items() if v > before[0].get(k, 0)}
-        if new:
+    write_linted(cfg, {rec.path: render(rec.fm, body)})
+    return rec.path
+
+
+def write_linted(cfg, texts):
+    """Write each path's text, journaled, then refuse (and revert every one) when markdownlint reports more of
+    a code over the files together than before: a violation moved verbatim from one to another is not new."""
+    before, after, olds, reports = Counter(), Counter(), {}, []
+    for path in texts:
+        b = mdlint(cfg, path) if path.is_file() else (Counter(), "")
+        before = None if b is None or before is None else before + b[0]
+    for path, text in texts.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        olds[path] = path.read_text(encoding="utf-8") if path.is_file() else None
+        _JOURNAL.append(("file", path, olds[path]))
+        write_whole(path, text)
+    for path in texts:
+        r = mdlint(cfg, path)
+        after = None if r is None or after is None else after + r[0]
+        if r and r[1]:
+            reports.append(r[1])
+    if after is not None and before is not None and any(v > before.get(k, 0) for k, v in after.items()):
+        for path, old in olds.items():
             if old is None:
                 path.unlink()
             else:
                 write_whole(path, old)
-            raise Refused(f"markdownlint reports NEW violations in {rel(cfg, path)} — reverted:\n{after[1]}")
-    return path
+        raise Refused(f"markdownlint reports NEW violations in {', '.join(rel(cfg, p) for p in texts)} — reverted:\n" + "\n".join(reports))
 
 
 def write_whole(path, text):
@@ -1744,10 +1787,9 @@ def state_lines(cfg, skip=0, budget=14000):
         out += [f"{rel(cfg, cfg.index)}: missing — run `flow index`", ""]
     if cfg.log and cfg.log.is_file():
         ls = cfg.log.read_text(encoding="utf-8").split("\n")
-        heads = [i for i, l in enumerate(ls) if l.startswith("## ")]
-        if heads:
-            end = heads[1] if len(heads) > 1 else len(ls)
-            out += [f"{rel(cfg, cfg.log)}:{i + 1}: {ls[i]}" for i in range(heads[0], end)]
+        entries = log_entries(ls)
+        if entries:
+            out += [f"{rel(cfg, cfg.log)}:{i + 1}: {ls[i]}" for i in range(*entries[0][:2])]
         else:
             out.append(f"{rel(cfg, cfg.log)}: no `## ` entry")
     elif cfg.log:
@@ -1763,6 +1805,342 @@ def state_lines(cfg, skip=0, budget=14000):
             return kept, n
         kept.append(line)
     return kept, None
+
+
+# --- the close: what a machine can see of a session's end --------------------------
+#
+# `flow state --check` decides what it can of a close and says what it could not: the
+# conversation's inventory and the sweep by meaning stay the session's own.
+
+def git(cfg, *args):
+    """A git command's output at the project root; None where git is absent or the command fails."""
+    exe = shutil.which("git")
+    if not exe:
+        return None
+    try:
+        r = subprocess.run([exe, *args], capture_output=True, text=True, cwd=cfg.root, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def inbox_items(cfg):
+    """(line number, line) of every line the directions file's inbox holds outside a comment; None where there
+    is no directions file or no `## Inbox` section in it."""
+    if not cfg.directions.is_file():
+        return None
+    ls = cfg.directions.read_text(encoding="utf-8").split("\n")
+    sec = _section(ls, "Inbox")
+    if sec is None:
+        return None
+    out, comment = [], False
+    for i in range(sec[0] + 1, sec[1]):
+        text = ls[i]
+        if comment:
+            if "-->" not in text:
+                continue
+            text, comment = text.split("-->", 1)[1], False
+        text = re.sub(r"<!--.*?-->", "", text)
+        if "<!--" in text:
+            text, comment = text.split("<!--", 1)[0], True
+        if text.strip():
+            out.append((i + 1, ls[i]))
+    return out
+
+
+def close_check(cfg, recs, owner, today):
+    """What a machine can see of a session's close, as (failures, what was checked, what could not be): the
+    inbox emptied; every active task in the working session's hand or a decision owner's; the log's top entry dated today where the
+    tree changed since the commit of the newest committed entry; every record changed since that commit named
+    by an entry from the top down to it."""
+    fails, checked, undecided = [], [], []
+
+    def fail(path, msg):
+        fails.append({"code": "STATE", "id": None, "path": path, "msg": msg})
+
+    items = inbox_items(cfg)
+    if items is None:
+        undecided.append(f"the inbox: no `## Inbox` section in {rel(cfg, cfg.directions)}" if cfg.directions.is_file()
+                         else f"the inbox: no directions file at {rel(cfg, cfg.directions)}")
+    else:
+        checked.append("the inbox")
+        if items:
+            fail(f"{rel(cfg, cfg.directions)}:{items[0][0]}", f"the inbox holds {len(items)} line(s), from {items[0][1].strip()!r}: "
+                 "each item is turned into a record or acted on, named in the log, and removed")
+    checked.append("the hand")
+    for r in sorted(recs.values(), key=lambda r: r.id):
+        if r.type == "task" and r["state"] == "active" and r["owner"] != owner and r["owner"] not in cfg.decision_owners:
+            fail(rel(cfg, r.path), f"{r.id} is active under {r['owner']}, not under {owner}, the working session")
+    why = None if cfg.log and cfg.log.is_file() else ("none is bound (`[paths] log`)" if not cfg.log else f"{rel(cfg, cfg.log)} does not exist")
+    ls = cfg.log.read_text(encoding="utf-8").split("\n") if why is None else []
+    entries = log_entries(ls)
+    if why is None and not entries:
+        why = f"{rel(cfg, cfg.log)} has no `## ` entry"
+    if why is None and git(cfg, "rev-parse", "--is-inside-work-tree") is None:
+        why = f"git is absent, or {cfg.root} is not in a work tree"
+    if why is None and not (git(cfg, "log", "-n", "1", "--format=%H", "--", rel(cfg, cfg.log)) or "").strip():
+        why = f"{rel(cfg, cfg.log)} has never been committed"
+    base, named = None, []
+    for s, e, d in entries if why is None else []:
+        named.append("\n".join(ls[s:e]))
+        base = (git(cfg, "log", "-n", "1", "--format=%H", "-S", ls[s], "--", rel(cfg, cfg.log)) or "").strip()
+        if base:
+            base_date = d
+            break
+    if why is None and not base:
+        why = f"no entry of {rel(cfg, cfg.log)} is committed"
+    if why is not None:
+        undecided.append(f"the log's date and the records it names: {why}")
+        return fails, checked, undecided
+    checked += ["the log's date", "the records the log names"]
+    changed = set((git(cfg, "diff", "--name-only", "--relative", base) or "").split("\n")) \
+        | set((git(cfg, "ls-files", "--others", "--exclude-standard") or "").split("\n"))
+    changed.discard("")
+    top, _, top_date = entries[0]
+    if top_date != today and changed:
+        fail(f"{rel(cfg, cfg.log)}:{top + 1}", f"the top entry is dated {top_date or 'nothing'}, not today ({today}), and {len(changed)} "
+             f"file(s) changed since {base[:12]}, the commit of the entry of {base_date}: today's entry is written (`flow log add FILE`)")
+    ids = {}
+    for p in sorted(changed):
+        m = cfg.id_re.match(Path(p).name)
+        if m and (cfg.root / p).resolve().is_relative_to(cfg.research.resolve()):
+            ids.setdefault(f"{m.group(1)}-{m.group(2)}", p)
+    text = "\n".join(named)
+    for i, p in sorted(ids.items()):
+        if not re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(i), text):
+            fail(p, f"{i} changed since {base[:12]}, the commit of the log's entry of {base_date}, and no entry since names it")
+    return fails, checked, undecided
+
+
+# --- the log: an entry written at its top, the old ones archived by month ------------
+#
+# Dated entries, newest first, each a `## YYYY-MM-DD — headline` opening with a `**State.**`
+# paragraph.  `flow log add` writes one at the top, reflowed and linted as a record is;
+# `flow log archive` moves the old ones verbatim into one file per month beside the log.
+
+LOG_ENTRY = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — \S")
+LOG_POINTER = re.compile(r"^Entries dated before (\d{4}-\d{2}-\d{2}) are archived ")
+LINK_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:\s*\S")
+
+
+def front_end(lines):
+    """The index of the first line after a leading front matter block; 0 where there is none."""
+    if lines and lines[0] == FENCE:
+        end = next((i for i in range(1, len(lines)) if lines[i] == FENCE), None)
+        return end + 1 if end is not None else 0
+    return 0
+
+
+def log_entries(lines):
+    """(start, end, date) of every `## ` entry of a log's lines, after a front matter block and outside code fences;
+    the date None where the heading opens with none.  The last entry ends before a block of link reference
+    definitions closing the file, which is the file's rather than the entry's."""
+    heads, fence, fenced = [], None, set()
+    for i in range(front_end(lines), len(lines)):
+        was, fence = fence, fence_after(fence, lines[i])
+        if was or fence:
+            fenced.add(i)
+        elif lines[i].startswith("## "):
+            m = re.match(r"^## (\d{4}-\d{2}-\d{2})\b", lines[i])
+            heads.append((i, m.group(1) if m else None))
+    end = len(lines)
+    if heads:
+        j = end
+        while j > heads[-1][0] + 1 and j - 1 not in fenced and (not lines[j - 1].strip() or LINK_DEF.match(lines[j - 1])):
+            j -= 1
+        end = next((k for k in range(j, end) if LINK_DEF.match(lines[k])), end)  # the blank lines before it the entry's
+    return [(i, heads[k + 1][0] if k + 1 < len(heads) else end, d) for k, (i, d) in enumerate(heads)]
+
+
+def is_date(s):
+    try:
+        return bool(ISO.match(s)) and bool(dt.date.fromisoformat(s))
+    except ValueError:
+        return False
+
+
+def bound_log(cfg):
+    if not cfg.log:
+        raise Refused("no log is bound: `[paths] log` in flow.toml names it")
+    if not cfg.log.is_file():
+        raise Refused(f"the log {rel(cfg, cfg.log)} does not exist")
+    return cfg.log
+
+
+def entry_lines(lines, start, end):
+    """An entry's lines, verbatim but for the blank lines after it."""
+    out = lines[start:end]
+    while out and not out[-1].strip():
+        out.pop()
+    return out
+
+
+def link_label(text):
+    """A link label as CommonMark matches one: case and runs of white space aside."""
+    return " ".join(text.split()).casefold()
+
+
+def link_uses(lines):
+    """The labels `lines` use as link references, `[text][label]`, `[label][]` or `[label]`, outside code fences
+    and code spans; a definition line and an inline link's text are none."""
+    out, fence = set(), None
+    for line in lines:
+        was, fence = fence, fence_after(fence, line)
+        if not was and not fence and not LINK_DEF.match(line):
+            out.update(link_label(x) for x in re.findall(r"\[([^\[\]]+)\](?!\()", re.sub(r"`[^`]*`", "", line)))
+    return out
+
+
+def cmd_log_add(cfg, a, today):
+    """The entry FILE holds, reflowed, at the top of the log: refused when it does not open with its dated
+    heading and its State paragraph, or is older than the top entry.  Returns (files written, what was done)."""
+    log = bound_log(cfg)
+    lines = read_body(a.file).strip("\n").split("\n")
+    m = LOG_ENTRY.match(lines[0])
+    if not m or not is_date(m.group(1)):
+        raise Refused(f"{a.file}: an entry opens with its heading, `## YYYY-MM-DD — headline`, not {lines[0]!r}")
+    if m.group(1) > today:
+        raise Refused(f"{a.file}: the entry is dated {m.group(1)}, after today ({today})")
+    if not "\n".join(lines[1:]).strip().startswith("**State.**"):
+        raise Refused(f"{a.file}: an entry's first paragraph is its `**State.**` paragraph, the one a cold session trusts")
+    if len(log_entries(lines)) > 1:
+        raise Refused(f"{a.file} holds more than one entry; the log takes one at a time")
+    ls = log.read_text(encoding="utf-8").split("\n")
+    entries = log_entries(ls)
+    if entries and entries[0][2] and m.group(1) < entries[0][2]:
+        raise Refused(f"the log runs newest first, and its top entry is dated {entries[0][2]}, after {m.group(1)}")
+    at = entries[0][0] if entries else len(ls)
+    parts = ("\n".join(ls[:at]).rstrip("\n"), cfg.reflow("\n".join(lines)).rstrip("\n"), "\n".join(ls[at:]).rstrip("\n"))
+    write_linted(cfg, {log: "\n\n".join(x for x in parts if x) + "\n"})
+    return [log], f"added {lines[0][3:]} at the top of {rel(cfg, log)}"
+
+
+def cmd_log_archive(cfg, a, today):
+    """Every entry dated before --before moved verbatim, newest first, into one file per month in the log's
+    archive directory, and a pointer to it under the log's title; the top entry always stays.  A link definition
+    closing the log goes to every file whose text uses its label, and stays in the log where the log's own text
+    uses it too or no file does."""
+    log = bound_log(cfg)
+    if not is_date(a.before):
+        raise Refused(f"--before {a.before!r} is not a date")
+    ls = log.read_text(encoding="utf-8").split("\n")
+    entries = log_entries(ls)
+    undated = [s for s, _, d in entries if d is None]
+    if undated:
+        raise Refused(f"{rel(cfg, log)}:{undated[0] + 1}: {ls[undated[0]]!r} opens with no date, and the archive files an entry by its date")
+    old = [e for e in entries if e[2] < a.before]
+    if not old:
+        raise Refused(f"no entry of {rel(cfg, log)} is dated before {a.before}")
+    if entries[0][2] < a.before:
+        raise Refused(f"the top entry is dated {entries[0][2]}, before {a.before}: it stays, the one a cold session trusts")
+    fm = front_end(ls)  # a `# comment` of the front matter is no title
+    title = next((l[2:].strip() for l in ls[fm:entries[0][0]] if l.startswith("# ")), "Log")
+    months = defaultdict(list)
+    for s, e, d in old:
+        months[d[:7]].append((d, entry_lines(ls, s, e)))
+    drop = {i for s, e, _ in old for i in range(s, e)}
+    foot = entries[-1][1]  # the link definitions closing the log start here, where it has any
+    defs = {i: link_label(LINK_DEF.match(ls[i]).group(1)) for i in range(foot, len(ls)) if LINK_DEF.match(ls[i])}
+    texts, used = {}, link_uses(l for i, l in enumerate(ls[:foot]) if i not in drop)
+    gone = set()
+    for month, moved in sorted(months.items()):
+        path = cfg.log_archive / f"{month}.md"
+        had = path.read_text(encoding="utf-8").split("\n") if path.is_file() else None
+        held = log_entries(had) if had else []
+        head = entry_lines(had, 0, held[0][0] if held else len(had)) if had else [f"# {title} — {month}"]
+        tail = entry_lines(had, held[-1][1], len(had)) if held else []  # the link definitions closing it, kept
+        merged = sorted(moved + [(d or "", entry_lines(had, s, e)) for s, e, d in held], key=lambda x: x[0], reverse=True)
+        blocks = ["\n".join(head)] + ["\n".join(b) for _, b in merged]
+        uses = link_uses("\n".join(blocks).split("\n"))
+        own = {link_label(m.group(1)) for l in had or [] for m in [LINK_DEF.match(l)] if m}
+        tail += [ls[i] for i, lab in defs.items() if lab in uses and lab not in own]
+        gone.update(i for i, lab in defs.items() if lab in uses and lab not in used)
+        texts[path] = "\n\n".join(blocks + (["\n".join(tail)] if tail else [])) + "\n"
+    rest = [l for i, l in enumerate(ls[:foot]) if i not in drop]
+    left = [l for i, l in enumerate(ls) if i >= foot and i not in gone]
+    rest += [l for k, l in enumerate(left) if l.strip() or k and left[k - 1].strip()]  # no blank line doubled
+    above = range(fm, log_entries(rest)[0][0])  # the pointer stands above the entries, never inside one
+    since = max([a.before] + [m.group(1) for i in above for m in [LOG_POINTER.match(rest[i])] if m])
+    link = Path(os.path.relpath(cfg.log_archive, log.parent)).as_posix()
+    pointer = f"Entries dated before {since} are archived verbatim, newest first, one file per month in [{link}/]({link}/)."
+    at = next((i for i in above if LOG_POINTER.match(rest[i])), None)
+    if at is not None:
+        rest[at] = pointer
+    else:
+        h = next((i for i in above if rest[i].startswith("# ")), None)
+        at = h + 1 if h is not None else fm  # under the title, else under the front matter
+        rest[at:at] = ([""] if at else []) + [pointer] + ([] if at < len(rest) and not rest[at].strip() else [""])
+    texts[log] = "\n".join(rest).rstrip("\n") + "\n"
+    write_linted(cfg, texts)
+    return list(texts), (f"moved {len(old)} entr{'y' if len(old) == 1 else 'ies'} dated before {a.before} into "
+                         f"{', '.join(rel(cfg, p) for p in texts if p != log)}; a pointer under the title of {rel(cfg, log)}")
+
+
+# --- the reflow of the project's other prose ----------------------------------------
+
+def reflow_misses(cfg, text):
+    """(line number, line) of every line of `text` the reflow changes; a leading front matter block is not prose."""
+    lines = text.split("\n")
+    skip = 0
+    if lines[0] == FENCE:
+        end = next((i for i in range(1, len(lines)) if lines[i] == FENCE), None)
+        skip = end + 1 if end is not None else 0
+    body = lines[skip:]
+    new = cfg.reflow("\n".join(body)).split("\n")
+    out = set()
+    for tag, i1, i2, _, _ in difflib.SequenceMatcher(None, body, new, autojunk=False).get_opcodes():
+        if tag != "equal":
+            out.update((skip + i + 1, body[i]) for i in range(i1, min(max(i2, i1 + 1), len(body))))
+    return sorted(out)
+
+
+def cmd_reflow(cfg, a):
+    """`--check PATH…`: the lines of each file (a directory's Markdown files) the reflow changes.  `--as DEST
+    DRAFT`: the draft's lines the reflow changes, and the markdownlint violations the draft adds appended to
+    DEST, under the configuration a record's write runs with; nothing is written.  Returns (problems, coverage)."""
+    problems = []
+    if a.check:
+        files = []
+        for p in map(Path, a.check):
+            if not p.exists():
+                raise NotRun(f"{p}: no such file or directory")
+            files += sorted(p.rglob("*.md")) if p.is_dir() else [p]
+        for f in files:
+            try:
+                text = f.read_text(encoding="utf-8")
+            except UnicodeDecodeError as e:
+                raise Refused(f"{f}: not UTF-8 ({e.reason} at byte {e.start})")
+            problems += [{"code": "REFLOW", "id": None, "path": f"{rel(cfg, f)}:{n}", "msg": line} for n, line in reflow_misses(cfg, text)]
+        return problems, f"{len(files)} file(s) read; reflow via {cfg.reflow_source}"
+    dest, draft = map(Path, a.as_)
+    if not draft.is_file():
+        raise NotRun(f"{draft}: no such file")
+    text = read_body(draft).strip("\n")
+    problems += [{"code": "REFLOW", "id": None, "path": f"{draft}:{n}", "msg": line} for n, line in reflow_misses(cfg, text)]
+    had = dest.read_text(encoding="utf-8").rstrip("\n") if dest.is_file() else ""
+    fd, name = tempfile.mkstemp(prefix=f".{dest.stem}.", suffix=".flow-draft.md", dir=dest.parent if dest.parent.is_dir() else cfg.root)
+    os.close(fd)
+    tmp = Path(name)
+    try:
+        tmp.write_text(had + "\n" if had else "", encoding="utf-8")
+        before = mdlint(cfg, tmp)
+        tmp.write_text(had + "\n\n" + text + "\n" if had else text + "\n", encoding="utf-8")
+        after = mdlint(cfg, tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+    if after is None:
+        return problems, f"reflow via {cfg.reflow_source}; markdownlint ABSENT, so the draft is not linted"
+    # DEST's own lines keep their numbers with the draft appended, so a violation reported in both runs, at its
+    # line and with its words, is DEST's and not the draft's
+    had_already = set(before[1].splitlines())
+    off = len(had.split("\n")) + 1 if had else 0  # the draft's first line is the file's line off + 1
+    for ln in after[1].splitlines():
+        m = re.search(r":(\d+)(?::\d+)?\s+(?:[a-z]+\s+)?(MD\d{3})", ln)  # `file:line[:column] [severity] MDnnn/name …`
+        if m and ln not in had_already:
+            n = int(m.group(1))
+            where = f"{draft}:{n - off}" if n > off else f"{dest}:{n}"
+            problems.append({"code": "MARKDOWNLINT", "id": None, "path": where, "msg": ln[m.start(2):]})
+    return problems, f"reflow via {cfg.reflow_source}; markdownlint as at {dest}, the draft appended to it"
 
 
 # --- the dashboard's page manifest ------------------------------------------------
@@ -1883,8 +2261,8 @@ The `flow` skill is installed for the project's agent as well (the `research` pl
 """
 
 LOG_BOUND = """- The log is `{log}`: dated entries, newest first, each `## YYYY-MM-DD — headline` opening with a
-  `**State.**` paragraph, the top one the paragraph a cold session trusts; an entry is written in
-  the same change as the transition it records.
+  `**State.**` paragraph, the top one the paragraph a cold session trusts; an entry is written by
+  `flow log add FILE` in the same change as the transition it records.
 """
 LOG_UNBOUND = """- The log is not bound yet: `[paths] log` in `flow.toml` names it (dated entries, newest first,
   each `## YYYY-MM-DD — headline` opening with a `**State.**` paragraph, the top one authoritative).
@@ -1905,8 +2283,11 @@ def do_init(root, a):
     text = INIT_TOML.format(
         dir=a.records,
         directions=f'directions = "{a.records}/directions.md" # owner-owned: an `## Inbox` slot and `## Directions`\n',
-        log=f'log = "{a.log}"                 # the dated log whose top entry `flow state` prints\n' if a.log else
-            '# log = "WORKLOG.md"             # the dated log whose top entry `flow state` prints\n',
+        log=(f'log = "{a.log}"                 # the dated log whose top entry `flow state` prints\n'
+             f'log_archive = "{Path(a.log).with_name(Path(a.log).stem + "-archive").as_posix()}"   '
+             '# `flow log archive` moves the old entries here verbatim, one file per month\n') if a.log else
+            '# log = "WORKLOG.md"             # the dated log whose top entry `flow state` prints\n'
+            '# log_archive = "WORKLOG-archive"   # `flow log archive` moves the old entries here verbatim, one file per month\n',
         owners="\n".join(f"{o} = {0 if o == owners[-1] and len(owners) > 1 else 2}" for o in owners),
         kinds=", ".join(f'"{k}"' for k in task_kinds), default_kind=task_kinds[0],
         decision_owner=owners[-1] if len(owners) > 1 else owners[0],
@@ -2140,6 +2521,12 @@ def selftest():
         expect("refine adds a task to a decomposed question", p["created"] and load_all(cfg)["question-0007"]["state"] == "decomposed")
         run(["kill", "question-0007", "--reason", "x"], ok=False)  # two ready tasks under it
         run(["refine", "question-0004", "--task", "t", "lean"], ok=False)  # parked
+        (root / "refined.md").write_text("Split by the size of the case.\n")
+        p = run(["refine", "question-0007", "--task", "third", "lean", "--body", str(root / "refined.md")])
+        recs = load_all(cfg)
+        expect("refine's body is appended to the question under its date, the answer names it, and the task minted carries none",
+               recs["question-0007"].body.rstrip().endswith(f"{today} — refined:\n\nSplit by the size of the case.")
+               and p["body_appended_to"] == "question-0007" and recs[p["created"][0]].body == "")
         run(["find", "--grep", "["], ok=False)
         run(["index"])
         p = run(["check"])
@@ -2375,6 +2762,188 @@ def selftest():
         expect("flow state prints the new log's top entry", any("the flow set up" in ln for ln in lines))
         r = subprocess.run([sys.executable, __file__, "--help"], capture_output=True, text=True, cwd=tempfile.gettempdir())
         expect("--help works with no bindings file", r.returncode == 0 and "capture" in r.stdout and "init" in r.stdout)
+
+    # the log written at its top and archived by month, a session's close checked, the other prose reflowed
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        do_init(root, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        cfg = Config(root)
+        today = "2026-10-27"
+        mdl = shutil.which("markdownlint")
+        (root / "LOG.md").write_text("# Log\n\n## 2026-10-20 — set up\n\n**State.** Nothing is in flight.\n\n## 2026-09-30 — late\n\n"
+                                     "**State.** Late.\n\n```text\n## 2026-01-01 — in a fence, no entry\n```\n\n## 2026-09-02 — early\n\n"
+                                     "**State.** Early.\n\n## 2026-08-15 — august\n\n**State.** August.\n", encoding="utf-8")
+
+        def go(argv, ok=True, day=today):
+            rc, payload = dispatch(cfg, argv, today=day, as_json=True, quiet=True)
+            expect(" ".join(argv[:2]) + (" refused" if not ok else ""), (rc == 0) == ok)
+            if (rc == 0) != ok:
+                for pr in payload["problems"]:
+                    print("      ", pr["code"], pr.get("path") or pr.get("id"), pr["msg"])
+            return payload
+
+        entry = root / "entry.md"
+        for text in ("**State.** No heading.\n", "## 2026-10-27 — no State paragraph\n\nA paragraph.\n",
+                     "## 2026-10-19 — older than the top entry\n\n**State.** Old.\n", "## 2026-10-28 — tomorrow\n\n**State.** Not yet.\n",
+                     "## 2026-10-27 — two\n\n**State.** One.\n\n## 2026-10-27 — entries\n\n**State.** Two.\n"):
+            entry.write_text(text, encoding="utf-8")
+            go(["log", "add", str(entry)], ok=False)
+        before = (root / "LOG.md").read_text(encoding="utf-8")
+        if mdl:
+            entry.write_text("## 2026-10-27 — glued\n**State.** A heading with no blank line below it.\n", encoding="utf-8")
+            go(["log", "add", str(entry)], ok=False)
+            expect("a log entry adding a markdownlint violation is refused and the log left as it was", (root / "LOG.md").read_text(encoding="utf-8") == before)
+        entry.write_text("## 2026-10-27 — the round closed\n\n**State.** The round closed. Nothing is in flight.\n", encoding="utf-8")
+        go(["log", "add", str(entry)])
+        log = (root / "LOG.md").read_text(encoding="utf-8")
+        expect("log add writes the entry at the top under the title, reflowed, a bold label kept with its sentence",
+               log.startswith("# Log\n\n## 2026-10-27 — the round closed\n\n**State.** The round closed.\nNothing is in flight.\n\n## 2026-10-20 — set up\n")
+               and log.endswith(before.split("\n\n", 1)[1]))
+        go(["log", "archive", "--before", "2026-10-28"], ok=False)  # the top entry stays
+        go(["log", "archive", "--before", "2026-08-01"], ok=False)  # nothing older
+        go(["log", "archive", "--before", "soon"], ok=False)
+        go(["log", "archive", "--before", "2026-09-15"])
+        go(["log", "archive", "--before", "2026-10-01"])
+        arch, log = root / "LOG-archive", (root / "LOG.md").read_text(encoding="utf-8")
+        expect("log archive moves the older entries verbatim, newest first, one file per month, a second run merged into its month",
+               sorted(p.name for p in arch.iterdir()) == ["2026-08.md", "2026-09.md"]
+               and (arch / "2026-09.md").read_text(encoding="utf-8") == "# Log — 2026-09\n\n## 2026-09-30 — late\n\n**State.** Late.\n\n"
+               "```text\n## 2026-01-01 — in a fence, no entry\n```\n\n## 2026-09-02 — early\n\n**State.** Early.\n")
+        expect("and leaves one pointer under the log's title, dated by the latest run",
+               log.startswith("# Log\n\nEntries dated before 2026-10-01 are archived verbatim, newest first, one file per month in "
+                              "[LOG-archive/](LOG-archive/).\n\n## 2026-10-27 — the round closed\n")
+               and log.count("Entries dated before") == 1 and "## 2026-09" not in log)
+        (root / "LOG.md").write_text(log + "\n## Notes\n\nAn undated heading.\n", encoding="utf-8")
+        go(["log", "archive", "--before", "2026-10-25"], ok=False)  # an entry with no date
+        (root / "LOG.md").write_text(log, encoding="utf-8")
+        cfg.log = None
+        go(["log", "add", str(entry)], ok=False)  # no log bound
+        # a log with front matter, a four-backtick fence holding a shorter one, and link definitions closing it
+        cfg.log, cfg.log_archive = root / "L2.md", root / "L2-archive"
+        cfg.log.write_text("---\n# a YAML comment, no title\nkind: log\n---\n\n## 2026-10-20 — kept\n\n**State.** Kept.\n\n"
+                           "## 2026-09-10 — moved\n\n**State.** Moved.\n\n````text\n```\n## 2026-01-01 — inside the fence\n````\n\n"
+                           "[ref]: https://example.org\n", encoding="utf-8")
+        go(["log", "archive", "--before", "2026-10-01"])
+        expect("planted: log archive reads a log's front matter as none of its title, puts the pointer under it, keeps a fence "
+               "open until a run as long closes it, and leaves the link definitions closing the log in it",
+               cfg.log.read_text(encoding="utf-8") == "---\n# a YAML comment, no title\nkind: log\n---\n\nEntries dated before 2026-10-01 "
+               "are archived verbatim, newest first, one file per month in [L2-archive/](L2-archive/).\n\n## 2026-10-20 — kept\n\n"
+               "**State.** Kept.\n\n[ref]: https://example.org\n"
+               and (cfg.log_archive / "2026-09.md").read_text(encoding="utf-8") == "# Log — 2026-09\n\n## 2026-09-10 — moved\n\n"
+               "**State.** Moved.\n\n````text\n```\n## 2026-01-01 — inside the fence\n````\n")
+        # the link definitions closing the log given to the files that use them, into a month's file closed by its own
+        cfg.log, cfg.log_archive = root / "L4.md", root / "L4-archive"
+        cfg.log.write_text("# Log\n\n## 2026-10-20 — kept\n\n**State.** Kept, as [both] say.\n\n## 2026-09-10 — moved\n\n"
+                           "**State.** Moved, as [Both] and [the spec] say.\n\n[both]: https://example.org/both\n"
+                           "[the spec]: https://example.org/spec\n[unused]: https://example.org/unused\n", encoding="utf-8")
+        cfg.log_archive.mkdir()
+        (cfg.log_archive / "2026-09.md").write_text("# Log — 2026-09\n\n## 2026-09-05 — earlier\n\n**State.** See [old].\n\n"
+                                                    "[old]: https://example.org/old\n", encoding="utf-8")
+        go(["log", "archive", "--before", "2026-10-01"])
+        expect("planted: log archive keeps the link definitions closing a month's file it merges into, moves to it a definition "
+               "only an archived entry uses, copies one the log uses too, and leaves an unused one in the log",
+               cfg.log.read_text(encoding="utf-8") == "# Log\n\nEntries dated before 2026-10-01 are archived verbatim, newest first, "
+               "one file per month in [L4-archive/](L4-archive/).\n\n## 2026-10-20 — kept\n\n**State.** Kept, as [both] say.\n\n"
+               "[both]: https://example.org/both\n[unused]: https://example.org/unused\n"
+               and (cfg.log_archive / "2026-09.md").read_text(encoding="utf-8") == "# Log — 2026-09\n\n## 2026-09-10 — moved\n\n"
+               "**State.** Moved, as [Both] and [the spec] say.\n\n## 2026-09-05 — earlier\n\n**State.** See [old].\n\n"
+               "[old]: https://example.org/old\n[both]: https://example.org/both\n[the spec]: https://example.org/spec\n")
+        if mdl:  # a violation the archive file alone would have: both files stay as they were
+            cfg.log, cfg.log_archive = root / "L3.md", root / "L3-archive"
+            cfg.log.write_text("# Log\n\n## 2026-10-20 — kept\n\n**State.** Kept.\n\n## 2026-09-12 — twice\n\n**State.** Moved.\n", encoding="utf-8")
+            cfg.log_archive.mkdir()
+            (cfg.log_archive / "2026-09.md").write_text("# Log — 2026-09\n\n## 2026-09-12 — twice\n\n**State.** An earlier copy.\n", encoding="utf-8")
+            files = lambda: (cfg.log.read_text(encoding="utf-8"), (cfg.log_archive / "2026-09.md").read_text(encoding="utf-8"))
+            had = files()
+            go(["log", "archive", "--before", "2026-10-01"], ok=False)
+            expect("planted: a log archive whose archive file alone trips markdownlint (MD024) leaves the log and the file as they were",
+                   files() == had)
+        cfg.log, cfg.log_archive = root / "LOG.md", root / "LOG-archive"
+
+        # the close: decided where git and the log can say, and said where they cannot
+        with tempfile.TemporaryDirectory() as t2:
+            do_init(Path(t2), build_parser().parse_args(["init", "--log", "LOG.md"]))
+            c2 = Config(Path(t2))
+            if git(c2, "rev-parse", "--is-inside-work-tree") is None:
+                rc, pl = dispatch(c2, ["state", "--check", "--owner", "agent"], today=today, as_json=True, quiet=True)
+                expect("state --check outside a work tree says the log's part is not decided and exits 2, passing the rest",
+                       rc == 2 and any("git is absent" in u for u in pl["undecided"]) and pl["checked"] == ["the inbox", "the hand"]
+                       and not pl["problems"])
+        if shutil.which("git"):
+            gitc = ["git", "-c", "user.name=flow", "-c", "user.email=flow@selftest", "-c", "commit.gpgsign=false"]
+            for argv in (["init", "-q"], ["add", "-A"], ["commit", "-q", "--no-verify", "-m", "the log"]):
+                subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
+            p = go(["state", "--check", "--owner", "agent"])
+            expect("state --check passes a clean close and says what it checked", not p["problems"] and len(p["checked"]) == 4 and not p["undecided"])
+            expect("state --check with no owner, or one flow.toml does not list, could not run: exit 2",
+                   [dispatch(cfg, argv, today=today, as_json=True, quiet=True)[0] for argv in
+                    (["state", "--check"], ["state", "--check", "--owner", "nobody"])] == [2, 2])
+            go(["state", "--owner", "agent"], ok=False)  # --owner is the close's
+            idea = go(["capture", "an idea"])["records"][0]["path"]
+            p = go(["state", "--check", "--owner", "agent"], ok=False)
+            expect("planted: a record changed since the top entry's commit that no entry names fails the close",
+                   [x["path"] for x in p["problems"]] == [idea])
+            p = go(["state", "--check", "--owner", "agent"], ok=False, day="2026-10-30")
+            expect("planted: a top entry not dated today, the tree changed since its commit, fails the close",
+                   any("not today (2026-10-30)" in x["msg"] for x in p["problems"]))
+            entry.write_text("## 2026-10-27 — an idea\n\n**State.** The idea idea-0001 is captured.\n", encoding="utf-8")
+            go(["log", "add", str(entry)])
+            p = go(["state", "--check", "--owner", "agent"])
+            expect("an entry above the committed one naming the changed record passes the close", not p["problems"])
+            keep = cfg.directions.read_text(encoding="utf-8")
+            cfg.directions.write_text(keep.replace("## Inbox\n", "## Inbox\n\n<!-- a comment is no item -->\n- look at the bound\n"), encoding="utf-8")
+            p = go(["state", "--check", "--owner", "agent"], ok=False)
+            expect("planted: an inbox not emptied fails the close, a comment in it no item",
+                   [x["path"] for x in p["problems"]] == [f"{rel(cfg, cfg.directions)}:6"])
+            cfg.directions.write_text(keep, encoding="utf-8")
+            t = go(["task", "an upkeep chore", "--kind", "upkeep"])["created"][0]
+            go(["draw", t, "--owner", "owner"])
+            p = go(["state", "--check", "--owner", "agent"], ok=False)  # the task is named by no entry
+            expect("an active task under a decision owner is not the close's", not any("is active under" in x["msg"] for x in p["problems"]))
+            cfg.decision_owners = ()
+            p = go(["state", "--check", "--owner", "agent"], ok=False)
+            cfg.decision_owners = ("owner",)
+            expect("planted: an active task under another owner than the working session's, no decision owner, fails the close",
+                   any(f"{t} is active under owner" in x["msg"] for x in p["problems"]))
+        elif os.environ.get("CI"):
+            expect("git is on PATH in CI, where the close's log part is tested", False)
+        else:
+            print("  --  the close's log part not tested: no git on PATH")
+
+        # the reflow offered for the project's other prose
+        (root / "prose.md").write_text("---\ntitle: A. B on one line\n---\n\n# Prose\n\nOne. Two on a line.\n\n**Theorem 1.** It holds.\n\n"
+                                       "A line ending in a hard break.  \nIts next line.\n\n**Do not merge this branch yet.** The tests fail.\n\n"
+                                       "**Proposition 5.3 (see Smith 2001).** It holds.\n\n````text\n```\nOne. Two in code.\n````\n", encoding="utf-8")
+        p = go(["reflow", "--check", str(root / "prose.md")], ok=False)
+        expect("planted: reflow --check names each line not one sentence per line, a bold sentence among them; "
+               "its front matter, a short bold label, one with a parenthetical, a hard break and a fence a shorter run does not close aside",
+               [(x["path"], x["msg"]) for x in p["problems"]] == [("prose.md:7", "One. Two on a line."),
+                                                                  ("prose.md:14", "**Do not merge this branch yet.** The tests fail.")])
+        expect("planted: a line the reflow splits keeps its hard break on its last part",
+               cfg.reflow("One. Two.  \nThree.\n- A. B.  \n  C.") == "One.\nTwo.  \nThree.\n- A.\n  B.  \n  C.")
+        (root / "docs").mkdir()
+        (root / "docs" / "a.md").write_text("# A\n\nIt is fine.\n", encoding="utf-8")
+        go(["reflow", "--check", str(root / "docs"), str(root / "LOG.md")])
+        expect("reflow --check on a file that is not there could not run: exit 2",
+               dispatch(cfg, ["reflow", "--check", str(root / "absent.md")], today=today, as_json=True, quiet=True)[0] == 2)
+        draft = root / "draft.md"
+        draft.write_text("A draft. Two sentences on a line.\n", encoding="utf-8")
+        p = go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)], ok=False)
+        expect("planted: reflow --as names a draft's line not one sentence per line", [x["code"] for x in p["problems"]] == ["REFLOW"])
+        if mdl:
+            draft.write_text("A line.\n## A heading glued to it\n", encoding="utf-8")
+            p = go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)], ok=False)
+            expect("planted: reflow --as names the markdownlint violation the draft adds at DEST, at the draft's own line",
+                   [(x["code"], x["path"]) for x in p["problems"]] == [("MARKDOWNLINT", f"{draft}:2")])
+            (root / "docs" / "b.md").write_text("# B\n## Glued in DEST already\n\nIt is not fine.\n", encoding="utf-8")
+            p = go(["reflow", "--as", str(root / "docs" / "b.md"), str(draft)], ok=False)
+            expect("planted: reflow --as names only the violations the draft adds, never DEST's own of the same rule",
+                   [(x["code"], x["path"]) for x in p["problems"]] == [("MARKDOWNLINT", f"{draft}:2")])
+            (root / "docs" / "b.md").unlink()
+        draft.write_text("A clean draft.\n", encoding="utf-8")
+        go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)])
+        expect("reflow --as writes nothing", (root / "docs" / "a.md").read_text(encoding="utf-8") == "# A\n\nIt is fine.\n"
+               and sorted(p.name for p in (root / "docs").iterdir()) == ["a.md"])
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
 
@@ -2397,7 +2966,9 @@ def build_parser():
     p.add_argument("--direction"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body"); p.add_argument("--source")
     p = sp.add_parser("refine"); p.add_argument("question"); p.add_argument("--task", action="append", help="a summary, then optionally a kind; repeatable", nargs="+", metavar=("SUMMARY", "KIND"))
     p.add_argument("--subq", action="append", nargs=2, metavar=("SUMMARY", "KILL"), help="repeatable"); p.add_argument("--idea", action="append", help="repeatable")
-    p.add_argument("--kind"); p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--requires", action="append", help="repeatable"); p.add_argument("--body")
+    p.add_argument("--kind"); p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--requires", action="append", help="repeatable")
+    p.add_argument("--body", help="appended to the question's body under the date, never to a task's: a task's own body is "
+                                  "`flow task SUMMARY --question Q --body FILE`")
     p = sp.add_parser("draw"); p.add_argument("task"); p.add_argument("--owner", required=True)
     p = sp.add_parser("return"); p.add_argument("task"); p.add_argument("--note")
     p = sp.add_parser("make"); p.add_argument("task"); p.add_argument("--finding", action="append", help="a summary, a status, then one or more evidence items; repeatable", nargs="+", metavar=("SUMMARY", "STATUS EVIDENCE"))
@@ -2423,6 +2994,14 @@ def build_parser():
     p = sp.add_parser("index"); p.add_argument("--check", action="store_true"); p.add_argument("--print", action="store_true", dest="print_")
     sp.add_parser("check")
     p = sp.add_parser("state"); p.add_argument("--from", dest="frm", type=int, default=0); p.add_argument("--budget", type=int, default=14000)
+    p.add_argument("--check", action="store_true", help="what a machine can see of a session's close; exit 1 on a failure")
+    p.add_argument("--owner", help="the working session's owner, which --check holds the active tasks to")
+    p = sp.add_parser("log"); lp = p.add_subparsers(dest="log_cmd", required=True, metavar="{add,archive}")
+    lp.add_parser("add", help="FILE: one entry, written at the top of the log").add_argument("file")
+    lp.add_parser("archive", help="--before DATE: the older entries moved, one file per month").add_argument("--before", required=True)
+    p = sp.add_parser("reflow"); g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--check", nargs="+", metavar="PATH", help="exit 1 on a line the reflow changes, each printed")
+    g.add_argument("--as", nargs=2, metavar=("DEST", "DRAFT"), dest="as_", help="the draft checked as if appended to DEST: the reflow and markdownlint")
     sp.add_parser("directions")
     sp.add_parser("pages")
     p = sp.add_parser("init"); p.add_argument("--records", default="records")
@@ -2493,7 +3072,7 @@ def project_lock(cfg, directory, tool):
 
 def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
     a = build_parser().parse_args(argv)
-    writes = a.cmd in TRANSITIONS or (a.cmd == "index" and not a.print_ and not a.check)
+    writes = a.cmd in TRANSITIONS or a.cmd == "log" or (a.cmd == "index" and not a.print_ and not a.check)
     with project_lock(cfg, cfg.research, "flow") if writes else contextlib.nullcontext():
         return _dispatch(cfg, a, today, as_json, quiet)
 
@@ -2502,6 +3081,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
     today = today or a.today or dt.date.today().isoformat()
     as_json = as_json or a.json
     out = {"ok": True, "command": a.cmd, "created": [], "changed": [], "records": [], "problems": []}
+    not_run = False  # exit 2: the check could not run, or could not decide a part
 
     def emit(text=""):
         if not quiet and not as_json and text:
@@ -2509,7 +3089,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
 
     try:
         broken = []
-        recs = load_all(cfg, broken) if a.cmd == "check" else load_all(cfg)
+        recs = load_all(cfg, broken) if a.cmd == "check" else {} if a.cmd in ("log", "reflow") else load_all(cfg)
         if a.cmd in TRANSITIONS:
             if a.cmd == "rank" and not a.set and not a.id:
                 raise Refused("rank takes ID N, --set ID..., or ID --clear")
@@ -2527,6 +3107,9 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 emit(f"created {r.id} — {r['summary']}  ({rel(cfg, r.path)})")
             for r in changed:
                 emit(f"changed {r.id} — {stat(r) or ''} ({rel(cfg, r.path)})")
+            if a.cmd == "refine" and a.body:  # the body is the question's, not a minted task's: said, so it is not looked for there
+                out["body_appended_to"] = a.question
+                emit(f"the body of {a.body} appended to {a.question} under {today}")
             recs = load_all(cfg)
             cfg.index.parent.mkdir(parents=True, exist_ok=True)
             write_whole(cfg.index, render_index(cfg, recs))
@@ -2544,13 +3127,48 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["links"] = {f: refs(recs, ids) for f, ids in links(r).items()}
             out["backlinks"] = {f: refs(recs, ids) for f, ids in backlinks(recs, r.id).items()}
             emit(show_text(cfg, recs, r))
+        elif a.cmd == "state" and a.check:
+            if a.owner not in cfg.owners:
+                raise NotRun(f"state --check takes --owner, the working session's, one of {', '.join(cfg.owners)}" + (f", not {a.owner!r}" if a.owner else ""))
+            problems, checked, undecided = close_check(cfg, recs, a.owner, today)
+            out["problems"], out["checked"], out["undecided"] = problems, checked, undecided
+            for p in problems:
+                emit(f"{p['path']}: {p['msg']}")
+            for u in undecided:
+                emit(f"undecided: {u}")
+            emit(f"flow state --check: {len(problems)} failure(s); checked {', '.join(checked)}"
+                 + (f"; {len(undecided)} not decided" if undecided else "")
+                 + "; the conversation's inventory and the sweep by meaning are the session's own")
+            if problems or undecided:  # a failure exits 1; else a part not decided exits 2, never read as clean
+                out["ok"], not_run = False, not problems
         elif a.cmd == "state":
+            if a.owner:
+                raise Refused("--owner names the working session for state --check")
             lines, more = state_lines(cfg, a.frm, a.budget)
             out["lines"], out["next_from"] = lines, more
             for ln in lines:
                 emit(ln)
             if more is not None:
                 emit(f"…output budget reached; continue with --from {more}")
+        elif a.cmd == "log":
+            _JOURNAL.clear()
+            try:
+                written, said = (cmd_log_add if a.log_cmd == "add" else cmd_log_archive)(cfg, a, today)
+            except BaseException:
+                rollback()  # the log and its archive files are written whole or not at all
+                raise
+            _JOURNAL.clear()
+            out["written"] = [rel(cfg, p) for p in written]
+            emit(said)
+        elif a.cmd == "reflow":
+            problems, said = cmd_reflow(cfg, a)
+            out["problems"], out["coverage"] = problems, said
+            for p in problems:
+                emit(f"{p['path']}: {p['msg']}")
+            emit(f"flow reflow: {sum(p['code'] == 'REFLOW' for p in problems)} line(s) not one sentence per line"
+                 + (f", {sum(p['code'] == 'MARKDOWNLINT' for p in problems)} new markdownlint violation(s)" if a.as_ else "") + f"; {said}")
+            if problems:
+                out["ok"] = False
         elif a.cmd == "directions":
             if not cfg.directions.is_file():
                 raise Refused(f"no directions file at {rel(cfg, cfg.directions)}")
@@ -2602,13 +3220,13 @@ def _dispatch(cfg, a, today, as_json, quiet):
         else:
             raise Refused("no command (see --help)")
     except Refused as e:
-        out["ok"] = False
+        out["ok"], not_run = False, isinstance(e, NotRun)
         out["problems"].append({"code": "REFUSED", "id": None, "path": None, "msg": str(e)})
         if not quiet and not as_json:
-            print(f"flow: refused — {e}", file=sys.stderr)
+            print(f"flow: {'could not run' if not_run else 'refused'} — {e}", file=sys.stderr)
     if as_json and not quiet:
         print(json.dumps(out, ensure_ascii=False, indent=1, default=str))
-    return (0 if out["ok"] else 1), out
+    return (0 if out["ok"] else 2 if not_run else 1), out
 
 
 def refused(command, msg, as_json):
