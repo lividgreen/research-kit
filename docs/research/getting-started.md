@@ -2,7 +2,7 @@
 
 A first project, step by step, as the commands the agent runs and the files they write; you never need to type them, but they show what the agent does and what a record holds.
 The shell blocks below run in order in one empty directory, and the kit's tests run them exactly so.
-In a project with an agent, `/research:research-init` does the setup of the first block and more: the [research-init](../plugins/research/skills/research-init/SKILL.md) skill probes the project and the machine, proposes what is missing and writes the bindings, the instructions and the hooks.
+In a project with an agent, `/research:research-init` does the setup of the first block and more: the [research-init](../../plugins/research/skills/research-init/SKILL.md) skill probes the project and the machine, proposes what is missing and writes the bindings, the instructions and the hooks.
 
 ## The records
 
@@ -17,7 +17,7 @@ flow state
 ```
 
 `flow init` writes two owners: `agent`, the working session, with a hand limit of two active tasks, and `owner`, the person, with no limit (0 is unlimited), who holds the decision tasks; `--owner` names others.
-The task kinds it writes are `work`, `design`, `prose`, `survey`, `upkeep`, `community` and `decision`; a task of the first four stands under a question, the last three stand alone; edit the lists in `flow.toml`, which [The bindings files](bindings.md) shows whole.
+The task kinds it writes are `work`, `design`, `prose`, `survey`, `upkeep`, `community` and `decision`; a task of the first four stands under a question, the last three stand alone; edit the lists in `flow.toml`, which [The flow](flow.md) shows whole.
 Then bind the evidence resolvers in `flow.toml` where the project has them — `[evidence] manifest`, `manifest_roots` and `manifest_extension` for a declaration manifest (a text file a prover's build regenerates, one `Module.Path name` line per declaration; the flow reads those lines and passes over the other row kinds the `formal` plugin's generator writes), `probes` for a register of self-asserting scripts.
 The library needs no binding: where `library.toml` stands at the root, `flow check` asks the library skill installed beside the flow skill, else a `library` command on PATH, and its coverage line says which; `[library] command` in `flow.toml` names another command, and `command = []` asks none.
 Unbound, declaration and probe evidence is reported unchecked and the check's coverage line says so.
@@ -73,7 +73,7 @@ library: 0 key(s) cited from 0 record(s); 0 of them excluded cards; the papers' 
 
 The first two lines are the problems; the coverage lines after them say what the check looked at and vary by machine (here markdownlint was on PATH).
 
-The exit code is 1, each problem carries its code ([The checks](checks.md) lists them), and the last lines are the coverage: which resolvers were bound, what was not looked at.
+The exit code is 1, each problem carries its code ([The flow](flow.md#the-check) lists them), and the last lines are the coverage: which resolvers were bound, what was not looked at.
 
 ## A task closed
 
@@ -148,7 +148,7 @@ created: "2026-10-23"
 ```
 
 The read grade is a claim about the reader, not the work: it moves only through `library read`; a record's cite of an unread card is reported by grade in the check's coverage line, and a bound document's reference entry tied to an unread card fails the check unless the card names the work it is known through (`via`).
-`library resolve "Stuart, A. M. and Humphries, A. R. (1996). Dynamical Systems and Numerical Analysis." --register` would have asked the online interfaces for the fields instead; [What goes online](network.md) lists them.
+`library resolve "Stuart, A. M. and Humphries, A. R. (1996). Dynamical Systems and Numerical Analysis." --register` would have asked the online interfaces for the fields instead; [What goes online](../network.md) lists them.
 
 ## The dashboard
 
@@ -164,4 +164,4 @@ The skills name no project path themselves; the bindings files do.
 ## An existing project
 
 A project that already keeps its research in notes, a roadmap, a to-do list or a bibliography is set up the same way, then asked to bring that material in: "Move our notes and the reading list into research-kit."
-The skills already describe the records and the cards the material has to become, so the agent maps any project's shape onto them, along a few general principles in the research-init skill's [`references/migration.md`](../plugins/research/skills/research-init/references/migration.md): survey and propose before writing, classify by the kinds' own tests, carry only the open work and point at the settled, go through the commands wherever one exists — a record the commands cannot express is written by hand with `origin: legacy`, an older reading list loads as seeded cards — remove nothing, and end with both checks.
+The skills already describe the records and the cards the material has to become, so the agent maps any project's shape onto them, along a few general principles in the research-init skill's [`references/migration.md`](../../plugins/research/skills/research-init/references/migration.md): survey and propose before writing, classify by the kinds' own tests, carry only the open work and point at the settled, go through the commands wherever one exists — a record the commands cannot express is written by hand with `origin: legacy`, an older reading list loads as seeded cards — remove nothing, and end with both checks.

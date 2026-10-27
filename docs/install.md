@@ -52,6 +52,7 @@ A repository enables it for everyone in its committed `.claude/settings.json`; e
 ```
 
 The skills are then `/research:flow`, `/research:library`, `/research:dashboard`, `/research:method`, `/formal:handoff`, `/formal:land` and so on, the prover agent `formal:prover`, and a skill runs its script by the path its text gives.
+A plugin's skills and agents are loaded when a session starts: in the session that installed `formal`, the `formal:prover` agent type is not loaded yet and the `handoff` skill takes its general-purpose fallback, so restart the session after an install, and after an update, before the next handoff or transition.
 The repository has no `bin/` directory on purpose: claude.ai and Cowork refuse a plugin that has one.
 A plugin is updated only when its `version` changes, so every release bumps every plugin's version (see [Development](development.md#releases)), and a user runs `/plugin marketplace update research-kit` or turns auto-update on.
 
@@ -165,7 +166,7 @@ In Claude Code say `/research:research-init`; with another agent, ask it to set 
 The [research-init](../plugins/research/skills/research-init/SKILL.md) skill probes the project and the machine, proposes what is missing and installs it only on your word, writes `flow.toml` and the records, `library.toml` and the cards, the log, the paragraphs for the instructions file and the hooks' block, runs the checks and reports.
 The research-init skill lists what a setup requires, recommends and leaves optional.
 With a Lean workspace, `/formal:formal-init` ([formal-init](../plugins/formal/skills/formal-init/SKILL.md)) follows the same way for the prover side.
-[Getting started](getting-started.md) shows what the setup writes, command by command.
+[Getting started](research/getting-started.md) shows what the setup writes, command by command.
 
 ## 3. The hooks
 
@@ -203,6 +204,8 @@ A project keeps the two at one tag by pinning the marketplace to the tag its `re
 
 A pinned marketplace updates to its tag and no further; the project moves it and the hooks' `rev` to the next tag together, in one commit where the pin is in a committed settings file.
 In Claude Code the marketplace is one per machine, known by its name to every project on it, so a project moves its pin by adding it again at the next tag, `claude plugin marketplace add 'lividgreen/research-kit#<tag>' --scope project`, which points the marketplace at the tag in place and writes the `ref` into the project's settings, then `claude plugin update research@research-kit --scope project` (and `formal@research-kit`); every other project keeps the version it installed until it runs the update itself.
+Both commands print less than they do: `claude plugin marketplace add` at the new tag answers `Marketplace 'research-kit' already on disk — declared in project settings`, which reads as a no-op while it has moved the marketplace to the tag and written the `ref`, and `claude plugin update` ends with `Restart to apply changes`, which is literal, since until the restart the session runs the old skills' text against the new hooks, the drift the pin exists to prevent.
+So after the update run the setup probe, which says whether the three pins name one tag, and restart the session before the next transition.
 Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the tag the machine knows.
 Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
 Claude Code 2.1.310 behaves so.
@@ -214,5 +217,8 @@ The setup probe, run from the installed plugin, says whether the hooks' `rev`, t
 A Makefile target or a CI job runs the checks through the hooks, `prek run --all-files` or `pre-commit run --all-files`, which pin the tag and need no path to the kit.
 A script that calls a skill's script for anything else runs it from the installed plugin, whose path moves with every version: Claude Code keeps it under `~/.claude/plugins/cache/research-kit/research/<version>/` (`CLAUDE_CODE_PLUGIN_CACHE_DIR` moves that root) and records each install, with its scope, project and `installPath`, in `~/.claude/plugins/installed_plugins.json`, where the `research@research-kit` entry of scope `local`, else `project`, for the repository, else the `user` one, names it (`CLAUDE_CONFIG_DIR` moves `~/.claude`).
 Such a script checks that the entry's `version` is the tag the hooks pin before it runs anything.
+
+A session opened in a subdirectory of the repository — one of several sessions working one tree, each in its own directory with its own `.claude` settings — is gated by the same hooks at its commits, while the plugins the root's settings enable are disabled for it, since Claude Code reads a project's settings from the directory the session opened in; `claude plugin list` there shows them so.
+Such a session runs the checks as the hooks do, from the root: `prek run flow-check --all-files` and `prek run library-check --all-files` (or `pre-commit run …`), and reads a failure by its code on [The flow](research/flow.md) or [The library](research/library.md) page; a transition is run by the session that holds the plugins, which draws and makes the task for the one that did the work.
 
 research-kit installs no command and is not published to PyPI: the agent runs the scripts from their skills, and the pre-commit hooks build their own environment from this repository at the pinned tag; the `research-kit` project on PyPI is an unrelated one.

@@ -17,7 +17,8 @@ plugins/<plugin>/                 one plugin each: research and formal
   com.github.copilot/, dev.openhands/, com.google.antigravity/
                                   the agents' copies for the Agent Plugins clients that read agents, each from its
                                   own directory (Antigravity's through agents.json, with the tools it must list)
-docs/                             this documentation; CHANGELOG.md beside the README
+docs/                             this documentation: the kit's pages at the top, docs/research/ and docs/formal/ one per
+                                  plugin with one page per tool and the cards' specifications; CHANGELOG.md beside the README
 .markdownlint.jsonc               the Markdown rules the repository's own files are held to
 packaging/                        the package stub the console scripts import through
 tests/run.py                      the tests
@@ -47,10 +48,10 @@ runs each script's `--selftest` (one planted defect per rule; `formal`'s over a 
 - the three marketplaces list the two plugins, and each plugin's manifests agree on name, version and description;
 - every `SKILL.md` has the frontmatter the standard asks for and names a script that exists;
 - every subcommand of each CLI and every flag it takes is named in its skill, and every skill's `metadata.version` is its plugin's;
-- the shell blocks of [Getting started](getting-started.md) run in order in one fresh directory;
+- the shell blocks of [Getting started](research/getting-started.md) run in order in one fresh directory;
 - the README's *How to use* table is the [site home page](index.md)'s *Try it* table row for row;
 - every relative link of the README, `CONTRIBUTING.md`, `SECURITY.md`, this documentation and the plugins' READMEs resolves, and every repository path their prose names in backticks exists;
-- [The bindings files](bindings.md) equals what each `init` writes, and [The checks](checks.md) names every code the scripts can report.
+- [The flow](research/flow.md), [The library](research/library.md) and [The formal setup](formal/formal-init.md) show the bindings files as each `init` writes them, the first two name every code their checks can report, and [Flow cards](research/flow-cards.md) and [Library cards](research/library-cards.md) list the fields as the tools write them.
 
 It also runs `markdownlint` over the repository's Markdown with `.markdownlint.jsonc` where it is on PATH, and `claude plugin validate --strict` where the Claude CLI is on PATH.
 The flow's selftest writes records under its built-in markdownlint configuration where `markdownlint` is on PATH, and fails without it in CI (`CI` set), where the workflows install it.
@@ -89,7 +90,7 @@ What it renders:
 | --- | --- | --- |
 | `docs/index.md` | `/` | The site's home page |
 | `docs/README.md` | `/docs/` | Also the navigation: its link list, one line per document with the title, the file and a description, gives the order and labels of the documentation |
-| `docs/<name>.md` | `/docs/<name>/` | |
+| `docs/<name>.md`, `docs/<plugin>/<name>.md` | `/docs/<name>/`, `/docs/<plugin>/<name>/` | A page `docs/README.md` does not list is rendered all the same and appended to the navigation |
 | `CHANGELOG.md` | `/changelog/` | Linked from the version in the header |
 | `plugins/<plugin>/README.md` | `/plugins/<plugin>/` | |
 | `plugins/<plugin>/skills/<skill>/SKILL.md` | `/plugins/<plugin>/skills/<skill>/` | The frontmatter's `name` and `description` feed the skills list of the navigation |
@@ -99,4 +100,4 @@ What it renders:
 On every page the first heading is the page title, removed from the body, and every page also exists as `<route>.md`, the source file as is.
 `README.md` is GitHub's front page and is not rendered: it follows README conventions, with the badges and the install commands, and points at the site; `docs/index.md` is the site's home and carries no badges.
 The card's rules are the website's [project convention](https://github.com/lividgreen/www.livid.work/blob/main/PROJECT-CONVENTION.md): a front matter with `title`, `summary`, `tags` and `status`, a body starting at a level-2 heading, and relative links.
-So the documents link each other by relative path only, as the tests already require (every relative link must resolve), and carry no HTML beyond the README's badges; `docs/README.md` does not list `index.md`, which the site's header links; a document is added to the site by a line in `docs/README.md`.
+So the documents link each other by relative path only, as the tests already require (every relative link must resolve), and carry no HTML beyond the README's badges; `docs/README.md` does not list `index.md`, which the site's header links; a document is added to the site by a line in `docs/README.md`, whose sections order the list by the kit and then by plugin while the site's navigation is that list flat, so a page's label says what it is of (`The formal setup`).

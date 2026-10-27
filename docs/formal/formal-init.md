@@ -1,0 +1,116 @@
+# The formal setup
+
+`/formal:formal-init` sets the prover side up for a project with a Lean 4 workspace and checks an existing setup: it probes the workspaces, the project and the machine with `formal probe`, proposes what is missing, installs nothing without your word, writes what is absent and nothing that exists, and reports.
+It needs the `research` plugin's setup first ([The research setup](../research/research-init.md)), since the findings and the records are the flow's; the probe and `formal init` are commands of the `formal` script, which lives in the `land` skill, and the [`formal-init`](../../plugins/formal/skills/formal-init/SKILL.md) skill is the procedure around them.
+
+## What a setup is
+
+Required, since a handoff or a landing does not run without it:
+
+- a Lean workspace under the project root with its lakefile, `lean` and `lake` on PATH;
+- `formal.toml`, written by `formal init --workspace DIR`, its `[packages]` naming each library root the probe found, one manifest per package and `[manifest] generate` the command that writes each;
+- `DeclManifest.lean` in the workspace, copied from the `land` skill's `scripts/`, and the manifest it writes after a build, since `formal check`, the landing and the flow's declaration evidence read it ([The landing](land.md) has the generator and the manifest's grammar);
+- the prover session's standing instructions at the path `formal.toml` names, written from the `handoff` skill's template with its slots filled ([The handoff](handoff.md));
+- `flow.toml`'s `[evidence]` bound to the manifest, with `manifest_roots` and `manifest_extension = "lean"`;
+- the `formal-check` hook beside the flow's and the library's, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
+
+Recommended: the prover's language server registered in the project's `.mcp.json`, since the prover agent uses whatever prover tools are registered and works blind without them; `elan`, which installs `lean` and `lake` at the workspace's pin.
+
+## What it does
+
+1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator, the project's bindings, the proposals and a coverage line, and writes nothing.
+   A lakefile under a workspace's directory, or one it requires by path, is a package of that workspace and never a workspace of its own: the generator goes into the workspace once and runs there for every package.
+2. Plans in one message and asks once: which workspace to bind where the probe found several, which proposals to install, and the slots of the instructions the probe cannot fill (the commands that re-verify a module, the build time, where the audit modules live).
+3. Installs what was chosen and probes again.
+4. Writes `formal.toml` where it is absent, `[packages]` and the package order filled from the lakefiles, and binds `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them.
+5. Places the generator in the workspace where it is absent, never into a package inside it, and leaves the manifests to the prover's first run after a genuine build.
+6. Writes the instructions file from the template where the file `formal.toml` names is absent.
+7. Binds the flow's declaration evidence in `flow.toml` and adds the hooks to the kit's block.
+8. Runs `formal check` and `flow check`, and reports what was written, installed and declined, with the first handoff as the next step; a manifest not yet generated is named as the prover's first move with its generate command.
+
+A workspace never learns of the project's records through the setup: the instructions file carries the prover session's rules and nothing of the records or the documents beyond the bans `formal.toml` names.
+
+## `formal.toml`
+
+Only with the `formal` plugin, for a project with a Lean workspace (here `lean/`, with no lakefile yet); where the workspace has its lakefiles, `formal init` fills `[packages]` with every root of the workspace and of each package under it or required by path, one manifest and one command per package, and the package order from the requirements.
+
+```toml
+# formal.toml — the prover side's bindings for THIS project.  Every path is relative to this
+# file's directory.  The `formal` plugin's skills read it; the project's own instructions
+# name the documents' gates and the rest.
+
+[workspace]
+dir = "lean"                 # the prover workspace: the Lake package (or packages) the prover session works in
+instructions = "lean/AGENTS.md"   # the prover session's standing rules, read first by the agent whatever its runtime; a template is the handoff skill's references/workspace-instructions.md
+# The package directories (relative to the workspace) from the lowest, the workspace's own last: no
+# module of a package imports a module of a package after it.  Empty: the direction is not checked.
+package_order = []
+# Each root's `<Root>.lean` imports every module under `<Root>/`, the umbrella `formal check` reads.
+umbrellas = true
+
+[manifest]
+# The declaration manifests, one per package, in the row grammar `formal --help` prints;
+# `flow` resolves declaration evidence against the same files.  Regenerated by the prover
+# session after the last declaration change, with the commands below run in the workspace.
+files = ["scripts/decls.txt"]
+generate = "lake env lean --run DeclManifest.lean --roots <Root> --out ../scripts/decls.txt"
+
+[packages]
+# library root = the package directory it sits in, relative to the workspace: `<Root>.lean`
+# and `<Root>/` are there.  One line per root.
+# Lib = "."
+
+[documents]
+# The documents whose cited declaration names (backticked) are read at a landing and by
+# `formal cite`, as globs from the project root.
+scan = ["papers/*.md"]
+# What `formal cite` accepts beside the manifests: names of an upstream library shaped like a
+# declaration, the documents' notation shaped like a name, declarations retired on purpose (which
+# must be absent from the manifests), named targets not yet in the tree, and namespaces shared
+# with an upstream library (a qualified name under one is not checked).
+upstream = []
+notation = []
+retired = []
+open_targets = []
+ambiguous_namespaces = []
+# A regular expression for a link to the API docs, its first group the module's path with `/`
+# for `.` (as '/docs/([\w/]+)\.html', a literal string); empty: links are not read.
+docs_url = ""
+
+[anchors]
+# `formal anchors`: a citation key = the document it names, as `Key = "papers/x.md"`; a
+# `[Key] §N`, `[Key] Theorem N.M` or `[Key] Appendix A` in the files below must resolve there.
+scan = ["lean/**/*.lean"]
+# Key = "papers/x.md"
+
+[register]
+# `formal register`: what ships (tracked files under these paths, minus `exclude`) carries none
+# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line.
+ship = ["lean"]
+exclude = ["lean/AGENTS.md"]
+sanctioned = []
+# One table per class; `case = "sensitive"` for a tag, `scope` narrowing it to a subtree (a
+# package that names nothing above it), `strip = false` to match before the sanctioned cut.
+# [[register.class]]
+# name = "internal vocabulary"
+# patterns = ['\bworklog\b', '\bhandoff\b']   # literal strings: a backslash is the regex's
+
+[handoff]
+# The project's own directories (its documents, its scripts) a handoff may name: a path into one
+# arrives `../`-prefixed, since the prover session runs from the workspace.
+root_dirs = ["papers", "docs"]
+# Phrases a handoff never carries (material the prover session must not learn of).
+banned = []
+# What names a record as a source, so the prompt must carry the docstring-register warning, since
+# a docstring renders into the public artifact: the records' path prefixes, the id prefixes, the
+# file names of the log and the registry, and regular expressions for reference keys.
+records = ["records"]
+id_prefixes = ["idea", "question", "task", "finding"]
+meta_names = []
+key_patterns = []
+```
+
+## Words
+
+- **formal-init** — the skill that sets the prover side up: it probes, proposes, writes what is absent and nothing that exists, and reports; `/formal:formal-init`, after the `research` plugin's setup.
+- **probe** — the report `formal probe` prints: the workspaces with their roots and toolchains, the tools, the kit's version and what the setup is missing; it writes and installs nothing.

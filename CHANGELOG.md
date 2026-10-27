@@ -4,6 +4,13 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The documentation:
+
+- One page per tool: `docs/research/` holds the flow, the library, the dashboard, the working rules and the setup, `docs/formal/` the setup, the handoff and the landing, each page with the tool's commands, the files it keeps, its bindings file as `init` writes it, every code its check reports and its words, so the pages that mixed the tools' bindings, checks and glossary are gone; `docs/README.md` lists the pages, which is the site's navigation, and the tests read `docs/` whole.
+- `docs/research/flow-cards.md` and `docs/research/library-cards.md` specify the records and the cards: the files and their names, the front matter's form, every field and who writes it, the states, the grades and the transitions between them; the tests hold the field lists to the scripts' schemas.
+- Install says what the upgrade commands print and that the session is restarted before the next transition, that the `formal:prover` agent type is loaded at the next start, and how a session opened in a subdirectory, where the plugins are disabled, runs the checks that gate its commits.
+- Scope gains a table of where each kind of fact lives: a record, the log, the registry, a decision record, a direction, the agent's memory.
+
 ## v0.2.1 — 2026-10-27
 
 - `docs/project-card.md`, the project's card on [www.livid.work](https://livid.work/projects/research-kit/), which the website copies at each release, held to the card's rules by the tests.
@@ -15,13 +22,13 @@ Each release is a tag; the version is read from the tag and the version fields `
 1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release; in Claude Code, add the marketplace again at the tag with `--scope project` and run `claude plugin update`, and never remove the marketplace, which uninstalls the plugins for every project on the machine. [Install](docs/install.md#the-plugins-at-the-hooks-tag) gives the commands.
 2. Copy the `land` skill's `scripts/DeclManifest.lean` over the workspace's copy: its `--own` now defaults to every root of the workspace's own packages, so the regenerated manifests can gain `hypothesis` rows for conditions defined in another package. Regenerate and commit the manifests before running `formal hypotheses` against an older revision.
 3. With `[packages]` bound, `formal check` now reads the tree, and the `formal-check` hook fails on a stale manifest, an umbrella that leaves a module out, a module under a root `[packages]` does not bind, an untracked file under a root that git does not ignore, and an import against `[workspace] package_order`; regenerate or fix, or set `umbrellas = false` where an umbrella leaves modules out on purpose.
-4. For the new gates, add `[anchors]`, `[register]` and the `[documents]` allowlists to `formal.toml` by hand, as [The bindings files](docs/bindings.md) shows them (`formal init` leaves an existing file alone), then the `formal-cite`, `formal-anchors` and `formal-register` hooks.
+4. For the new gates, add `[anchors]`, `[register]` and the `[documents]` allowlists to `formal.toml` by hand, as [The formal setup](docs/formal/formal-init.md) shows them (`formal init` leaves an existing file alone), then the `formal-cite`, `formal-anchors` and `formal-register` hooks.
 
 `[handoff] records` still reads a string, and the log's archive defaults to a directory beside the log.
 
 The `formal` plugin:
 
-- `formal cite` checks that every declaration name the documents cite resolves in the manifests, and that none is private only, retired yet present, or an API-docs link to a module not in the tree ([The checks](docs/checks.md#formal-cite-formal-anchors-formal-register) has the resolution order).
+- `formal cite` checks that every declaration name the documents cite resolves in the manifests, and that none is private only, retired yet present, or an API-docs link to a module not in the tree ([The landing](docs/formal/land.md#formal-cite-formal-anchors-formal-register) has the resolution order).
 - `formal anchors` checks every `[Key] §N`, `[Key] Theorem N.M` and `[Key] Appendix X` of the Lean files against the numbered headings, bold statements and appendices of the document the key is bound to.
 - `formal register` checks that the tracked files that ship carry none of the bound pattern classes, matched after the sanctioned expressions are cut from each line; an empty scope fails.
 - `formal hypotheses` fails where a public theorem shipped at a base revision, or listed in a `--baseline` file, gained a named condition; `--update` locks a discharge and a new declaration into the baseline and never a growth, and a manifest with no `hypothesis` row is reported INERT, with exit 0 and nothing compared.

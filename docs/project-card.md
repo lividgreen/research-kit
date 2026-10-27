@@ -31,7 +31,7 @@ The **`formal` plugin**, for a project with a Lean 4 library:
 - **A verified landing.** What the session reports is checked against the built library before any document changes.
 - **Checks on the documents.** Every Lean name a document cites resolves, every section a Lean file cites exists, and what ships carries none of the project's internal vocabulary.
 
-[The checks](checks.md) lists everything the checks verify.
+Each tool's page in the [documentation](README.md) lists everything its check verifies.
 
 ## How it works
 

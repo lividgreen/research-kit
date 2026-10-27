@@ -31,22 +31,15 @@ In Claude Code each skill is also a slash command: `/research:research-init`, `/
 
 - [Why research-kit](why.md): the failures in one research project each piece of the kit replaced, one story each
 - [How to use](how-to-use.md): a research thread as you say it to the agent, from a remark at a talk to a result
-- [Getting started](getting-started.md): a first project step by step, with the files it writes, a failed check, a library card and the dashboard
+- [Getting started](research/getting-started.md): a first project step by step, with the files it writes, a failed check, a library card and the dashboard
 - [Install](install.md): the plugins for each agent that loads them, the skills for the others, the pre-commit hooks
 - [Scope](scope.md): what the kit assumes, what the agent may do without asking, and how it compares with issue trackers, reference managers and notes vaults
 
 ## What is in the box
 
-The [`research` plugin](../plugins/research/README.md):
+- The [`research` plugin](../plugins/research/README.md), for any research project: the records and their flow, the reference library, the checks on every commit, the dashboard and three working rules, seven skills in all.
+  [Getting started](research/getting-started.md) walks through a first project, and each tool has its page: [the flow](research/flow.md) and its [cards](research/flow-cards.md), [the library](research/library.md) and its [cards](research/library-cards.md), [the dashboard](research/dashboard.md), [the working rules](research/working-rules.md), [the setup](research/research-init.md).
+- The [`formal` plugin](../plugins/formal/README.md), for a project that pairs its documents with a Lean 4 library: a handoff to a prover session that is checked before it is sent, a landing that reads the built tree before any document changes, and checks on the documents, three skills with the prover agent and the manifest generator.
+  Its pages are [the setup](formal/formal-init.md), [the handoff](formal/handoff.md) and [the landing](formal/land.md).
 
-- [flow](../plugins/research/skills/flow/SKILL.md): the records, their states, the check, the ranked index and the session summary
-- [research-init](../plugins/research/skills/research-init/SKILL.md): the setup, run as `/research:research-init`
-- [library](../plugins/research/skills/library/SKILL.md): one card per referred work, with how it was read and what it supports
-- [dashboard](../plugins/research/skills/dashboard/SKILL.md): the records and the cards in a read-only local web page
-- [method](../plugins/research/skills/method/SKILL.md), [design](../plugins/research/skills/design/SKILL.md) and [debug](../plugins/research/skills/debug/SKILL.md): optional working rules for review, terminology, documents and evidence, working with the owner, design and debugging
-
-The [`formal` plugin](../plugins/formal/README.md), for a project that pairs its documents with a Lean 4 library:
-
-- [handoff](../plugins/formal/skills/handoff/SKILL.md): writes and checks the prompt a prover session receives
-- [land](../plugins/formal/skills/land/SKILL.md): checks what the session reports against the built tree before any document changes
-- [formal-init](../plugins/formal/skills/formal-init/SKILL.md): the prover-side setup, run as `/formal:formal-init`
+Every page is listed in the [documentation](README.md), and each skill's own page is what the agent reads.

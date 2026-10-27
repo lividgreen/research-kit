@@ -30,4 +30,4 @@ When the report comes back, the agent lands it: the manifest diff and a cold rea
 Say **"Give me a prompt for the prover"** and the handoff is printed for a session of your own instead; paste the report back and the landing runs the same way.
 
 Underneath, each skill is also a slash command in Claude Code (`/research:flow`, `/research:library`, `/formal:land` and so on), and every step is one command line of a skill's script (`flow`, `library`, `dashboard`, `formal` and the setup's probe), which the agent runs for you.
-[Getting started](getting-started.md) shows the first steps as those commands, with the files they write and what a failed check looks like; [Install](install.md) has the plugins, the skills for other agents and the hooks.
+[Getting started](research/getting-started.md) shows the first steps as those commands, with the files they write and what a failed check looks like; [Install](install.md) has the plugins, the skills for other agents and the hooks.

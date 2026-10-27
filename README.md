@@ -102,7 +102,7 @@ You talk to the agent as you already do, and the skills fold the kit into that c
 | "Where were we?" | The session summary is printed, and the work goes on from the top of the list. |
 
 In Claude Code each skill is also a slash command: `/research:research-init`, `/research:flow`, `/research:library` and the rest.
-[How to use](docs/how-to-use.md) follows a whole research thread, the prover's part included, and [Getting started](docs/getting-started.md) shows the commands the agent runs and the files they write.
+[How to use](docs/how-to-use.md) follows a whole research thread, the prover's part included, and [Getting started](docs/research/getting-started.md) shows the commands the agent runs and the files they write.
 
 ## Documentation
 
@@ -110,12 +110,11 @@ The full documentation and guides are at **[research-kit.livid.work](https://res
 
 - [Why research-kit](docs/why.md): the failures in one research project each piece of the kit replaced
 - [How to use](docs/how-to-use.md): a research thread as you say it to the agent
-- [Getting started](docs/getting-started.md): a first project, step by step
-- [Scope](docs/scope.md): what the kit assumes, what the agent may do without asking, and how it compares with issue trackers, reference managers and notes vaults
+- [Scope](docs/scope.md): what the kit assumes, what the agent may do without asking, where each kind of fact lives, and how it compares with issue trackers, reference managers and notes vaults
 - [Install](docs/install.md): every agent, the hooks, updating
 - [What goes online](docs/network.md): the commands that use the network and the hosts they call
-- [Glossary](docs/glossary.md), [configuration files](docs/bindings.md), [check codes](docs/checks.md)
-- The [research plugin](plugins/research/README.md) and the [formal plugin](plugins/formal/README.md): each feature with its skill and its commands
+- The [research plugin](plugins/research/README.md), with [Getting started](docs/research/getting-started.md) and a page per tool: [the flow](docs/research/flow.md) and its [cards](docs/research/flow-cards.md), [the library](docs/research/library.md) and its [cards](docs/research/library-cards.md), [the dashboard](docs/research/dashboard.md), [the working rules](docs/research/working-rules.md), [the setup](docs/research/research-init.md)
+- The [formal plugin](plugins/formal/README.md), the prover side: [the setup](docs/formal/formal-init.md), [the handoff](docs/formal/handoff.md), [the landing](docs/formal/land.md)
 - [Development](docs/development.md) and the [changelog](CHANGELOG.md)
 
 ## Contributing and security

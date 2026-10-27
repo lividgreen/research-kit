@@ -32,6 +32,23 @@ What it may not do, and what fails when it does:
 
 The owner decides what a result means, and where it is registered wherever the project's rule or the register test says they are asked; the agent decides nothing about scope or significance.
 
+## Where each fact lives
+
+A project that already keeps decision records, a roadmap, a log and an agent's memory has several places a fact could go, and a fact kept in two of them drifts; the kit gives each kind of fact one place:
+
+| A fact | Lives in | Never in |
+| --- | --- | --- |
+| open work: an idea, a question, a task | a record, moved by `flow` | a roadmap, a to-do list, the log |
+| a result | a finding naming its evidence, registered in a document | a table of results kept by hand |
+| the order of the work | the ranked list in the index, with a reason for each rank | a roadmap's order, the memory |
+| what the project produces, and in what order it is read or shipped | the registry the instructions name, and nowhere else | the records |
+| the state of the project | the log's top `**State.**` paragraph | the agent's memory, a roadmap, a notes file |
+| a decision to take | a task of a decision kind, under the decision owner | the ranked list |
+| a decision taken, with its reasons | the project's decision records where it keeps them, else the log entry that records it | a direction |
+| what interests the owner | a direction in the directions file, written by the owner | a decision record, the memory |
+| a rule of the process | the instructions file, or the skill that owns it | the log, the memory |
+| the agent's own traps and the owner's preferences | the agent's memory, which fails the clone test and so holds nothing a continuation needs | a second State paragraph |
+
 ## Compared with
 
 - **An issue tracker** (a GitHub Project, Beads, a todo file) holds tasks.
