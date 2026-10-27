@@ -4,6 +4,45 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+**Upgrading**:
+
+1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release; in Claude Code, add the marketplace again at the tag with `--scope project` and run `claude plugin update`, and never remove the marketplace, which uninstalls the plugins for every project on the machine. [Install](docs/install.md#the-plugins-at-the-hooks-tag) gives the commands.
+2. Copy the `land` skill's `scripts/DeclManifest.lean` over the workspace's copy: its `--own` now defaults to every root of the workspace's own packages, so the regenerated manifests can gain `hypothesis` rows for conditions defined in another package. Regenerate and commit the manifests before running `formal hypotheses` against an older revision.
+3. With `[packages]` bound, `formal check` now reads the tree, and the `formal-check` hook fails on a stale manifest, an umbrella that leaves a module out, a module under a root `[packages]` does not bind, an untracked file under a root that git does not ignore, and an import against `[workspace] package_order`; regenerate or fix, or set `umbrellas = false` where an umbrella leaves modules out on purpose.
+4. For the new gates, add `[anchors]`, `[register]` and the `[documents]` allowlists to `formal.toml` by hand, as [The bindings files](docs/bindings.md) shows them (`formal init` leaves an existing file alone), then the `formal-cite`, `formal-anchors` and `formal-register` hooks.
+
+`[handoff] records` still reads a string, and the log's archive defaults to a directory beside the log.
+
+The `formal` plugin:
+
+- `formal cite` checks that every declaration name the documents cite resolves in the manifests, and that none is private only, retired yet present, or an API-docs link to a module not in the tree ([The checks](docs/checks.md#formal-cite-formal-anchors-formal-register) has the resolution order).
+- `formal anchors` checks every `[Key] §N`, `[Key] Theorem N.M` and `[Key] Appendix X` of the Lean files against the numbered headings, bold statements and appendices of the document the key is bound to.
+- `formal register` checks that the tracked files that ship carry none of the bound pattern classes, matched after the sanctioned expressions are cut from each line; an empty scope fails.
+- `formal hypotheses` fails where a public theorem shipped at a base revision, or listed in a `--baseline` file, gained a named condition; `--update` locks a discharge and a new declaration into the baseline and never a growth, and a manifest with no `hypothesis` row is reported INERT, with exit 0 and nothing compared.
+- `formal witnesses` reports, by module, the public theorems with two or more named conditions and no `_nonvacuous` witness.
+- The three gates are hooks: `formal-cite`, `formal-anchors` and `formal-register`.
+- `formal check` reads the tree: the manifests' modules against the files under each root, each root's umbrella, and the import direction of `package_order`.
+- The handback compares each manifest with its own package's edited modules, and an edited umbrella of imports and guards needs no regenerated manifest.
+- The handoff check reads a record named by any of `[handoff] records`' path prefixes, a file of `meta_names` or a reference key of `key_patterns`.
+- `formal probe` and `formal init` read a lakefile under a workspace, or one it requires by path, as a package of it: one generator in the workspace, one manifest and command per package, `[packages]` and the package order filled; the probe marks an item not written yet `--`.
+- `DeclManifest.lean`'s `--own` defaults to every root built in the workspace's own packages, so a condition defined in another package is no longer dropped; it prints the roots it took.
+
+The `research` plugin:
+
+- `flow log add FILE` writes an entry at the top of the log, reflowed and linted as a record's write is; `flow log archive --before DATE` moves the older entries verbatim into one file per month in `[paths] log_archive`, each link definition going with every file that uses it, and leaves a pointer under the log's title.
+- `flow state --check --owner O` checks what a machine can see of a session's close: the inbox emptied, the active tasks in O's hand, the log's top entry dated today, every changed record named; it exits 2 for a part it could not decide.
+- `flow reflow --check PATH…` holds the project's other prose to one sentence per line, and `flow reflow --as DEST DRAFT` checks a draft before it is placed, reporting only the markdownlint violations it would add.
+- `library citecheck [DOC…]` checks that every author-year citation in a document has an entry in its own references, by first author and date, and that every entry is cited.
+- An internal document's card takes its key from its file's stem (`reports/review-1.md` is `review-1`); a card already written keeps its key.
+- `flow refine --body FILE` says that the body went to the question and names `flow task --question Q --body FILE` for a task's own body.
+- The built-in reflow keeps a short bold label such as `**State.**` or `**Proposition 5.3 (Jen 1990).**` with the sentence it opens, keeps a Markdown hard break, and reads code fences by CommonMark's rule, as `library citecheck` does.
+
+The skills and the documentation:
+
+- `land` reads a guard pair one guard at a time, splits a read-back packet too large for one reader, and sweeps the proof paragraph's "the only named hypothesis" sentence; `handoff` falls back to a general-purpose subagent where the prover agent is not loaded and keeps the task's id out of the prompt; the workspace template gains the dependency and toolchain bump procedure and the nested-package trap.
+- `method` gains Terminology, Documents (with a register test for a project that has none), Working with the owner, Evidence rules and `references/reviews.md`; `flow` says a design record is never authority and gains `references/closing.md` for a session's close; `debug` reads a background command's exit code from the tool.
+- Install says how a Claude Code project moves its pin without removing the marketplace, as tested with Claude Code 2.1.310, and how sessions sharing a tree keep the hooks' stash from reverting each other's files.
+
 ## v0.1.1 — 2026-10-26
 
 **Upgrading**: after moving the hooks' `rev`, the marketplace's `ref` and the plugin to this release, run `flow index` once and commit the index: the flow renders its table in a new form, and `flow check` fails V11, naming the cause, until the index is regenerated; the library's index is unchanged.
