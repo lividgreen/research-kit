@@ -4,6 +4,8 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+- `docs/project-card.md`, the project's card on [www.livid.work](https://livid.work/projects/research-kit/), which the website copies at each release, held to the card's rules by the tests.
+
 ## v0.2.0 — 2026-10-27
 
 **Upgrading**:

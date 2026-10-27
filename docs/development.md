@@ -93,8 +93,10 @@ What it renders:
 | `CHANGELOG.md` | `/changelog/` | Linked from the version in the header |
 | `plugins/<plugin>/README.md` | `/plugins/<plugin>/` | |
 | `plugins/<plugin>/skills/<skill>/SKILL.md` | `/plugins/<plugin>/skills/<skill>/` | The frontmatter's `name` and `description` feed the skills list of the navigation |
+| `docs/project-card.md` | not rendered | The project's card on [www.livid.work](https://livid.work/projects/research-kit/), copied there at each release with its links rewritten; the tests hold it to the card's rules |
 | anything else, `README.md` included | not rendered | A relative link to it is rewritten to the file on GitHub at the tag; an image to its raw URL |
 
 On every page the first heading is the page title, removed from the body, and every page also exists as `<route>.md`, the source file as is.
 `README.md` is GitHub's front page and is not rendered: it follows README conventions, with the badges and the install commands, and points at the site; `docs/index.md` is the site's home and carries no badges.
+The card's rules are the website's [project convention](https://github.com/lividgreen/www.livid.work/blob/main/PROJECT-CONVENTION.md): a front matter with `title`, `summary`, `tags` and `status`, a body starting at a level-2 heading, and relative links.
 So the documents link each other by relative path only, as the tests already require (every relative link must resolve), and carry no HTML beyond the README's badges; `docs/README.md` does not list `index.md`, which the site's header links; a document is added to the site by a line in `docs/README.md`.

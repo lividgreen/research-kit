@@ -228,6 +228,23 @@ def main():
     check("the README's How to use table is the site home page's Try it table, row for row",
           len(shown) > 2 and shown == table((ROOT / "docs/index.md").read_text(encoding="utf-8"), "## Try it\n"))
 
+    print("the project card www.livid.work copies at each release")
+    card = (ROOT / "docs/project-card.md").read_text(encoding="utf-8")
+    head = re.match(r"---\n(.*?)\n---\n(.*)", card, re.S)
+    keys = dict(re.findall(r"^(\w+):[ \t]*(.*)$", head.group(1), re.M)) if head else {}
+    summary = keys.get("summary", "").strip()
+    check("docs/project-card.md opens with a front matter block", bool(head))
+    check("the card's title is one line of 120 characters at most", 0 < len(keys.get("title", "").strip()) <= 120)
+    check("the card's summary is one plain paragraph of 500 characters at most, quoted where it holds a colon and a space",
+          0 < len(summary.strip("\"'")) <= 500 and (": " not in summary or summary[:1] in "\"'"))
+    check("the card's tags are a list and its status is active, shipped or archived",
+          re.fullmatch(r"\[[^\]]*\]", keys.get("tags", "[]").strip()) is not None and keys.get("status", "active").strip() in ("active", "shipped", "archived"))
+    body = head.group(2) if head else ""
+    first = re.search(r"^(#+) ", body, re.M)
+    check("the card's body has no level-1 heading and starts at level 2",
+          not re.search(r"^# ", body, re.M) and (first is None or first.group(1) == "##"))
+    check("no link destination of the card holds a parenthesis", not re.search(r"\]\([^)\s]*\([^)]*\)", body))
+
     print("the documentation is true of the tools")
     with tempfile.TemporaryDirectory() as tmp:
         proj = Path(tmp) / "init"
