@@ -7,9 +7,12 @@
 #       - id: flow-check
 #       - id: library-check
 #       - id: formal-check
+#       - id: formal-cite        # each of these three with its bindings in formal.toml
+#       - id: formal-anchors
+#       - id: formal-register
 #
 # Each check reads its bindings file at the project root; a project with no flow.toml or no
-# library.toml leaves that hook out.
+# library.toml leaves that hook out, and one that binds no anchor key or register class leaves those out.
 - id: flow-check
   name: flow check (records, their references and evidence, index freshness)
   entry: flow check
@@ -23,8 +26,26 @@
   pass_filenames: false
   always_run: true
 - id: formal-check
-  name: formal check (the manifests parse, the prover bindings resolve)
+  name: formal check (the manifests parse and are the tree's, the prover bindings resolve)
   entry: formal check
+  language: python
+  pass_filenames: false
+  always_run: true
+- id: formal-cite
+  name: formal cite (every declaration name the documents cite resolves)
+  entry: formal cite
+  language: python
+  pass_filenames: false
+  always_run: true
+- id: formal-anchors
+  name: formal anchors (every [Key] §N of the Lean files resolves in its document)
+  entry: formal anchors
+  language: python
+  pass_filenames: false
+  always_run: true
+- id: formal-register
+  name: formal register (what ships carries none of the bound pattern classes)
+  entry: formal register
   language: python
   pass_filenames: false
   always_run: true

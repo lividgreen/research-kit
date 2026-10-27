@@ -1,6 +1,6 @@
 # The checks
 
-Every problem `flow check` and `library check` report carries a code; this page names each, then says what `formal check` and `formal handoffcheck` verify.
+Every problem `flow check` and `library check` report carries a code; this page names each, then says what the `formal` plugin's checks verify.
 The kit's tests hold it to the scripts: a code a script can report and this page does not name fails them.
 Each check ends with coverage lines saying what it looked at and what it did not, and each script's `--selftest` plants one defect per code and fails when a code it can report is planted nowhere.
 
@@ -69,9 +69,23 @@ With the `formal` plugin, `formal check` reads `formal.toml` and reports, in wor
 
 - a workspace that is not a directory, or the prover session's instructions file missing;
 - a package root with neither `<Root>.lean` nor `<Root>/` under its package directory;
-- a declaration manifest missing, with the command that regenerates it, or a row outside the grammar `formal --help` prints.
+- a declaration manifest missing, with the command that regenerates it, or a row outside the grammar `formal --help` prints;
+- with `[packages]` bound: the manifests' modules not the tree's (the files on disk under each root, those git ignores left out), the missing and the extra named with the command that regenerates them, and a module counted under a root `[packages]` does not bind;
+- a root's umbrella `<Root>.lean` not importing a module under `<Root>/`, or importing one not in the tree (`umbrellas = false` turns this off; a module the package's lakefile declares as a library root of its own stands outside the umbrella);
+- a module importing a module of a later package of `[workspace] package_order`.
 
-Its coverage line names the manifests with their row counts by kind, the packages bound and the documents scanned, and says the prover tree itself is neither built nor read.
+Its coverage line names the manifests with their row counts by kind, the packages bound and the documents scanned, and says the prover tree itself is not built.
+
+## `formal cite`, `formal anchors`, `formal register`
+
+Three gates over the documents and what ships, each bound in `formal.toml`, each exiting 1 with every site named and 2 when it could not run:
+
+- `formal cite`: no document matching `[documents] scan`; a declaration name a document cites that resolves nowhere, resolves only to private declarations, or is qualified under a namespace of the manifests and names no declaration; a cited `X.lean` that is not a module; an API-docs link to a module not in the tree; a name bound as retired that the manifests still hold.
+  Its coverage lines count the resolutions by kind and the allowlisted names by list;
+- `formal anchors`: no file matching `[anchors] scan`; a `[Key] §N`, `[Key] Theorem N.M` or `[Key] Appendix X` naming no heading, statement of that kind or appendix of the key's document, or a statement riding a section it is not in; the bare keys and the § lines with no key are counted, not checked;
+- `formal register`: a line of a shipped file matching a bound pattern class after the sanctioned expressions are cut, a class reaching no file, or an empty scope.
+
+`formal hypotheses` exits 1 where a public theorem shipped at the base, or listed in a baseline, gained a named condition, and says INERT, exiting 0, where the manifests carry no `hypothesis` row; `formal witnesses` is a report and exits 0.
 
 ## `formal handoffcheck`
 
@@ -79,7 +93,7 @@ Its coverage line names the manifests with their row counts by kind, the package
 
 - one `<prompt session=fresh>` or `<prompt session=continue>` block, closed, with nothing after the closing tag, and a `continue` that states its reason;
 - none of the phrases `formal.toml` bans;
-- a record named as a source carries the docstring-register warning;
+- a record named as a source — a path under `[handoff] records`, a record id, a file of `meta_names`, a key of `key_patterns` — carries the docstring-register warning;
 - paths relative to the workspace, the project's own directories written `../`;
 - a `Refute first:` line and a `Commissioned:` line naming the declarations (or `none —` and why);
 - a bundle of two or more pieces with a `Bundle shape:` line and a sentence keeping its own words out of the docstrings.

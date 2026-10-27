@@ -33,7 +33,8 @@ The document's rows are written from the landed proof, the summary sites swept, 
 ### The `land` skill
 
 The [`land`](skills/land/SKILL.md) skill, `/formal:land` in Claude Code.
-`formal handback` prints the manifest diff, the instantiations, the witnesses owed, the guard delta, the document sites to re-read and the commission against the manifest; `formal readback NAME…` builds the docstring-stripped packet a cold reader writes each statement out from; `formal check` confirms the manifests parse and the bindings resolve.
+`formal handback` prints the manifest diff, the instantiations, the witnesses owed, the guard delta, the document sites to re-read and the commission against the manifest; `formal readback NAME…` builds the docstring-stripped packet a cold reader writes each statement out from; `formal check` confirms the manifests parse and are the tree's, each root's umbrella imports its modules, the packages import in order and the bindings resolve.
+Three gates read what a landing touches: `formal cite` resolves every declaration name the documents cite, `formal anchors` every `[Key] §N` of the Lean files against the document the key names, and `formal register` holds what ships to the public register; `formal hypotheses` fails where a shipped theorem gained a named condition, and `formal witnesses` reports the theorems owing a joint-satisfiability witness.
 [`DeclManifest.lean`](skills/land/scripts/DeclManifest.lean), beside the script, generates a Lean package's declaration manifest after a genuine build, writing the six row kinds `formal` and `flow` read.
 
 ## The prover-side setup
@@ -47,7 +48,7 @@ The [`formal-init`](skills/formal-init/SKILL.md) skill, `/formal:formal-init` in
 ## The script and the bindings
 
 The plugin has one CLI, `formal`, and its script lives in the `land` skill (`skills/land/scripts/formal.py`, beside the generator), since landing is where every check of a report runs; the `handoff` skill calls the same script for `handoffcheck` and requires `land`.
-`formal init` writes `formal.toml` at the project root: the workspace and its instructions file, the manifests and how they are regenerated, the library roots with their package directories, the documents whose cited names are read at a landing, the handoff's bans.
+`formal init` writes `formal.toml` at the project root: the workspace and its instructions file, the manifests and how they are regenerated, the library roots with their package directories, the documents whose cited names and anchors are read, what ships and the register it never carries, the handoff's bans.
 The prover's language server is registered by the project itself (its own `.mcp.json`), since the workspace path is the project's; the agent uses whatever prover tools are registered.
 Claude Code's copy of the agent, [`claude-agents/prover.md`](claude-agents/prover.md), pins `model: sonnet`: a prover session follows a checked handoff well on it and costs less than a larger model, which was the finding of the project research-kit was extracted from; the portable copy under `agents/` inherits the session's model, and a project that wants another model edits that line.
 GitHub Copilot, OpenHands and Antigravity read the agent from a directory of their own in the plugin, each holding the same text; Antigravity's also lists the tools the prover needs, since Antigravity gives an agent only the tools it names.

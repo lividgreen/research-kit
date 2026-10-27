@@ -12,9 +12,12 @@ grammar the `formal` CLI and the `flow` CLI read:
 
 `--roots` names the library roots of ONE package (one process serves one package, because of
 the single extension-loading import per process, next section); `--out` is the file written;
-`--own Root1,Root2,…` (default: the roots scanned) names every root whose Prop-valued
-definitions the hypothesis section counts as named conditions — a workspace of several
-packages passes all of them, so a row does not depend on which package's run produced it.
+`--own Root1,Root2,…` names every root whose Prop-valued definitions the hypothesis section
+counts as named conditions, so a row does not depend on which package's run produced it.  Its
+default is every root built in the workspace's own packages: the root of each imported module
+whose `.olean` lies on the search path outside the toolchain and outside a dependency's checkout
+under `.lake/packages/` — a package required by path builds in its own directory, so a condition
+defined in another package of the workspace is still a named one.  The roots taken are printed.
 
 This file is run from the workspace and is not part of the library it measures.
 
@@ -384,6 +387,21 @@ def sortedNub (xs : Array String) : Array String := Id.run do
       out := out.push x
   return out
 
+/-- The default `--own`: the roots given, and the root of every module of `env` whose `.olean`
+lies outside the toolchain's library and outside a dependency's checkout (`.lake/packages/`). -/
+def workspaceRoots (env : Environment) (roots : List Name) : IO (List Name) := do
+  let sysLib := (← getLibDir (← findSysroot)).toString
+  let mut own := roots
+  let mut seen : List Name := []
+  for m in env.header.moduleNames do
+    let r := m.getRoot
+    if seen.contains r then continue
+    seen := r :: seen
+    let path ← try pure (← findOLean m).toString catch _ => pure ""
+    unless path.isEmpty || path.startsWith sysLib || (path.splitOn "/.lake/packages/").length > 1 do
+      unless own.contains r do own := own ++ [r]
+  return own
+
 /-- Import roots and list the package's `(module, declaration)` pairs.
 
 `loadExts` is REQUIRED and its default is `false`: `isStructure`,
@@ -395,6 +413,8 @@ unsafe def scanRoots (roots own : List Name) :
       Array (Name × Name × Name) × Array (Name × Name × Name)) := do
   enableInitializersExecution
   let env ← importModules (roots.toArray.map ({ module := · })) {} (loadExts := true)
+  let own ← if own.isEmpty then workspaceRoots env roots else pure own
+  IO.eprintln s!"named conditions: the Prop-valued definitions under {own}"
   return packagePairs roots own env
 
 /-- `--roots A,B --out PATH [--own A,B,C]`, in any order. -/
@@ -418,7 +438,7 @@ unsafe def main (args : List String) : IO Unit := do
   let (roots, out, own) ← match parseArgs args with
     | .ok (roots, out, own) =>
         if roots.isEmpty || out.toString.isEmpty then throw <| IO.userError usage
-        else pure (roots, out, if own.isEmpty then roots else own)
+        else pure (roots, out, own)
     | .error e => throw <| IO.userError s!"{e}\n{usage}"
   if let some dir := out.parent then
     unless ← dir.pathExists do

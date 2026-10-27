@@ -169,7 +169,7 @@ With a Lean workspace, `/formal:formal-init` ([formal-init](../plugins/formal/sk
 
 ## 3. The hooks
 
-`.pre-commit-hooks.yaml` exposes `flow-check`, `library-check` and `formal-check`; a project pins them by `rev` and keeps no copy of the scripts:
+`.pre-commit-hooks.yaml` exposes `flow-check`, `library-check` and `formal-check`, and with a prover's documents and register bound in `formal.toml`, `formal-cite`, `formal-anchors` and `formal-register`; a project pins them by `rev` and keeps no copy of the scripts:
 
 ```yaml
 - repo: https://github.com/lividgreen/research-kit
@@ -178,6 +178,9 @@ With a Lean workspace, `/formal:formal-init` ([formal-init](../plugins/formal/sk
     - id: flow-check
     - id: library-check
     - id: formal-check   # with a prover
+    - id: formal-cite    # with [documents] bound
+    - id: formal-anchors # with [anchors] keys bound
+    - id: formal-register # with [[register.class]] bound
 ```
 
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the init proposes one where none is on PATH.
