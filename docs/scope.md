@@ -27,7 +27,8 @@ What it may not do, and what fails when it does:
 - cite a work the library does not hold (`flow check`, where the library is bound);
 - let a document's reference entry cite a work graded unread without naming the work it is known through (`library check`);
 - read the records directory whole instead of a record by id;
-- write a result's row from the design that commissioned it rather than from what landed.
+- write a result's row from the design that commissioned it rather than from what landed;
+- publish or send anything without the owner's word for that item, or schedule a publication.
 
 The owner decides what a result means and where it is registered; the agent decides nothing about scope or significance.
 

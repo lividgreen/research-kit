@@ -67,7 +67,7 @@ Where the project states tree-derived figures (guard totals, module counts), run
 
 ## 5. Register by the project's test, then write the rows and the registration from the LANDED proof
 
-Whether and where a landed result enters a document is the project's rule, read from its instructions; the `method` skill's honest-change invariants hold where the statement moved.
+Whether and where a landed result enters a document is the project's rule, read from its instructions, and where it has none the `method` skill's register test under Documents; the `method` skill's honest-change invariants hold where the statement moved.
 A row cites the file and the bare declaration name, never a private name, and never names a declaration to say it does not exist; its boundary paragraph names each ADAPTER binder as such and each UNANCHORED binder with the landing's reason; a theorem with two or more hypotheses cites its `_nonvacuous` witness, or says the witness is owed.
 A sentence saying a result is the first in any prover is checked by one prior-art search per ingredient, never one search for the whole.
 Draft the rows in a scratch file and run the project's text gates on the draft before writing them.

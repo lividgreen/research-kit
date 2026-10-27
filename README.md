@@ -21,7 +21,7 @@ The [`research` plugin](plugins/research/README.md), for any research project:
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
 - **A dashboard.** The records and the cards as a read-only page on localhost.
-- **Working rules.** Review and evidence (`method`), design before building (`design`) and debugging to the root cause (`debug`).
+- **Working rules.** Review, terminology, documents, evidence and working with the owner (`method`), design before building (`design`) and debugging to the root cause (`debug`).
 
 The [`formal` plugin](plugins/formal/README.md), for a project with a Lean 4 library:
 

@@ -96,7 +96,7 @@ The probe behind it, the research-init skill's `scripts/setup.py probe`, writes 
 ## Working rules for the agent
 
 Three skills with no script behind them, each triggered by the conversation itself.
-`method` says how to review, what counts as evidence and how to change a target honestly when a wall is hit.
+`method` says how to review, what to call things, what a document holds and when a landed result enters one, what counts as evidence, how to change a target honestly when a wall is hit, and how to work with the project's owner.
 `design` runs a design pass before anything new is built, whenever you say "let's add X" or "what about Y".
 `debug` insists on the root cause before a fix, and again before anything is called fixed.
 They came out of one research project and are optional; the tools work without them.

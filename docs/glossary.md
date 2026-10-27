@@ -63,7 +63,11 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 ## The method
 
 - **landing** — bringing a result into the record and the documents: the finding, the registration in a document, the log entry, in one change.
-- **register (a result), registration** — writing a landed result into a document as a specific numbered statement with its rows and boundary; where and whether is the project's rule.
+- **register (a result), registration** — writing a landed result into a document as a specific numbered statement with its rows and boundary; where and whether is the project's rule, the method's register test where it has none.
+- **register test** — the four clauses under which a landed result enters a document (it changes a sentence there, steps on a named open, continues a section's story, or stands as a labelled side story); otherwise it is library content.
+- **source, sink; root, leaf** — what depends on nothing and what nothing depends on in a dependency graph; the top and the ends of a directory or module tree; the two pairs are never mixed.
+- **class claim, instance claim** — a statement about every member of a class, and one about a named member; a sentence says which it makes.
+- **outsider pass** — a review of what is true only of a document an outsider reads, run when a posting is decided and never otherwise.
 - **summary sites** — the places a result is restated in short — the headline, the abstract, the contributions, the status label, the registry — which a correction must reach as well as the detailed site.
 - **status label** — the words beside a statement saying how it is established — proved, machine-checked with what stays elementary, conditional on a named hypothesis, open.
 - **pricing a target** — estimating what a piece of work costs and what it changes before committing to it.
@@ -85,6 +89,9 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **read-back packet** — a landed statement with the project-local definitions it names, docstrings and comments stripped, for a reader who has not seen the document.
 - **binder tiers** — VERBATIM, ADAPTER, IMPLIED, UNANCHORED: what each binder of a landed declaration is against the document's statement.
 - **sink-first** — a bundle lands its composite statement, the one nothing in the bundle depends on, before its predecessors are proved.
+- **umbrella** — a library root's file `<Root>.lean`, importing every module under `<Root>/`; `formal check` reads it.
+- **named condition** — a binder of a public theorem whose type is one of the workspace's own Prop-valued definitions, applied in full; the manifest's `hypothesis` rows, which `formal hypotheses` ratchets.
+- **internal register** — the words of the project's own process (record ids, stage labels, private paths), which a docstring never carries since it renders into the public API docs; `formal register` reads what ships for them.
 
 ## The dashboard
 
