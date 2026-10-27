@@ -22,6 +22,7 @@ The connection runs one way: whoever cites a work writes the cite prefix and the
 
 A card is `cards/<key>.md` under the library's directory: front matter, then a body of two sections.
 The `key` is pinned: the first author's surname and the year, a letter added on a clash, never regenerated, and it is the file's name.
+An internal document's key is its file's stem instead (`reports/review-1.md` is `review-1`), since a project's reports share their author and carry no year of publication; `--key` pins another.
 The work's fields are `kind`, `title`, `authors` as `Surname, I.`, `year`, `venue`, and whichever of `doi`, `arxiv`, `openalex`, `zbmath`, `isbn` and `url` exist; a preprint and its published version are one card carrying both identifiers.
 `metadata` says where those fields came from and when — typed by a hand, or written by a named resolver — and which fields a hand typed over the resolver's.
 `verified` is the date the fields were last checked against a resolver and which one answered, and is empty until one has been asked.
@@ -64,6 +65,7 @@ Where a key is cited is computed from the files the project binds and never stor
 | `library cited REF` | every site citing the key, as file and line, the reference entries tied to it among them |
 | `library claims [DOC…]` | the claim-shaped sentences of the bound documents that name a carded work, each with the extracts its card carries; `--uncovered` the ones whose card carries none |
 | `library entries` | the reference entries of the documents the project binds, each with the card it is tied to; `--untied` lists the ones that are not |
+| `library citecheck [DOC…]` | each document's text against its own reference entries, the bound documents where none is given: every author-year citation answered by an entry, every entry cited; exit 1 with the file and line of each that is not |
 | `library keys` | every key with its state and grade, as JSON: what a consumer's check reads |
 | `library index`, `library check` | the generated index (`--check` reports drift and writes nothing); every rule, with a coverage line |
 | `library init` | a project's `library.toml`, directories and index under `library/` (`--dir DIR` for another); `--kept` turns on the tracked kept directory (`<dir>/kept`), `--scan`, `--documents`, `--internal` name the paths, `--force` overwrites |
@@ -127,6 +129,12 @@ So a new entry in a document needs its card in the same change, and an entry who
 The failure names the nearest card and which of title, first author and year disagreed, and where the year disagreed and the card's venue names the entry's year, says so: a card typed from a preprint carries the preprint's year, and a work cited in its journal version takes the journal's.
 A work a document cites that is graded `unread` and names no `via` fails: either it was read, or it is known through a work that was.
 The title of an entry is read from its emphasized span where it has one, else from the first sentence after the year; an annotation after the work's own data is set aside.
+
+`library check` ties each entry to a card; `library citecheck` ties the document's text to its entries, so the two close the chain from a sentence to a card.
+It reads the author-year citations of the text outside the references section, its code and its front matter — `Jen (1990)`, `Brummitt and Rowland (2012)`, `Smith et al.'s (2001)`, `van der Waals (1873)` and, inside parentheses, `(Kneser, 1953; see also Jen, 1990a, b, p. 4)`, a letter alone continuing the year before it — and leaves a capitalized word before a year that is no author, such as `(In 2020)` or `(March 2021)`, alone.
+A word written as no surname is — in capitals, with three capitals in one of its hyphen-joined parts (`NeurIPS`, never `Garcia-MacDonald`) or with a digit, such as `(NeurIPS 2019)` or `(Q3 2021)` — is read as a citation only where an entry's first author bears it, as `(OECD, 2019)` does.
+A citation is answered by an entry whose first author's surname, the name before the first comma, `and` or `&`, is the cited name and whose date is the cited one, a letter suffix included, so `Jen (1990a)` needs the entry of `(1990a)` and a citation of the second author answers nothing; every entry must be cited at least once, and a line under the heading written like an entry and not read as one is named, since no citation reaches it.
+A numbered citation, a key and a footnote are not read, and the last line says how many citations and entries were; a file that is not there, or no document given and none bound, exits 2.
 
 ## Searching
 

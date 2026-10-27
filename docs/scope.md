@@ -18,7 +18,7 @@ What the kit assumes of a project, what its agent does without asking, and what 
 
 ## What the agent does without asking, and what it may not do
 
-Without asking, the agent continues from the top of the ranked list when a session opens, and corrects a sentence it finds false of the project's artifact at the sentence's own size.
+Without asking, the agent continues from the top of the ranked list when a session opens, corrects a sentence it finds false of the project's artifact at the sentence's own size, and, where the project has no rule of its own, registers a landed result by the `method` skill's register test, naming the clause that fired.
 Both are the `method` and `flow` skills' defaults; a project that wants to be asked first says so in one sentence of its instructions file, and the skills yield.
 
 What it may not do, and what fails when it does:
@@ -27,9 +27,10 @@ What it may not do, and what fails when it does:
 - cite a work the library does not hold (`flow check`, where the library is bound);
 - let a document's reference entry cite a work graded unread without naming the work it is known through (`library check`);
 - read the records directory whole instead of a record by id;
-- write a result's row from the design that commissioned it rather than from what landed.
+- write a result's row from the design that commissioned it rather than from what landed;
+- publish or send anything without the owner's word for that item, or schedule a publication.
 
-The owner decides what a result means and where it is registered; the agent decides nothing about scope or significance.
+The owner decides what a result means, and where it is registered wherever the project's rule or the register test says they are asked; the agent decides nothing about scope or significance.
 
 ## Compared with
 

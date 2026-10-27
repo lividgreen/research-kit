@@ -1,6 +1,6 @@
 ---
 name: formal-init
-description: Sets a project up for the formal plugin — `formal.toml` over its Lean workspace, the manifest generator in the workspace, the prover session's standing instructions, the flow's declaration evidence, the `formal-check` hook — and checks an existing setup. Use as `/formal:formal-init`, or when asked to set up the prover side, the formal plugin or the handoff and landing of Lean work in a project. Probes the workspace, the project and the machine with `formal probe`, proposes what is missing and installs it only on the person's word, writes what is absent and nothing that exists, and reports. Needs the research plugin's setup first.
+description: Sets a project up for the formal plugin — `formal.toml` over its Lean workspace, the manifest generator in the workspace, the prover session's standing instructions, the flow's declaration evidence, the `formal-check` hook and the document gates' hooks — and checks an existing setup. Use as `/formal:formal-init`, or when asked to set up the prover side, the formal plugin or the handoff and landing of Lean work in a project. Probes the workspace, the project and the machine with `formal probe`, proposes what is missing and installs it only on the person's word, writes what is absent and nothing that exists, and reports. Needs the research plugin's setup first.
 license: Apache-2.0
 compatibility: Python 3.11 or later for `scripts/formal.py` of the `land` skill; git; the prover, its build and `lake` are the project's, proposed when absent.
 metadata:
@@ -19,7 +19,7 @@ Required, since a handoff or a landing does not run without it:
 
 - the research plugin's setup, since the findings and the records are the flow's; `/research:research-init` comes first;
 - a Lean workspace under the project root with its lakefile, `lean` and `lake` on PATH;
-- `formal.toml`, written by `formal init --workspace DIR`, its `[packages]` naming each library root the probe found and `[manifest] generate` the command that writes the manifest;
+- `formal.toml`, written by `formal init --workspace DIR`, its `[packages]` naming each library root the probe found, one manifest per package and `[manifest] generate` the command that writes each;
 - `DeclManifest.lean` in the workspace, copied from the `land` skill's `scripts/`, and the manifest it writes after a build, since `formal check`, the landing and the flow's declaration evidence read it;
 - the prover session's standing instructions at the path `formal.toml` names, from `references/workspace-instructions.md` of the `handoff` skill, its angle-bracket slots filled;
 - `flow.toml`'s `[evidence]` bound to the manifest, with `manifest_roots` and `manifest_extension = "lean"`;
@@ -31,18 +31,19 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 
 1. Probe.
    Run `formal probe` from the project root (`--root DIR` for another; `--json` for the same as data) and read the whole report: the tools, each workspace with its package, roots, toolchain and generator, the project's bindings, the proposals, the coverage line.
+A lakefile under a workspace's directory, or one it requires by path, is a package of that workspace, listed under it, never a workspace of its own: the generator goes into the workspace once and runs there for every package, since Lake started inside a nested package resolves that package alone.
 2. Plan, in one message.
    Say which workspace the setup binds (ask when the probe found several), what exists and is left alone, what will be written, and what is missing with the proposal for each; ask the person once, in one question: which proposals to install, and the slots of the instructions the probe cannot fill (the exact commands that re-verify a module, the build time, where the audit modules live).
    Install nothing and register nothing before the answer; in a run nobody can answer, write what the defaults allow and list the rest as left to the person.
 3. Install what was chosen, with the proposal's command as shown, then run the probe again.
 4. Write the bindings.
-   `formal init --workspace DIR` where `formal.toml` is absent; then fill `[packages]` with the roots the probe read from the lakefile, each at its package directory, and `[manifest] generate` with those roots; `--force` only when the person asks for the file to be rewritten.
+   `formal init --workspace DIR` where `formal.toml` is absent: it fills `[packages]` with every root the lakefiles declare, each at its package directory, one manifest and one generate command per package with every root of the workspace as `--own`, and `package_order` from the requirements; read them against the probe, and bind `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them; `--force` only when the person asks for the file to be rewritten.
 5. Place the generator.
-   Copy `scripts/DeclManifest.lean` of the `land` skill into the workspace where it is absent, and leave the manifest to the prover's first run after a genuine build, as the report says.
+   Copy `scripts/DeclManifest.lean` of the `land` skill into the workspace where it is absent, never into a package inside it, and leave the manifests to the prover's first run after a genuine build, as the report says.
 6. Write the instructions.
    Where the file `formal.toml` names is absent, write it from `references/workspace-instructions.md` of the `handoff` skill with the slots filled from the probe and the answers; where it exists, leave it and say so.
 7. Bind the flow's evidence and the hook.
-   In `flow.toml`, set `[evidence] manifest`, `manifest_roots` (the workspace's package directories) and `manifest_extension = "lean"`; add `formal-check` to the kit's block in `.pre-commit-config.yaml`.
+   In `flow.toml`, set `[evidence] manifest`, `manifest_roots` (the workspace's package directories) and `manifest_extension = "lean"`; add `formal-check` to the kit's block in `.pre-commit-config.yaml`, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
 8. Verify and report.
    `formal check` and `flow check`; a manifest not yet generated is a problem both report, named in the report as the prover's first move with the generate command; then what was written, installed and declined, and the first handoff as the next step.
 

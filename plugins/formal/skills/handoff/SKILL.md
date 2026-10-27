@@ -13,12 +13,14 @@ metadata:
 A prover session has none of this conversation, so everything it needs is in the prompt, and everything the prompt decides is checked before it goes anywhere.
 The prompt is composed to the shape below inside literal `<prompt session=…>` … `</prompt>` tags, whichever route it takes, checked with `formal handoffcheck DRAFT` — the `land` skill's script beside this one: `${CLAUDE_PLUGIN_ROOT}/skills/land/scripts/formal.py` under Claude Code, `../land/scripts/formal.py` from this skill's directory under any other agent — and then either dispatched to the `formal:prover` agent as it stands, the records and the commit first and the dispatch the turn's last tool call, or emitted for the owner's own prover session with nothing after the closing tag.
 Which route a handoff takes is the owner's call, the agent when nothing is said.
+Where the session has no `formal:prover` agent type loaded, the dispatch is a general-purpose subagent given the text of the plugin's `agents/prover.md` and then the prompt, the same run by other means.
 A design round whose deliverable is a prover prompt hands over to this skill rather than writing the prompt inline, and the landing that answers it is the `land` skill.
 
 ## Sequencing
 
 The prompt is the LAST thing in the turn: finish every tool call first — the records, the gates, the commit — then compose the prompt and end the turn with it, nothing after the closing tag.
 Before writing, mint the work the prompt carries in the flow: a task under its question, drawn by the prover's owner — an owner the project adds to `flow.toml`'s `[hand]` with a limit of one and names in its instructions, so the hand holds the one handoff in flight; the `land` skill closes it — and read the records for riders — a ready task marked as riding the next handoff is carried as a trailing piece or re-pointed in the same commit, never left.
+The task's id stands in the log entry that records the handoff and never in the prompt, since a session cites what it was given.
 
 ## The session attribute
 
@@ -49,6 +51,7 @@ Its record (the bar it states: axiom-clean, guard, scope); the document section 
    - a refactor: what stays byte-identical (guards, public docstrings, statement texts), and that the sweep touches names, visibility and file boundaries only — a move that needs a proof to change means the boundary is wrong, and the session stops and reports it;
    - a multi-piece bundle: the docstrings name no piece of any handoff, no bundle, no landing, no session and no record;
    - a prompt naming a record as a source: this sentence verbatim — "The records named above are sources to READ, not citations: a docstring renders verbatim into the public artifact, so it cites the document's section and row ids — never a record or the log.";
+   - guards commissioned together, one per hypothesis: each guard's own statement shape — its witness named in the statement or only built in the proof, the stage or parameters it is stated at, a value or only a bound — since parallel prose comes back as different binders;
    - a witness or guard at a named object: a public statement cannot name a private declaration, so the object is made public rather than the statement weakened to an existential, and a commissioned existential pins every quantity it is about;
    - every prompt: the report names every commissioned declaration that does not land, and why.
 4. The close: "Report back per <the workspace's instructions>, listing EVERY new declaration — public and private — and every instantiation of an existing generic, not only the commissioned ones."
@@ -57,7 +60,8 @@ Its record (the bar it states: axiom-clean, guard, scope); the document section 
 
 ## The check, before emitting
 
+Read the `Commissioned:` line once against the targets before the check, since a line written first can be shorter than the prompt it closes.
 Write the draft, tags included, to a scratch file outside the repository and run `formal handoffcheck DRAFT` (with no file it reads the draft from standard input); fix what it flags and re-run to exit 0 (exit 2 means it could not check — a draft without the tags among the causes — a failure, not a pass).
-It checks the decidable invariants only — the session attribute, the closing tag, the continue-reason clause, the banned phrases, the register warning, workspace-relative paths, the `Refute first:`, `Bundle shape:` and `Commissioned:` lines, the bundle-words sentence — and a pass does not replace re-reading the prompt against the current text it quotes: a prose correction invalidates any handoff built on it.
+It checks the decidable invariants only — the session attribute, the closing tag, the continue-reason clause, the banned phrases, the register warning wherever a record is named (a path under `formal.toml`'s `records`, an id, a file of `meta_names`, a key of `key_patterns`), workspace-relative paths, the `Refute first:`, `Bundle shape:` and `Commissioned:` lines, the bundle-words sentence — and a pass does not replace re-reading the prompt against the current text it quotes: a prose correction invalidates any handoff built on it.
 Make the prompt self-contained — the file, the exact declaration signatures, the proof strategy, the reused lemmas with their files, the guard to add — and carry the hard gate: the prover session pushes nothing anywhere.
 Keep the draft until the landing: the `land` skill passes it to `formal handback --handoff DRAFT`.

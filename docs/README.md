@@ -8,7 +8,7 @@
 - [What goes online, and what runs](network.md) — the online commands, the hosts they call, the environment variables they read
 - [Glossary](glossary.md) — every word the skills use, one line each
 - [The bindings files](bindings.md) — `flow.toml`, `library.toml` and `formal.toml` as `init` writes them, every binding explained
-- [The checks](checks.md) — every code `flow check` and `library check` can report, what the `formal` checks verify, the exit codes
+- [The checks](checks.md) — every code `flow check` and `library check` can report, what `flow state --check`, `flow reflow`, `library citecheck` and the `formal` checks verify, the exit codes
 - [Development](development.md) — the layout, the tests, how a release is cut; the [CHANGELOG](../CHANGELOG.md) beside the README
 
 Each skill is documented by its own `SKILL.md` under [`plugins/`](../plugins), which is also what the agent reads.

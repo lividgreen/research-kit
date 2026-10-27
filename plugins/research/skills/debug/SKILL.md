@@ -46,5 +46,6 @@ Stop fixing and question the design with the user instead of attempting a fourth
 - Claiming "fixed"/"passing"/"done" requires FRESH evidence from this session: run the project's full verification gate, read the output, then state the claim with the evidence.
   "Should work now" is not a status.
   If a check fails, say so with the output — a true "it's still broken" beats a false "done" every time.
-- Judge a check by its exit status, never by grepping its output: a pipe or a filter reports a failure as a success.
+- Judge a check by its exit status, never by grepping its output: a pipe or a filter reports a failure as a success; a background command's exit code is read from the tool's report of it, never from a trailing `echo`, which masks it.
+- A scripted edit is verified afterwards by searching for every anchor it inserted, since an anchor that does not match leaves the file unchanged without a word.
 - A green that did not run on the file is not a green: when a check passes suspiciously, confirm its scope and its trigger both included the file — the two are separate lists and widening one does not widen the other.

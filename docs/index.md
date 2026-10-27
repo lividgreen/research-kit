@@ -43,7 +43,7 @@ The [`research` plugin](../plugins/research/README.md):
 - [research-init](../plugins/research/skills/research-init/SKILL.md): the setup, run as `/research:research-init`
 - [library](../plugins/research/skills/library/SKILL.md): one card per referred work, with how it was read and what it supports
 - [dashboard](../plugins/research/skills/dashboard/SKILL.md): the records and the cards in a read-only local web page
-- [method](../plugins/research/skills/method/SKILL.md), [design](../plugins/research/skills/design/SKILL.md) and [debug](../plugins/research/skills/debug/SKILL.md): optional working rules for review, design and debugging
+- [method](../plugins/research/skills/method/SKILL.md), [design](../plugins/research/skills/design/SKILL.md) and [debug](../plugins/research/skills/debug/SKILL.md): optional working rules for review, terminology, documents and evidence, working with the owner, design and debugging
 
 The [`formal` plugin](../plugins/formal/README.md), for a project that pairs its documents with a Lean 4 library:
 

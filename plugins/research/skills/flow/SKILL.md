@@ -2,7 +2,7 @@
 name: flow
 description: The typed flow of research work — ideas, tasks, questions with kill criteria and findings whose evidence a machine resolves, one Markdown record each, transitions through the `flow` CLI, a validator, a generated index with a ranked next list, and a cold-start bundle. Use when reading a project's records to pick up work, when capturing an idea, minting or drawing a task, closing one with its resolution, framing or answering a question, recording a checkable result, ranking the next list, or restructuring the records. The project's own instructions bind the directory, the prefixes and the gates through `flow.toml`; this skill names none of them.
 license: Apache-2.0
-compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), a project reflow module (one sentence per line; built in otherwise); a declaration manifest and a probes register for the findings' evidence, without which declaration and probe evidence is reported unchecked.
+compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), git (the log's part of a session's close check), a project reflow module (one sentence per line; built in otherwise); a declaration manifest and a probes register for the findings' evidence, without which declaration and probe evidence is reported unchecked.
 metadata:
   version: "0.1.1"
   script: scripts/flow.py
@@ -40,11 +40,11 @@ A closed task moves to the archive at its closing transition, so the record dire
 | rank | the ranked next list: one record's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1 --why "…" --first-move "…"`; `--direction D`; `--insert` to take a held rank and move the rest down; `flow rank --set ID…`; `flow rank task-0001 --clear` |
 | set | one hand-editable field: summary, size, dod, rider on or off | `flow set task-0001 size small` |
 
-Views: `flow find --type task --state ready` (also `--kind`, `--status`, `--tag`, `--owner`, `--question Q`, `--paper P`, `--requires ID`, `--depends-on ID`, `--parked`, `--ranked`, `--grep WORD`), `flow show ID` (the record, its links and its back-references), `flow graph --from ID` (`--dot` for Graphviz), `flow state` (the cold-start bundle; `--from N` continues it, `--budget N` bounds it), `flow directions` (the directions file), `flow index` (`--print` to stdout, `--check` for drift), `flow check`.
+Views: `flow find --type task --state ready` (also `--kind`, `--status`, `--tag`, `--owner`, `--question Q`, `--paper P`, `--requires ID`, `--depends-on ID`, `--parked`, `--ranked`, `--grep WORD`), `flow show ID` (the record, its links and its back-references), `flow graph --from ID` (`--dot` for Graphviz), `flow state` (the cold-start bundle; `--from N` continues it, `--budget N` bounds it; `--check --owner O` checks a session's close, below), `flow directions` (the directions file), `flow index` (`--print` to stdout, `--check` for drift), `flow check`.
 `flow --help` lists every command, `flow <command> --help` its flags, and neither needs a bindings file.
 The global flags are `--json` (any command emits one JSON object), `--root DIR` (the project, found upward from the working directory otherwise) and `--today DATE`; `flow pages` prints the page manifest the `dashboard` skill renders.
 A `--body FILE` or `--resolution FILE` takes a file, never inline text, so a long body is drafted first and checked by the project's text gates — its own checks on prose, such as a linter or a line rule.
-Make and abort append the resolution to the task's body under its date, as refine appends its `--body`, so the archived task keeps what was asked and its notes.
+Make and abort append the resolution to the task's body under its date, as refine appends its `--body` to the question's and says so, so the archived task keeps what was asked and its notes.
 A ready or active task's `rider` field marks it as riding the next piece of work handed to another owner; the index lists such tasks under "Rider for the next hand-over".
 
 A design round is a task of the design kind: drawn before the round, closed by make or abort with the round record as its resolution and its discarded options one line each inside that record.
@@ -79,7 +79,32 @@ The one record written by hand is one imported from before the flow: its whole f
 Edit a body freely, and a `summary`, `size`, `dod` or `rider` with `flow set`, which refuses a field the record's type does not carry and a value the field does not take; a body is one sentence per line, and a write that adds a markdownlint violation is reverted where markdownlint is on PATH (with the project's configuration where `flow.toml` binds one or the root keeps one, else a built-in one under which a record's `summary:` is its title).
 The front matter is the subset of YAML the script writes: plain scalars, single-quoted strings (a quote doubled inside), double-quoted strings with escapes, `null`, `true`/`false`, integers, block lists (`- item`) and one-level maps; a hand edit stays inside that subset, and `flow check` reads every record back.
 A record points at where its subject is STATED and never restates it, because the statement moves and a copy does not.
+A design record is never authority: a record points at a round for its reasoning or its history, never cites it for a rule, a criterion or a method, since the criteria a round fixed bound that round alone.
 Run `flow check` before committing; the project's hook runs it as well.
+
+## The log, the close and the project's other prose
+
+`flow log add FILE` writes the entry FILE holds at the top of the log, under its title: reflowed to one sentence per line, a bold label of at most four words ending in a period, such as `**State.**` or `**Theorem 2.1.**`, a parenthetical allowed after its words as in `**Proposition 5.3 (Jen 1990).**`, kept with its sentence, and reverted where markdownlint reports a violation the log did not have, as a record's write is.
+It refuses an entry that does not open with its `## YYYY-MM-DD — headline` and its `**State.**` paragraph, one dated after today or before the top entry, and a file holding two entries.
+`flow log archive --before DATE` moves every entry dated before DATE, verbatim and newest first, into one file per month (`2026-09.md`) in the log's archive directory, merging into a month's file that exists and keeping the link definitions closing it, and leaves one line under the log's title (under its front matter where it has no title) pointing there; the top entry always stays, and an entry whose heading carries no date is refused, since the archive files an entry by its date.
+The log's entries are its level-2 headings outside its front matter and its code fences, a fence closing only on a run of its own character at least as long as the one that opened it.
+A link definition closing the log goes to every file whose text uses its label: it moves to the archive files where only archived entries use it, is copied where the log uses it too, and stays in the log where nothing does.
+The log and its archive files are written together or not at all, and a markdownlint violation either would gain undoes both.
+
+`flow state --check --owner O`, at a session's close, decides what a machine can see of it, O being the working session's owner, and prints one line per failure:
+
+- the directions file's inbox holds a line outside a comment;
+- an active task is held by another owner than O, other than a decision owner `flow.toml` names, whose hand the person holds;
+- the log's top entry is not dated today while the tree has changed since the commit of the newest committed entry — any commit since, on a shared repository another's as well;
+- a record changed since that commit, and no entry from the top down to that one names its id.
+
+The log's two need git and a committed log; where either is missing, or there is no inbox section, the check says which part it did not decide.
+It exits 1 when a part fails, else 2 when a part could not be decided, so a close it could not see whole is never read as clean, else 0; without `--owner`, or with one `flow.toml` does not list, it does not run and exits 2.
+What it cannot see stays the session's: what the conversation holds that no record does, and whether every site a change reaches says the same; `references/closing.md` is the close — the clone test, the inventory turn by turn, the sweep by meaning — and what the agent's memory holds.
+
+`flow reflow --check PATH…` holds the project's other prose to the reflow the records get: it prints each line, as file and line, that the reflow would change, skipping a front matter block, reads the Markdown files under a directory, and exits 1 on any, or 2 on a path that is not there.
+A line the reflow does not split is left as written, so a hard break's two trailing spaces are not a change, and a line it splits keeps them on its last part; a code fence is read as the log's are.
+`flow reflow --as DEST DRAFT` checks a draft before it is placed: its lines the reflow would change, and the markdownlint violations it adds when appended to DEST (the draft alone where DEST does not exist yet), under the configuration a record's write runs with, each at the draft's own line, and never one DEST had already; it writes nothing.
 
 ## The next list
 
@@ -132,7 +157,7 @@ Findings shard by the document that registers them (`--paper`, read off a row or
 | Transition | Consumes and produces | Command |
 | --- | --- | --- |
 | frame | ideas → question (ideas consumed), or one finding → question | `flow frame idea-0001 --summary "…" --kill "…"`; `--kind conjecture`, `--parent Q` for a sub-question, `--size`, `--direction D`, `--tag`, `--source`, `--body FILE` |
-| refine | open or decomposed question → tasks, sub-questions, ideas; the question is decomposed (a parked one is unparked first) | `flow refine question-0001 --task "…" work --subq "…" "…" --idea "…"`; `--kind`, `--size`, `--dod` and `--requires ID` for the tasks minted, `--body FILE` |
+| refine | open or decomposed question → tasks, sub-questions, ideas; the question is decomposed (a parked one is unparked first) | `flow refine question-0001 --task "…" work --subq "…" "…" --idea "…"`; `--kind`, `--size`, `--dod` and `--requires ID` for the tasks minted, `--body FILE` appended to the question's body under its date and never to a task's, which `flow task "…" --question Q --body FILE` writes |
 | make, abort | an active task's closing transition may mint findings and questions | `flow make task-0001 --finding "…" verified Lib/Foo.lean#decl --resolution FILE`; `--paper P` names the shard, `--depends-on F` a finding's dependence |
 | answer | question with a finding → answered; refused while it has open tasks; a question whose kill names work rather than a result is answered by the done tasks drawn under it | `flow answer question-0001 --by finding-0001`; `flow answer question-0002 --by task-0003`; `--by` repeats where several findings or tasks answer it together |
 | kill | an open or decomposed question → abandoned with a dated reason | `flow kill question-0001 --reason "…"` |
@@ -169,15 +194,16 @@ A result is registered in a document as a specific numbered statement with its r
 
 ## What else a project keeps
 
-- A LOG of dated entries, newest first, one per landing or decision, each `## YYYY-MM-DD — headline` opening with a `**State.**` paragraph, the top one the paragraph a cold session trusts; the commit message carries its headline and a pointer, never the entry; old entries are archived by period, verbatim.
+- A LOG of dated entries, newest first, one per landing or decision, each `## YYYY-MM-DD — headline` opening with a `**State.**` paragraph, the top one the paragraph a cold session trusts, written by `flow log add`; the commit message carries its headline and a pointer, never the entry; old entries are archived by month, verbatim, by `flow log archive`.
 - A directions file the owner writes: an inbox slot the next session processes before anything else — each item turned into a record or acted on, named in that session's log entry, and removed, the slot never serving as a log — and the owner's dated statements of interest.
 - A REGISTRY of the deliverables — what the project produces (documents, a library, releases) and in what order they are read or shipped — the one place that order is stated; the ranked list orders the work, the registry the products.
 - Optionally a reference library of the works it refers to, the `library` skill's, bound to the flow by one command.
+- Optionally an annex for the artifacts it made that a recorded claim depends on and no other container owns, its front page carrying the test for what is admitted, a subdirectory made only when what fills it exists.
 
 ## What the project binds
 
 `flow init` in an empty project writes `flow.toml` with the bindings filled in and the optional ones commented, the record directories under `records/` (`--records DIR` for another), the directions file, the log where `--log FILE` names one, and the index, and prints the paragraph the project's instructions should carry; `--force` overwrites a bindings file that exists.
 It writes two owners unless `--owner` names others: `agent`, the working session, with a hand limit of two active tasks, and `owner`, the person, with no limit (a limit of 0 is unlimited), who is the decision owner — a task of a decision kind is minted under that owner's hand and is never ranked.
-`flow.toml` names the record directory, the index, the archive, the directions file, the log, the id prefixes and width, the owners and their hand limits, the task kinds, the default kind, the question-optional kinds, the decision kinds and owners (owners listed under `[hand]`, or none), the sizes, the finding statuses, the shards, the evidence resolvers, the reference library's command, the reflow module and the markdownlint config, and the library's command, which may stay unset: with a `library.toml` at the root the flow asks the library skill installed beside this one, else `library` on PATH, and `flow check`'s coverage line says which.
+`flow.toml` names the record directory, the index, the archive, the directions file, the log and its archive directory (beside the log, `WORKLOG-archive/` for `WORKLOG.md`, where unbound), the id prefixes and width, the owners and their hand limits, the task kinds, the default kind, the question-optional kinds, the decision kinds and owners (owners listed under `[hand]`, or none), the sizes, the finding statuses, the shards, the evidence resolvers, the reference library's command, the reflow module and the markdownlint config, and the library's command, which may stay unset: with a `library.toml` at the root the flow asks the library skill installed beside this one, else `library` on PATH, and `flow check`'s coverage line says which.
 The project's instructions name the log, the registry, the gates that cover the records and the archive rule.
 The project's instructions also name where results are registered and what gates cover them.

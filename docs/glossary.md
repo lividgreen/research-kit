@@ -29,7 +29,8 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **rider** — a ready or active task marked as riding the next piece of work handed to another owner; the index lists it under "Rider for the next hand-over".
 - **direction** — the owner's dated statement of what interests them, in the directions file: a hint that ranks items first, never a gate.
 - **the inbox** — the slot at the top of the directions file where the owner leaves mail for the next session, which processes it first and empties it.
-- **the log** — dated entries, newest first, each opening with a State paragraph; the top one is what a cold session trusts.
+- **the log** — dated entries, newest first, each opening with a State paragraph; the top one is what a cold session trusts; `flow log add` writes one at the top, `flow log archive` moves the old ones to one file per month.
+- **the close** — the end of a session: what a machine can see of it, `flow state --check` decides — the inbox emptied, the hand, the log's date and the records it names — and the rest is the session's.
 - **the registry** — the one place the project's deliverables and their order are stated; the ranked list orders the work, the registry the products.
 - **evidence, status** — a finding's evidence items and the status they imply: `verified` (a declaration resolves in the manifest), `stated` (a document's statement or row), `empirical` (a probe), `refuted` (a guard or a probe as counterexample); the names are the project's.
 - **declaration manifest** — a text file a prover's build regenerates, one `Module.Path name` line per declaration; the evidence resolver for declarations.
@@ -38,12 +39,14 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **do-not-reopen** — a tag on a question the index lists under "Settled, do not re-open" whatever its state, so a settled matter is seen before it is asked again.
 - **legacy** — the `origin` of a record imported from before the flow, the one record written by hand; it gains its kill criteria at its first round.
 - **text gates** — the project's own checks on prose, such as a linter or a one-sentence-per-line rule, run on a draft before a body or a row is written.
+- **clone test** — a session is closed when a clone of the repository on another computer could continue from it; the agent's memory, the scratchpad and a running subagent do not travel.
+- **annex** — an optional directory for the artifacts a recorded claim depends on that no other container owns.
 - **coverage line** — the last line of a check, saying which resolvers it looked at, so a green says what it did not look at (also `library`).
 
 ## The library
 
 - **card** — one file per referred work: its fields, how it was read, our notes, its extracts, its copy.
-- **key** — a card's pinned name, the first author's surname and the year by default, `--key` for another; a record cites a work as `lib:<key>`.
+- **key** — a card's pinned name, the first author's surname and the year by default and an internal document's file stem, `--key` for another; a record cites a work as `lib:<key>`.
 - **register (a work)** — `library register`: a new card for a work; distinct from registering a result, below.
 - **read grade** — `unread`, `skimmed`, `parts`, `full`: a claim about the reader, not the work; a resolver's answer is never a read.
 - **via** — the card a work is known through when it was not read itself.
@@ -55,11 +58,16 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **seeded** — a card loaded from an older list of works rather than registered for a citation, marked so.
 - **internal document** — a document of the project itself with a card of an internal kind naming its tracked file; cited by key, never from a document's reference entries.
 - **reference entry** — a line of a document's `## References` section, tied to exactly one card by title, first author and year.
+- **author-year citation** — `Jen (1990)` or `(Jen, 1990)` in a document's text, answered by the entry of its references with that first author and date; `library citecheck` holds the two to each other.
 
 ## The method
 
 - **landing** — bringing a result into the record and the documents: the finding, the registration in a document, the log entry, in one change.
-- **register (a result), registration** — writing a landed result into a document as a specific numbered statement with its rows and boundary; where and whether is the project's rule.
+- **register (a result), registration** — writing a landed result into a document as a specific numbered statement with its rows and boundary; where and whether is the project's rule, the method's register test where it has none.
+- **register test** — the four clauses under which a landed result enters a document (it changes a sentence there, steps on a named open, continues a section's story, or stands as a labelled side story); otherwise it is library content.
+- **source, sink; root, leaf** — what depends on nothing and what nothing depends on in a dependency graph; the top and the ends of a directory or module tree; the two pairs are never mixed.
+- **class claim, instance claim** — a statement about every member of a class, and one about a named member; a sentence says which it makes.
+- **outsider pass** — a review of what is true only of a document an outsider reads, run when a posting is decided and never otherwise.
 - **summary sites** — the places a result is restated in short — the headline, the abstract, the contributions, the status label, the registry — which a correction must reach as well as the detailed site.
 - **status label** — the words beside a statement saying how it is established — proved, machine-checked with what stays elementary, conditional on a named hypothesis, open.
 - **pricing a target** — estimating what a piece of work costs and what it changes before committing to it.
@@ -81,6 +89,9 @@ The words the skills use, each in one line, grouped by the skill that owns them;
 - **read-back packet** — a landed statement with the project-local definitions it names, docstrings and comments stripped, for a reader who has not seen the document.
 - **binder tiers** — VERBATIM, ADAPTER, IMPLIED, UNANCHORED: what each binder of a landed declaration is against the document's statement.
 - **sink-first** — a bundle lands its composite statement, the one nothing in the bundle depends on, before its predecessors are proved.
+- **umbrella** — a library root's file `<Root>.lean`, importing every module under `<Root>/`; `formal check` reads it.
+- **named condition** — a binder of a public theorem whose type is one of the workspace's own Prop-valued definitions, applied in full; the manifest's `hypothesis` rows, which `formal hypotheses` ratchets.
+- **internal register** — the words of the project's own process (record ids, stage labels, private paths), which a docstring never carries since it renders into the public API docs; `formal register` reads what ships for them.
 
 ## The dashboard
 

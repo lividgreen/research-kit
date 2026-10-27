@@ -41,6 +41,7 @@ The [`flow`](skills/flow/SKILL.md) skill, `/research:flow` in Claude Code.
 | one hand-editable field | `flow set task-0001 size small` |
 
 Views: `flow state` (the cold-start summary), `flow find`, `flow show ID`, `flow graph --from ID`, `flow directions`, `flow index`, `flow check`.
+The log and the close: `flow log add FILE` writes an entry at the top of the log, `flow log archive --before DATE` moves the old ones to one file per month, and `flow state --check --owner agent` checks what a machine can see of a session's close; `flow reflow --check PATH…` holds the project's other prose to one sentence per line, and `flow reflow --as DEST DRAFT` checks a draft before it is placed.
 Every command takes `--json`; `flow init` is the write behind the setup.
 
 ## A reference library that refuses an unread citation
@@ -61,6 +62,7 @@ The [`library`](skills/library/SKILL.md) skill, `/research:library` in Claude Co
 | a dated note, an addressed extract | `library note KEY --note "…"`, `library extract KEY ID --at "Theorem 4" --quote "…"` |
 | a copy obtained by hand, its pages, its text searched | `library keep KEY FILE`, `library page KEY`, `library find --text WORDS` |
 | search, links, citing sites | `library find WORDS`, `library related KEY`, `library cited KEY`, `library claims`, `library entries` |
+| a document's citations against its own references | `library citecheck DOC` |
 | the check and the index | `library check`, `library index` |
 
 | Online | Command |
@@ -94,7 +96,7 @@ The probe behind it, the research-init skill's `scripts/setup.py probe`, writes 
 ## Working rules for the agent
 
 Three skills with no script behind them, each triggered by the conversation itself.
-`method` says how to review, what counts as evidence and how to change a target honestly when a wall is hit.
+`method` says how to review, what to call things, what a document holds and when a landed result enters one, what counts as evidence, how to change a target honestly when a wall is hit, and how to work with the project's owner.
 `design` runs a design pass before anything new is built, whenever you say "let's add X" or "what about Y".
 `debug` insists on the root cause before a fix, and again before anything is called fixed.
 They came out of one research project and are optional; the tools work without them.

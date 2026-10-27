@@ -1,6 +1,6 @@
 # The checks
 
-Every problem `flow check` and `library check` report carries a code; this page names each, then says what `formal check` and `formal handoffcheck` verify.
+Every problem `flow check` and `library check` report carries a code; this page names each, then says what the checks reporting in words verify: `flow state --check`, `flow reflow`, `library citecheck` and the `formal` plugin's checks.
 The kit's tests hold it to the scripts: a code a script can report and this page does not name fails them.
 Each check ends with coverage lines saying what it looked at and what it did not, and each script's `--selftest` plants one defect per code and fails when a code it can report is planted nowhere.
 
@@ -8,6 +8,7 @@ Each check ends with coverage lines saying what it looked at and what it did not
 
 Every check exits 0 when clean, 1 when it found problems, each printed with its place, and 2 when it could not run: no bindings file at the root, or one that does not parse.
 The 2 is its own code so that a hook or a CI job never reads "did not run" as "clean".
+`flow reflow --check` and `library citecheck` given a file that is not there, `library citecheck` with no document given and none bound, and `flow state --check` without an owner `flow.toml` lists, exit 2 as well; `flow state --check` exits 1 when a part fails, else 2 when a part could not be decided, else 0.
 
 ## `flow check`
 
@@ -40,6 +41,23 @@ The 2 is its own code so that a hook or a CI job never reads "did not run" as "c
 The codes are names, not a sequence: V7 is unassigned.
 The one warning (which does not fail the check) names a decomposed question whose tasks are all closed, which needs refine or answer.
 
+## `flow state --check`
+
+`flow state --check --owner O` checks what a machine can see of a session's close, O the working session's owner, and prints one line per failure, each with its file:
+
+- the directions file's inbox holds a line outside a comment;
+- an active task is held by another owner than O, a decision owner `flow.toml` names aside;
+- the log's top entry is not dated today, and the tree has changed since the commit of the newest committed entry, another's commit on a shared repository included;
+- a record changed since that commit, and no entry from the top down to that one names its id.
+
+Its last line says what it checked; a part it could not decide — no inbox section, no log bound, no git, no committed entry — is named on a line of its own and is not counted as passed: with no failure, the check exits 2.
+Under `--json` each failure is a problem of code `STATE`.
+
+## `flow reflow`
+
+`flow reflow --check PATH…` prints each line, as file and line, that the reflow would change, and `flow reflow --as DEST DRAFT` each line of the draft that the reflow would change and each markdownlint violation the draft adds appended to DEST, never one DEST had already.
+Under `--json` they are problems of code `REFLOW` and `MARKDOWNLINT`; the last line says which reflow ran and whether markdownlint did.
+
 ## `library check`
 
 | Code | What it says |
@@ -63,15 +81,40 @@ The one warning (which does not fail the check) names a decomposed question whos
 | L16 | an extract is malformed — its id, locator, words, caveat, rule or date — or its `checked` date is not a date or is in the future, or an unread card with no `via` carries an extract |
 | L17 | a card naming a project file whose file is not in the tree or whose kind is not internal, an internal document recording another copy, or a card of an internal kind naming no file |
 
+## `library citecheck`
+
+`library citecheck [DOC…]` reads each document's text against its own `## References` section, the bound documents where none is given, and prints, as file and line:
+
+- an author-year citation that no entry answers: none whose first author is the cited name, with the cited date, a letter suffix included;
+- an entry the text never cites;
+- a line under the heading written like an entry and not read as one, which no citation can reach.
+
+Under `--json` each is a problem of code `CITE`; the last line counts the documents, the citations and the entries read.
+It ties no entry to a card, which is `library check`'s L12.
+
 ## `formal check`
 
 With the `formal` plugin, `formal check` reads `formal.toml` and reports, in words rather than codes:
 
 - a workspace that is not a directory, or the prover session's instructions file missing;
 - a package root with neither `<Root>.lean` nor `<Root>/` under its package directory;
-- a declaration manifest missing, with the command that regenerates it, or a row outside the grammar `formal --help` prints.
+- a declaration manifest missing, with the command that regenerates it, or a row outside the grammar `formal --help` prints;
+- with `[packages]` bound: the manifests' modules not the tree's (the files on disk under each root, those git ignores left out), the missing and the extra named with the command that regenerates them, and a module counted under a root `[packages]` does not bind;
+- a root's umbrella `<Root>.lean` not importing a module under `<Root>/`, or importing one not in the tree (`umbrellas = false` turns this off; a module the package's lakefile declares as a library root of its own stands outside the umbrella);
+- a module importing a module of a later package of `[workspace] package_order`.
 
-Its coverage line names the manifests with their row counts by kind, the packages bound and the documents scanned, and says the prover tree itself is neither built nor read.
+Its coverage line names the manifests with their row counts by kind, the packages bound and the documents scanned, and says the prover tree itself is not built.
+
+## `formal cite`, `formal anchors`, `formal register`
+
+Three gates over the documents and what ships, each bound in `formal.toml`, each exiting 1 with every site named and 2 when it could not run:
+
+- `formal cite`: no document matching `[documents] scan`; a declaration name a document cites that resolves nowhere, resolves only to private declarations, or is qualified under a namespace of the manifests and names no declaration; a cited `X.lean` that is not a module; an API-docs link to a module not in the tree; a name bound as retired that the manifests still hold.
+  Its coverage lines count the resolutions by kind and the allowlisted names by list;
+- `formal anchors`: no file matching `[anchors] scan`; a `[Key] §N`, `[Key] Theorem N.M` or `[Key] Appendix X` naming no heading, statement of that kind or appendix of the key's document, or a statement riding a section it is not in; the bare keys and the § lines with no key are counted, not checked;
+- `formal register`: a line of a shipped file matching a bound pattern class after the sanctioned expressions are cut, a class reaching no file, or an empty scope.
+
+`formal hypotheses` exits 1 where a public theorem shipped at the base, or listed in a baseline, gained a named condition, and says INERT, exiting 0, where the manifests carry no `hypothesis` row; `formal witnesses` is a report and exits 0.
 
 ## `formal handoffcheck`
 
@@ -79,7 +122,7 @@ Its coverage line names the manifests with their row counts by kind, the package
 
 - one `<prompt session=fresh>` or `<prompt session=continue>` block, closed, with nothing after the closing tag, and a `continue` that states its reason;
 - none of the phrases `formal.toml` bans;
-- a record named as a source carries the docstring-register warning;
+- a record named as a source — a path under `[handoff] records`, a record id, a file of `meta_names`, a key of `key_patterns` — carries the docstring-register warning;
 - paths relative to the workspace, the project's own directories written `../`;
 - a `Refute first:` line and a `Commissioned:` line naming the declarations (or `none —` and why);
 - a bundle of two or more pieces with a `Bundle shape:` line and a sentence keeping its own words out of the docstrings.

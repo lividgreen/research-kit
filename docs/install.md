@@ -169,7 +169,7 @@ With a Lean workspace, `/formal:formal-init` ([formal-init](../plugins/formal/sk
 
 ## 3. The hooks
 
-`.pre-commit-hooks.yaml` exposes `flow-check`, `library-check` and `formal-check`; a project pins them by `rev` and keeps no copy of the scripts:
+`.pre-commit-hooks.yaml` exposes `flow-check`, `library-check` and `formal-check`, and with a prover's documents and register bound in `formal.toml`, `formal-cite`, `formal-anchors` and `formal-register`; a project pins them by `rev` and keeps no copy of the scripts:
 
 ```yaml
 - repo: https://github.com/lividgreen/research-kit
@@ -178,11 +178,15 @@ With a Lean workspace, `/formal:formal-init` ([formal-init](../plugins/formal/sk
     - id: flow-check
     - id: library-check
     - id: formal-check   # with a prover
+    - id: formal-cite    # with [documents] bound
+    - id: formal-anchors # with [anchors] keys bound
+    - id: formal-register # with [[register.class]] bound
 ```
 
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the init proposes one where none is on PATH.
 Each check reads its bindings file at the project root; a project with no `flow.toml`, `library.toml` or `formal.toml` leaves that hook out.
 A bindings file names code that runs — the reflow module, the library's command and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
+pre-commit and prek stash the unstaged changes while the hooks run and restore them after, so in a repository where several agent sessions work in one tree, one session's commit briefly reverts the files another is editing or reading; there, each session commits from a `git worktree` of its own and the main tree takes the commit with `git merge --ff-only`.
 To update the hooks, set `rev` to the next tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it).
 
 ### The plugins at the hooks' tag
@@ -192,13 +196,16 @@ A project keeps the two at one tag by pinning the marketplace to the tag its `re
 
 | Agent | The marketplace at a tag |
 | --- | --- |
-| Claude Code | `/plugin marketplace add lividgreen/research-kit#v0.2.0`; in `.claude/settings.json`, `"ref": "v0.2.0"` beside `"repo"` in the source |
+| Claude Code | `claude plugin marketplace add 'lividgreen/research-kit#v0.2.0' --scope project`, which writes `"ref": "v0.2.0"` beside `"repo"` in the source of `.claude/settings.json` |
 | Codex | `codex plugin marketplace add lividgreen/research-kit --ref v0.2.0` |
 | GitHub Copilot | `copilot plugin marketplace add lividgreen/research-kit#v0.2.0`; in VS Code, `"lividgreen/research-kit#v0.2.0"` in `chat.plugins.marketplaces` |
 | Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#v0.2.0'` |
 
 A pinned marketplace updates to its tag and no further; the project moves it and the hooks' `rev` to the next tag together, in one commit where the pin is in a committed settings file.
-In Claude Code, `add` writes the `ref` into the user's settings, and `/plugin marketplace remove research-kit` also deletes the project's own entry from `.claude/settings.json`: after re-pinning, check that the project's settings still declare the marketplace with its `ref`.
+In Claude Code the marketplace is one per machine, known by its name to every project on it, so a project moves its pin by adding it again at the next tag, `claude plugin marketplace add 'lividgreen/research-kit#<tag>' --scope project`, which points the marketplace at the tag in place and writes the `ref` into the project's settings, then `claude plugin update research@research-kit --scope project` (and `formal@research-kit`); every other project keeps the version it installed until it runs the update itself.
+Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the tag the machine knows.
+Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
+Claude Code 2.1.310 behaves so.
 Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move together by hand.
 The setup probe, run from the installed plugin, says whether the hooks' `rev`, the marketplace's `ref` in the project's `.claude/settings.json` and the plugin's own version name one tag.
 

@@ -30,6 +30,9 @@ A predecessor's statement is fixed by the sink: proving a predecessor of a lande
 
 <the module docstring's form; the import discipline; the guard the module carries; the manifest regeneration; the public README's module table, which is the root's to edit>
 
+A docstring renders verbatim into the public API docs, so it carries no internal register: no record id, no stage label, no name of a private document; the root's `formal register` reads what ships.
+A public package follows its community's standard as the libraries downstream of it adopt it: the standard linter set, a warning fixed and never suppressed at file level, warnings as errors in the build that gates a release, the naming conventions, a module docstring in every file.
+
 ## After ANY declaration change
 
 Regenerate the manifests with the command `formal.toml` names, run the root's read-only checks from the project root, and quote their drift lists in the report.
@@ -37,6 +40,20 @@ Regenerate the manifests with the command `formal.toml` names, run the root's re
 ## Known traps
 
 <each one in two lines: the symptom, the rule it earned; the incidents stay in the project's log>
+
+Where the workspace holds several packages, one required by another by path: Lake, or a language server, started inside a nested package resolves that package alone and can fetch its path dependencies into a private `.lake/packages` there, which is deleted, never used.
+Lake runs from the workspace, and the manifest generator lives there, once.
+
+## Bumping a dependency or the toolchain
+
+1. Save the sorted warning lines of a clean build on the old pins.
+2. Edit the nested packages' own manifests before the update, so their transitive pins follow the workspace's.
+3. Run the update; a cache fetch that stalls after writing the manifest is killed and the build run.
+4. Fix the renamed names in waves, one search per renamed family.
+5. Clear the deprecations that are renames only; report the ones that change a statement's shape.
+6. After a clean rebuild, diff the warning lists: one instance and a count per new class.
+7. Run the whole-library axiom audit and report its summary line.
+8. The handoff for a bump carries `Refute first: not applicable — bump`.
 
 ## When a result flips to machine-checked
 

@@ -21,12 +21,13 @@ The [`research` plugin](plugins/research/README.md), for any research project:
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
 - **A dashboard.** The records and the cards as a read-only page on localhost.
-- **Working rules.** Review and evidence (`method`), design before building (`design`) and debugging to the root cause (`debug`).
+- **Working rules.** Review, terminology, documents, evidence and working with the owner (`method`), design before building (`design`) and debugging to the root cause (`debug`).
 
 The [`formal` plugin](plugins/formal/README.md), for a project with a Lean 4 library:
 
 - **A checked handoff.** The prompt a prover session gets is checked before it is sent.
 - **A verified landing.** What the session reports is checked against the built library before any document changes.
+- **Checks on the documents.** Every Lean name a document cites resolves, every section a Lean file cites exists, and what ships carries none of the project's internal vocabulary, each a pre-commit hook.
 
 Each plugin has a setup skill that proposes what the project needs and writes it on your word.
 Every tool is a single Python 3.11 script with no dependencies, and all the data is plain Markdown you can read without the kit.
