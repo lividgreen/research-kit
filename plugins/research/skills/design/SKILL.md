@@ -4,7 +4,7 @@ description: Design pass for any new mechanism, tool, check, document section, o
 license: Apache-2.0
 compatibility: No tooling; read before building or changing anything.
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
 ---
 
 # Design before implementation

@@ -4,7 +4,7 @@ description: Sets a project up for the formal plugin — `formal.toml` over its 
 license: Apache-2.0
 compatibility: Python 3.11 or later for `scripts/formal.py` of the `land` skill; git; the prover, its build and `lake` are the project's, proposed when absent.
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   requires: land
 ---
 

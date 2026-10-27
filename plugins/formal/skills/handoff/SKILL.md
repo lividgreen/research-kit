@@ -4,7 +4,7 @@ description: Compose a prover-session handoff prompt for the formal target(s) na
 license: Apache-2.0
 compatibility: Python 3.11 or later for the check (`scripts/formal.py` of the `land` skill); the prover and its build are the project's. Reads `formal.toml` at the project root where there is one, the default bindings otherwise.
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   requires: land
 ---
 
