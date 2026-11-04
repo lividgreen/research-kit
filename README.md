@@ -17,7 +17,7 @@ It keeps a project's ideas, questions, tasks, findings and cited works as checke
 
 The [`research` plugin](plugins/research/README.md), for any research project:
 
-- **Research records.** Ideas, questions with kill criteria, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next.
+- **Research records.** Ideas, questions with a criterion of what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next.
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
 - **A dashboard.** The records and the cards as a read-only page on localhost.
@@ -43,7 +43,7 @@ The agent needs a shell, since each skill runs its script with Python; [Install]
 ## Why
 
 research-kit grew out of a research project, a series of papers with a Lean 4 library written over months with one coding agent.
-Its pieces are known techniques: an issue tracker's states and work-in-progress limits, kill criteria fixed before the work, a reference manager's cards, and checks that run on every commit.
+Its pieces are known techniques: an issue tracker's states and work-in-progress limits, a question's criterion fixed before the work, a reference manager's cards, and checks that run on every commit.
 What the project added is how they fit together, learned from what failed there.
 
 With the flow in place:
@@ -96,13 +96,14 @@ You talk to the agent as you already do, and the skills fold the kit into that c
 | "Set up research-kit in this project." | The project is probed, what is missing proposed, and on your word the records, the library and the hooks are written. |
 | "At yesterday's talk someone claimed A might imply B. Keep that." | An idea record appears, with its source. |
 | "Let's look into it." | The idea becomes a question with what would settle it, split into tasks you see before they are written. |
-| "What's next?" | The ranked list is refreshed, a reason for each rank, and the top task is drawn. |
+| "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus with a reason for each rank, and the top work is drawn. |
 | "Add Stuart and Humphries (1996) to the library; I read chapter 2." | A card for the book records how far it was read, and a citation of it is checked against that. |
 | "Show me the dashboard." | The records and the cards open as a read-only page on localhost. |
 | "Where were we?" | The session summary is printed, and the work goes on from the top of the list. |
+| "Let's freeze here." | What the session found and did not record is saved to the records, the checks run, and the work is committed for the next session. |
 
-In Claude Code each skill is also a slash command: `/research:research-init`, `/research:flow`, `/research:library` and the rest.
-[How to use](docs/how-to-use.md) follows a whole research thread, the prover's part included, and [Getting started](docs/getting-started.md) shows the commands the agent runs and the files they write.
+In Claude Code each skill is also a slash command: `/research:research-init`, `/research:whatsnext`, `/research:freeze`, `/research:flow`, `/research:library` and the rest.
+[How to use](docs/how-to-use.md) follows a whole research thread, the prover's part included, and [Getting started](docs/research/getting-started.md) shows the commands the agent runs and the files they write.
 
 ## Documentation
 
@@ -110,12 +111,11 @@ The full documentation and guides are at **[research-kit.livid.work](https://res
 
 - [Why research-kit](docs/why.md): the failures in one research project each piece of the kit replaced
 - [How to use](docs/how-to-use.md): a research thread as you say it to the agent
-- [Getting started](docs/getting-started.md): a first project, step by step
-- [Scope](docs/scope.md): what the kit assumes, what the agent may do without asking, and how it compares with issue trackers, reference managers and notes vaults
+- [Scope](docs/scope.md): what the kit assumes, what the agent may do without asking, where each kind of fact lives, and how it compares with issue trackers, reference managers and notes vaults
 - [Install](docs/install.md): every agent, the hooks, updating
 - [What goes online](docs/network.md): the commands that use the network and the hosts they call
-- [Glossary](docs/glossary.md), [configuration files](docs/bindings.md), [check codes](docs/checks.md)
-- The [research plugin](plugins/research/README.md) and the [formal plugin](plugins/formal/README.md): each feature with its skill and its commands
+- The [research plugin](plugins/research/README.md), with [Getting started](docs/research/getting-started.md) and a page per tool: [the setup](docs/research/research-init.md), [the flow](docs/research/flow.md) and its [cards](docs/research/flow-cards.md), [what is next](docs/research/whatsnext.md) and [the freeze](docs/research/freeze.md), [the library](docs/research/library.md) and its [cards](docs/research/library-cards.md), [the dashboard](docs/research/dashboard.md), [the working rules](docs/research/working-rules.md)
+- The [formal plugin](plugins/formal/README.md), the prover side: [the setup](docs/formal/formal-init.md), [the handoff](docs/formal/handoff.md), [the landing](docs/formal/land.md)
 - [Development](docs/development.md) and the [changelog](CHANGELOG.md)
 
 ## Contributing and security

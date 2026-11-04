@@ -295,9 +295,10 @@ table.kv th{width:10em;text-transform:none;letter-spacing:0;font-size:.9em}
 .badge{display:inline-block;font-size:.76em;font-weight:600;padding:1px 7px;border-radius:99px;
 border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
 .s-open,.s-ready,.s-verified,.s-lean-verified,.s-full,.s-registered{color:var(--g)}
-.s-active,.s-decomposed,.s-stated,.s-proven,.s-parts{color:var(--b)}
-.s-empirical,.s-parked,.s-skimmed{color:var(--y)}.s-refuted,.s-abandoned,.s-unread,.s-excluded{color:var(--r)}
-.s-done,.s-answered,.s-consumed{color:var(--p)}.s-type,.s-ungraded{color:var(--n)}
+.s-active,.s-stated,.s-proven,.s-parts{color:var(--b)}
+.s-empirical,.s-parked,.s-blocked,.s-skimmed{color:var(--y)}
+.s-refuted,.s-aborted,.s-wrong,.s-unread,.s-excluded{color:var(--r)}
+.s-done,.s-answered,.s-impossible,.s-consumed{color:var(--p)}.s-type,.s-ungraded,.s-removed{color:var(--n)}
 .body{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px 18px}
 .body p{margin:.6em 0}.body h2{margin-top:1.2em}
 .ok{color:var(--g)}.bad{color:var(--r)}

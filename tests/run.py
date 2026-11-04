@@ -203,10 +203,10 @@ def main():
         m = re.search(r'^\s+version: "([^"]+)"', fm, re.M)
         check(f"{d.parent.parent.name}/{d.name}: metadata.version is the plugin's", bool(m) and m.group(1) == plugin_version)
 
-    print("the shell blocks of docs/getting-started.md")
+    print("the shell blocks of docs/research/getting-started.md")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    blocks = [("getting-started", b) for b in re.findall(r"```sh\n(.*?)```", (ROOT / "docs/getting-started.md").read_text(encoding="utf-8"), re.S)]
-    check("docs/getting-started.md has its shell blocks", bool(blocks))
+    blocks = [("getting-started", b) for b in re.findall(r"```sh\n(.*?)```", (ROOT / "docs/research/getting-started.md").read_text(encoding="utf-8"), re.S)]
+    check("docs/research/getting-started.md has its shell blocks", bool(blocks))
     with tempfile.TemporaryDirectory() as tmp:
         bindir = Path(tmp) / "bin"
         bindir.mkdir()
@@ -252,35 +252,46 @@ def main():
         subprocess.run([sys.executable, str(SCRIPTS["flow"]), "init", "--log", "WORKLOG.md"], capture_output=True, text=True, cwd=proj, check=True)
         subprocess.run([sys.executable, str(SCRIPTS["library"]), "init", "--kept", "--scan", "records", "--scan", "WORKLOG.md"], capture_output=True, text=True, cwd=proj, check=True)
         subprocess.run([sys.executable, str(SCRIPTS["formal"]), "init", "--workspace", "lean"], capture_output=True, text=True, cwd=proj, check=True)
-        bindings = (ROOT / "docs/bindings.md").read_text(encoding="utf-8")
-        shown = re.findall(r"```toml\n(.*?)```", bindings, re.S)
-        for i, name in enumerate(("flow.toml", "library.toml", "formal.toml")):
-            check(f"docs/bindings.md shows {name} as init writes it", len(shown) == 3 and shown[i] == (proj / name).read_text(encoding="utf-8"))
+        pages = {"docs/research/flow.md": ("flow.toml",), "docs/research/library.md": ("library.toml",), "docs/formal/formal-init.md": ("formal.toml",)}
+        for page, names in pages.items():
+            shown = re.findall(r"```toml\n(.*?)```", (ROOT / page).read_text(encoding="utf-8"), re.S)
+            for i, name in enumerate(names):
+                check(f"{page} shows {name} as init writes it", len(shown) == len(names) and shown[i] == (proj / name).read_text(encoding="utf-8"))
         lite = Path(tmp) / "lite"
         lite.mkdir()
         for argv in (["init", "--log", "WORKLOG.md"], ["capture", "A might imply B", "--source", "a talk"],
-                     ["frame", "idea-0001", "--summary", "Does A imply B?", "--kill", "a finite counterexample, or a proof"],
+                     ["frame", "idea-0001", "--summary", "Does A imply B?", "--criterion", "a finite counterexample, or a proof"],
                      ["refine", "question-0001", "--task", "prove the lemma", "work", "--task", "design the route", "design"]):
             subprocess.run([sys.executable, str(SCRIPTS["flow"]), *argv], capture_output=True, text=True, cwd=lite, check=True)
-        started = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
+        started = (ROOT / "docs/research/getting-started.md").read_text(encoding="utf-8")
         record = re.findall(r"```markdown\n(.*?)```", started, re.S)[0]
         task = next((lite / "records/tasks").glob("task-0001-*.md"))
         today = __import__("datetime").date.today().isoformat()
-        check("docs/getting-started.md shows the task record as the tool writes it",
+        check("docs/research/getting-started.md shows the task record as the tool writes it",
               task.name == "task-0001-prove-the-lemma.md" and task.read_text(encoding="utf-8").replace(today, "2026-10-23") == record)
         task.write_text(task.read_text(encoding="utf-8").replace("state: ready", "state: active"), encoding="utf-8")
         r = subprocess.run([sys.executable, str(SCRIPTS["flow"]), "check"], capture_output=True, text=True, cwd=lite)
         failed = re.findall(r"```text\n(.*?)```", started, re.S)[0]
-        check("docs/getting-started.md shows the failed check as the tool reports it",
+        check("docs/research/getting-started.md shows the failed check as the tool reports it",
               r.returncode == 1 and r.stdout.splitlines()[:2] == failed.splitlines()[:2])
-    checks = (ROOT / "docs/checks.md").read_text(encoding="utf-8")
-    for name, script in (("flow", SCRIPTS["flow"]), ("library", SCRIPTS["library"])):
-        codes = set(re.findall(r'"code": "([VL]\d+)"', script.read_text(encoding="utf-8"))) | set(re.findall(r'bad\("([VL]\d+)"', script.read_text(encoding="utf-8")))
-        named = set(re.findall(r"^\| ([VL]\d+) \|", checks, re.M))
-        check(f"docs/checks.md names every code {name} check can report", codes <= named, str(sorted(codes - named)))
+    records = (ROOT / "docs/research/flow-cards.md").read_text(encoding="utf-8")
+    schema = ast.literal_eval(re.search(r"^SCHEMA = (\{.*?^\})", SCRIPTS["flow"].read_text(encoding="utf-8"), re.S | re.M).group(1))
+    for kind, heading in (("idea", "### An idea"), ("question", "### A question"), ("task", "### A task"), ("finding", "### A finding")):
+        listed = tuple(re.findall(r"`([a-z_]+)`", records.split(heading + "\n", 1)[1].strip().splitlines()[0]))
+        check(f"docs/research/flow-cards.md lists a {kind}'s fields as the flow writes them", listed == tuple(schema[kind]), str(listed))
+    cards = (ROOT / "docs/research/library-cards.md").read_text(encoding="utf-8")
+    lib_src = SCRIPTS["library"].read_text(encoding="utf-8")
+    fields = ast.literal_eval(re.search(r"^FIELDS = (\(.*?\))", lib_src, re.S | re.M).group(1)) + ast.literal_eval(re.search(r"^OPTIONAL = (\(.*?\))", lib_src, re.M).group(1))
+    listed = tuple(re.findall(r"`([a-z_]+)`", cards.split("## The fields\n", 1)[1].strip().splitlines()[0]))
+    check("docs/research/library-cards.md lists a card's fields as the library writes them", listed == fields, str(listed))
+    for name, page in (("flow", "docs/research/flow.md"), ("library", "docs/research/library.md")):
+        script = SCRIPTS[name].read_text(encoding="utf-8")
+        codes = set(re.findall(r'"code": "([VL]\d+)"', script)) | set(re.findall(r'bad\("([VL]\d+)"', script))
+        named = set(re.findall(r"^\| ([VL]\d+) \|", (ROOT / page).read_text(encoding="utf-8"), re.M))
+        check(f"{page} names every code {name} check can report", codes <= named, str(sorted(codes - named)))
 
     print("the documentation's links")
-    for doc in [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", *sorted((ROOT / "docs").glob("*.md")), *sorted(ROOT.glob("plugins/*/README.md"))]:
+    for doc in [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", *sorted((ROOT / "docs").rglob("*.md")), *sorted(ROOT.glob("plugins/*/README.md"))]:
         text = doc.read_text(encoding="utf-8")
         for target in re.findall(r"\]\(([^)\s]+)\)", text):
             if re.match(r"^(https?:|mailto:|#)", target):
@@ -295,7 +306,7 @@ def main():
     check("the README names no version where the tag is the pin", not re.search(r"@v\d|rev: v\d", readme + (ROOT / "docs/install.md").read_text()))
 
     print("the repository paths the documentation's prose names")
-    for doc in [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")), *sorted(ROOT.glob("plugins/*/README.md"))]:
+    for doc in [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md")), *sorted(ROOT.glob("plugins/*/README.md"))]:
         text = doc.read_text(encoding="utf-8")
         spans = re.findall(r"`([^`\n]+)`", text)  # a path inside any code span, `python3 plugins/…` included
         for token in sorted({m for s in spans for m in re.findall(r"(?<![\w/.-])((?:plugins|docs|tests|packaging|\.github)/[^\s`]+)", s)}):
@@ -305,7 +316,7 @@ def main():
 
     print("markdownlint")
     if shutil.which("markdownlint"):
-        files = [str(p.relative_to(ROOT)) for p in [ROOT / "README.md", ROOT / "CHANGELOG.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", *(ROOT / "docs").glob("*.md"), *ROOT.glob("plugins/**/*.md")]]
+        files = [str(p.relative_to(ROOT)) for p in [ROOT / "README.md", ROOT / "CHANGELOG.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", *(ROOT / "docs").rglob("*.md"), *ROOT.glob("plugins/**/*.md")]]
         r = subprocess.run(["markdownlint", "-c", ".markdownlint.jsonc", *files], capture_output=True, text=True, cwd=ROOT)
         check("markdownlint passes on the repository's Markdown with .markdownlint.jsonc", r.returncode == 0, (r.stdout + r.stderr).strip()[-300:])
     else:

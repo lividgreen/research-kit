@@ -14,7 +14,7 @@ A wrong check is easiest to fix with the smallest record, card or bindings file 
 
 - `python3 tests/run.py` passes; it runs every script's selftest and holds the documentation to the tools, with `markdownlint` and the Claude CLI on PATH where you have them.
 - A script stays one file on the standard library of Python 3.11, and a helper the scripts share stays byte-identical in each.
-- A new check code is named in [The checks](docs/checks.md) and planted by the script's selftest; a new subcommand or flag is named in its skill's `SKILL.md`.
+- A new check code is named on its tool's page, [The flow](docs/research/flow.md) or [The library](docs/research/library.md), and planted by the script's selftest; a new subcommand or flag is named in its skill's `SKILL.md`.
 - The change has a line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md), which the pull request's `changelog` check requires; the version fields are bumped at the release, not in the pull request.
 - Markdown is one sentence per line and passes `.markdownlint.jsonc`.
 

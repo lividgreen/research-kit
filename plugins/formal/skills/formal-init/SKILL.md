@@ -37,7 +37,9 @@ A lakefile under a workspace's directory, or one it requires by path, is a packa
    Install nothing and register nothing before the answer; in a run nobody can answer, write what the defaults allow and list the rest as left to the person.
 3. Install what was chosen, with the proposal's command as shown, then run the probe again.
 4. Write the bindings.
-   `formal init --workspace DIR` where `formal.toml` is absent: it fills `[packages]` with every root the lakefiles declare, each at its package directory, one manifest and one generate command per package with every root of the workspace as `--own`, and `package_order` from the requirements; read them against the probe, and bind `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them; `--force` only when the person asks for the file to be rewritten.
+   `formal init --workspace DIR` where `formal.toml` is absent: it fills `[packages]` with every root the lakefiles declare, each at its package directory, one manifest and one generate command per package with every root of the workspace as `--own` where it has several packages, and `package_order` from the requirements.
+   It takes what the project already says: `[workspace] instructions` is the instructions file the workspace has (`AGENTS.md`, else `CLAUDE.md`); the manifests are the ones `flow.toml`'s `[evidence] manifest` binds, one per package, and the generate commands write those; `[handoff]`'s `records`, `id_prefixes` and `meta_names` come from `flow.toml`'s `[paths]` and `[prefixes]`, and `key_patterns` from `library.toml`'s cite prefix; it prints each binding it took that way.
+   Read what it wrote against the probe, and bind `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them; `--force` only when the person asks for the file to be rewritten.
 5. Place the generator.
    Copy `scripts/DeclManifest.lean` of the `land` skill into the workspace where it is absent, never into a package inside it, and leave the manifests to the prover's first run after a genuine build, as the report says.
 6. Write the instructions.
@@ -46,6 +48,7 @@ A lakefile under a workspace's directory, or one it requires by path, is a packa
    In `flow.toml`, set `[evidence] manifest`, `manifest_roots` (the workspace's package directories) and `manifest_extension = "lean"`; add `formal-check` to the kit's block in `.pre-commit-config.yaml`, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
 8. Verify and report.
    `formal check` and `flow check`; a manifest not yet generated is a problem both report, named in the report as the prover's first move with the generate command; then what was written, installed and declined, and the first handoff as the next step.
+   Where the plugin was installed in this session, the report says that the `formal:prover` agent type is loaded when a session starts and appears after a restart; until then a handoff takes the `handoff` skill's general-purpose fallback.
 
 ## Rules
 

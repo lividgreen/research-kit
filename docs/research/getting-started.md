@@ -2,23 +2,24 @@
 
 A first project, step by step, as the commands the agent runs and the files they write; you never need to type them, but they show what the agent does and what a record holds.
 The shell blocks below run in order in one empty directory, and the kit's tests run them exactly so.
-In a project with an agent, `/research:research-init` does the setup of the first block and more: the [research-init](../plugins/research/skills/research-init/SKILL.md) skill probes the project and the machine, proposes what is missing and writes the bindings, the instructions and the hooks.
+In a project with an agent, `/research:research-init` does the setup of the first block and more; [The research setup](research-init.md) says what it probes, asks and writes.
 
 ## The records
 
 ```sh
-flow init --log WORKLOG.md     # flow.toml, records/{ideas,tasks,questions,findings,archive} with records/directions.md and records/INDEX.md, a first log entry
+flow init --log WORKLOG.md     # flow.toml, records/{ideas,tasks,questions,findings,archive} with records/directions.md and records/INDEX.md, INBOX.md, a first log entry
 library init --kept --scan records --scan WORKLOG.md --documents "papers/*.md"
 flow capture "A might imply B" --source "a talk"
-flow frame idea-0001 --summary "Does A imply B?" --kill "a finite counterexample, or a proof"
+flow frame idea-0001 --summary "Does A imply B?" --criterion "a finite counterexample, or a proof"
 flow refine question-0001 --task "prove the lemma" work --task "design the route" design
 flow check
 flow state
 ```
 
-`flow init` writes two owners: `agent`, the working session, with a hand limit of two active tasks, and `owner`, the person, with no limit (0 is unlimited), who holds the decision tasks; `--owner` names others.
-The task kinds it writes are `work`, `design`, `prose`, `survey`, `upkeep`, `community` and `decision`; a task of the first four stands under a question, the last three stand alone; edit the lists in `flow.toml`, which [The bindings files](bindings.md) shows whole.
-Then bind the evidence resolvers in `flow.toml` where the project has them — `[evidence] manifest`, `manifest_roots` and `manifest_extension` for a declaration manifest (a text file a prover's build regenerates, one `Module.Path name` line per declaration; the flow reads those lines and passes over the other row kinds the `formal` plugin's generator writes), `probes` for a register of self-asserting scripts.
+`flow init` writes two hands: `agent`, the agent's across its sessions, with a limit of four (its active tasks and the ideas drawn into it), and `owner`, the person's, with no limit (0 is unlimited); `--owner` names others.
+The task kinds it writes are `work`, `design`, `prose`, `survey`, `upkeep` and `community`; a task of any kind may come from a question, an idea or another task, named in its `derived_from`, or stand alone; edit the list in `flow.toml`, which [The flow](flow.md) shows whole.
+It also writes `INBOX.md`, where you leave items between sessions; `flow state` prints it first, before the ranked list, the hands and the log's top entry.
+Then bind the evidence resolvers in `flow.toml` where the project has them — `[evidence] manifest`, `manifest_roots` and `manifest_extension` for a declaration manifest (a text file a prover's build regenerates, one `Module.Path name` line per declaration; of the other row kinds the `formal` plugin's generator writes, the flow reads `private`, `field` and `instance` rows as declarations too and passes over `module` and `hypothesis`), `probes` for a register of self-asserting scripts.
 The library needs no binding: where `library.toml` stands at the root, `flow check` asks the library skill installed beside the flow skill, else a `library` command on PATH, and its coverage line says which; `[library] command` in `flow.toml` names another command, and `command = []` asks none.
 Unbound, declaration and probe evidence is reported unchecked and the check's coverage line says so.
 
@@ -37,7 +38,6 @@ type: task
 kind: work
 state: ready
 summary: prove the lemma
-question: question-0001
 derived_from:
 - question-0001
 requires: []
@@ -49,7 +49,9 @@ rank: null
 why_now: null
 first_move: null
 rider: false
-abandoned: null
+parked: null
+blocked: null
+closed: null
 origin: current
 source: null
 created: '2026-10-23'
@@ -57,7 +59,7 @@ tags: []
 ---
 ```
 
-The front matter is what the tool owns: `state`, `owner`, `drawn`, `rank` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`).
+The front matter is what the tool owns: `state`, `derived_from`, `owner`, `drawn`, `rank`, `parked`, `blocked`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`).
 The body below it is yours, one sentence per line.
 
 ### What a failed check looks like
@@ -69,11 +71,11 @@ records/tasks/task-0001-prove-the-lemma.md: V9 active without an owner
 records/INDEX.md: V11 records/INDEX.md is stale — run `flow index`
 flow check: 4 records of the kinds idea, question, task, finding; 2 problem(s), 0 warning(s); declaration evidence via NOT CONFIGURED; probe evidence via NOT CONFIGURED; reflow via built-in; markdownlint present
 library: 0 key(s) cited from 0 record(s); 0 of them excluded cards; the papers' reference entries are not read here; asked through the library skill beside this one
+to reproduce: `flow check` at the project root, the flow skill's scripts/flow.py; where no skill is loaded, `pre-commit run flow-check --all-files`
 ```
 
-The first two lines are the problems; the coverage lines after them say what the check looked at and vary by machine (here markdownlint was on PATH).
-
-The exit code is 1, each problem carries its code ([The checks](checks.md) lists them), and the last lines are the coverage: which resolvers were bound, what was not looked at.
+The exit code is 1, and the first two lines are the problems, each with its code ([The flow](flow.md#the-check) lists them).
+The lines after them are the coverage, which varies by machine: which resolvers were bound, whether the library answered, what was not looked at (here markdownlint was on PATH); the last names the command that reproduces the failure.
 
 ## A task closed
 
@@ -83,15 +85,16 @@ Set the state back to `ready`, and the work goes on from where the first block l
 mkdir probes && printf 'assert 2 + 2 == 4\n' > probes/lemma.py   # a self-asserting script, the finding's evidence
 printf 'The lemma holds, and probes/lemma.py asserts it.\n' > resolution.md
 flow draw task-0001 --owner agent
-flow make task-0001 --resolution resolution.md --finding "A implies B" empirical probes/lemma.py
-flow kill task-0002 --reason "the lemma settles the question, so no route is left to design"
-flow answer question-0001 --by finding-0001
+flow make task-0001 --resolution resolution.md
+flow remove task-0002 --reason "the lemma settles the question, so no route is left to design"
+flow finding "A implies B" empirical probes/lemma.py --from task-0001 --answers question-0001
 flow check
 flow state
 ```
 
-`flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution and mints `finding-0001`, whose evidence is the probe.
-The other task is killed with its reason, since the result settles the question, and `flow answer` closes the question by the finding; both tasks are now in `records/archive/`.
+`flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution.
+The other task, never drawn, is removed with its reason, since the result settles the question; both tasks are now in `records/archive/`.
+Then `flow finding` mints `finding-0001` from the made task, its evidence the probe, and `--answers` closes the question answered by it; a question refuses to close while a task that came from it is ready or active, so the tasks are closed first.
 The check passes with one warning: no probes register is bound, so the probe is reported unchecked rather than resolved (`[evidence] probes` in `flow.toml` binds one, a Markdown table naming each self-asserting script).
 
 The log is not a transition.
@@ -102,6 +105,11 @@ The entry for the result is written by the agent, or by you, in the same commit 
 
 **State.** question-0001 is answered by finding-0001, asserted by probes/lemma.py; nothing is in flight.
 ```
+
+### A session's start and end
+
+With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reads the inbox and proposes what to make of each item, ranks the next list with `flow rank`, and draws the top work into the agent's hand; [What is next](whatsnext.md) says the rest.
+It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
 
 ## A card
 
@@ -148,7 +156,7 @@ created: "2026-10-23"
 ```
 
 The read grade is a claim about the reader, not the work: it moves only through `library read`; a record's cite of an unread card is reported by grade in the check's coverage line, and a bound document's reference entry tied to an unread card fails the check unless the card names the work it is known through (`via`).
-`library resolve "Stuart, A. M. and Humphries, A. R. (1996). Dynamical Systems and Numerical Analysis." --register` would have asked the online interfaces for the fields instead; [What goes online](network.md) lists them.
+`library resolve "Stuart, A. M. and Humphries, A. R. (1996). Dynamical Systems and Numerical Analysis." --register` would have asked the online interfaces for the fields instead; [What goes online](../network.md) lists them.
 
 ## The dashboard
 
@@ -164,4 +172,4 @@ The skills name no project path themselves; the bindings files do.
 ## An existing project
 
 A project that already keeps its research in notes, a roadmap, a to-do list or a bibliography is set up the same way, then asked to bring that material in: "Move our notes and the reading list into research-kit."
-The skills already describe the records and the cards the material has to become, so the agent maps any project's shape onto them, along a few general principles in the research-init skill's [`references/migration.md`](../plugins/research/skills/research-init/references/migration.md): survey and propose before writing, classify by the kinds' own tests, carry only the open work and point at the settled, go through the commands wherever one exists — a record the commands cannot express is written by hand with `origin: legacy`, an older reading list loads as seeded cards — remove nothing, and end with both checks.
+The agent maps the material onto the records and the cards by the research-init skill's [`references/migration.md`](../../plugins/research/skills/research-init/references/migration.md), which [The research setup](research-init.md) summarizes; a record the commands cannot express is written by hand with `origin: legacy`, and an older reading list loads as seeded cards.

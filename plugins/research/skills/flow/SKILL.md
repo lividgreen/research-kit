@@ -1,8 +1,8 @@
 ---
 name: flow
-description: The typed flow of research work — ideas, tasks, questions with kill criteria and findings whose evidence a machine resolves, one Markdown record each, transitions through the `flow` CLI, a validator, a generated index with a ranked next list, and a cold-start bundle. Use when reading a project's records to pick up work, when capturing an idea, minting or drawing a task, closing one with its resolution, framing or answering a question, recording a checkable result, ranking the next list, or restructuring the records. The project's own instructions bind the directory, the prefixes and the gates through `flow.toml`; this skill names none of them.
+description: The typed flow of research work — ideas, tasks, questions with a criterion and findings whose evidence a machine resolves, one Markdown record each, transitions through the `flow` CLI, a validator, a generated index with a ranked next list, and a cold-start bundle. Use when reading a project's records to pick up work, when capturing an idea, minting, drawing or closing a task, framing a question or closing it answered, wrong, impossible or removed, minting a finding, parking or blocking a record, ranking the next list, or restructuring the records. The project's own instructions bind the directory, the prefixes and the gates through `flow.toml`; this skill names none of them.
 license: Apache-2.0
-compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), git (the log's part of a session's close check), a project reflow module (one sentence per line; built in otherwise); a declaration manifest and a probes register for the findings' evidence, without which declaration and probe evidence is reported unchecked.
+compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), git (the log's part of the freeze check), a project reflow module (one sentence per line; built in otherwise); a declaration manifest and a probes register for the findings' evidence, without which declaration and probe evidence is reported unchecked.
 metadata:
   version: "0.2.1"
   script: scripts/flow.py
@@ -19,33 +19,52 @@ The records hold data only; rules live in the project's instructions, the skills
 
 | Kind | What it is | States |
 | --- | --- | --- |
-| idea | a raw signal worth attention: one sentence and a source; most die | open, consumed, abandoned |
-| task | a unit of work one owner can finish within its size: a design round, a prose sweep, upkeep, a community item, an owner decision | ready, active, done, abandoned |
+| idea | a thought worth keeping that is not yet a question: no criterion of what would answer it, no route; one thing, not a basket of several | open, consumed, removed |
+| task | a unit of work one owner can finish within its size: a design round, a prose sweep, upkeep, a community item | ready, active, done, aborted, removed |
 
 Distinguishing tests: can one owner finish it within its size? then it is a task, not an idea.
 Is it a thing you want to know rather than a thing to do? then it is a question, the kind below.
+A task closes one of three ways: made (state `done`), aborted when started and failed, or removed with a reason while ready, never started or returned.
 A closed task moves to the archive at its closing transition, so the record directories show the live front of work.
+
+An idea is worked, not only framed: drawn into a hand like a task, it produces what it holds, ideas, questions, tasks and findings, each naming it in `derived_from`, until everything in it is folded into them and it is consumed into all of them, or it is removed; an idea put back partly worked is returned, its note listing what it produced so far.
+A thought that holds several things produces one idea per thing while it is worked; there is no split command.
+
+## Hands
+
+A hand is an owner's, and holds the active tasks and the ideas drawn into it, within the limit `[hand]` sets.
+There are two hands: the agent's, which spans its sessions and holds what its subagents do, and the person's.
+A task handed to another session, a prover's, stays active in the agent's hand; the handoff's log entry says where it went.
+A drawn task that must wait is returned first, with a note, and then parked or blocked; the hand holds only what is being worked.
 
 ## Transitions
 
 | Transition | Consumes and produces | Command |
 | --- | --- | --- |
-| capture | external → idea | `flow capture "…" --source S`; `--tag T`, `--body FILE` |
-| task | external → task | `flow task "…" --kind upkeep`; `--question Q` for a task under a question, `--size`, `--dod`, `--source`, `--tag`, `--body FILE` |
-| draw | ready task → active, under the owner's hand limit | `flow draw task-0001 --owner agent` |
-| return | active task → ready | `flow return task-0001 --note "…"` |
-| make | active task → done and archived; follow-up tasks and ideas | `flow make task-0001 --resolution FILE --task "…" --idea "…"`; `--question SUMMARY KILL` mints a question |
-| abort | active task → abandoned and archived | `flow abort task-0001 --reason "…"`; `--resolution FILE` |
-| kill | idea, ready task, or open or decomposed question → abandoned with a dated reason; an active task is aborted instead | `flow kill idea-0001 --reason "…"` |
+| capture | external → idea | `flow capture "…" --source S`; `--from ID` for an idea worked out of another record, `--tag T`, `--body FILE` |
+| task | external → task | `flow task "…" --kind upkeep`; `--from ID` for what it came from, a question, an idea or a task (a question named there is open), `--size`, `--dod`, `--source`, `--tag`, `--body FILE` |
+| draw | ready task → active, or open idea → in the hand, under the owner's hand limit; refused while the task is parked or blocked | `flow draw task-0001 --owner agent` |
+| return | active task → ready, or an idea out of the hand | `flow return task-0001 --note "…"` |
+| make | active task → done and archived; follow-up tasks, questions and ideas | `flow make task-0001 --resolution FILE --task "…" --idea "…"`; `--question SUMMARY CRITERION` mints a question |
+| abort | active task → aborted and archived, with its dated reason | `flow abort task-0001 --reason "…"`; `--resolution FILE` |
+| consume | open idea → consumed into every card that names it in `derived_from`, one or many of any kind, listed in `consumed_by` | `flow consume idea-0001` |
+| remove | open idea, open question or ready task → removed with a dated reason; an active task is aborted instead | `flow remove idea-0001 --reason "…"` |
+| park, unpark | an open question or a ready task gains or loses a parking block: the date, the reason, and revival triggers where known (`--revival` is optional); the rank stays | `flow park task-0001 --reason "…" --revival "…"`; `flow unpark task-0001 --note "…"` |
+| block, unblock | an open question or a ready task gains or loses a block: the date, what it waits on (a task, a question, or a condition in words) and the reason; the rank stays | `flow block task-0001 --on question-0002 --reason "…"`; `flow unblock task-0001 --note "…"` |
 | rank | the ranked next list: one record's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1 --why "…" --first-move "…"`; `--direction D`; `--insert` to take a held rank and move the rest down; `flow rank --set ID…`; `flow rank task-0001 --clear` |
 | set | one hand-editable field: summary, size, dod, rider on or off | `flow set task-0001 size small` |
 
-Views: `flow find --type task --state ready` (also `--kind`, `--status`, `--tag`, `--owner`, `--question Q`, `--paper P`, `--requires ID`, `--depends-on ID`, `--parked`, `--ranked`, `--grep WORD`), `flow show ID` (the record, its links and its back-references), `flow graph --from ID` (`--dot` for Graphviz), `flow state` (the cold-start bundle; `--from N` continues it, `--budget N` bounds it; `--check --owner O` checks a session's close, below), `flow directions` (the directions file), `flow index` (`--print` to stdout, `--check` for drift), `flow check`.
+A record may be parked and blocked at once: parked is by decision, a thing not worked on on purpose; blocked is by an obstacle, a thing waited on.
+A task waiting on the person's decision is parked with a reason naming the decision, and the person's answer is the unpark note and a log entry; a decision is no card and no kind.
+`requires` keeps its meaning beside a block: the findings that must exist before a ready task is drawn.
+
+Views: `flow find --type task --state ready` (also `--kind`, `--status`, `--tag`, `--owner`, `--from ID`, `--paper P`, `--requires ID`, `--depends-on ID`, `--parked`, `--blocked`, `--held`, `--ranked`, `--id ID`, and `--grep PATTERN`, a case-insensitive regular expression over the whole record; a removed record is left out unless asked for by `--state removed` or `--id`), `flow show ID` (the record, its links and its back-references), `flow graph --from ID` (`--dot` for Graphviz), `flow state` (the cold-start bundle; `--from N` continues it, `--budget N` bounds it; `--check` is the freeze's check, below), `flow directions` (the directions file), `flow index` (`--print` to stdout, `--check` for drift), `flow check`, `flow doctor` (below).
 `flow --help` lists every command, `flow <command> --help` its flags, and neither needs a bindings file.
 The global flags are `--json` (any command emits one JSON object), `--root DIR` (the project, found upward from the working directory otherwise) and `--today DATE`; `flow pages` prints the page manifest the `dashboard` skill renders.
 A `--body FILE` or `--resolution FILE` takes a file, never inline text, so a long body is drafted first and checked by the project's text gates — its own checks on prose, such as a linter or a line rule.
 Make and abort append the resolution to the task's body under its date, as refine appends its `--body` to the question's and says so, so the archived task keeps what was asked and its notes.
-A ready or active task's `rider` field marks it as riding the next piece of work handed to another owner; the index lists such tasks under "Rider for the next hand-over".
+A transition that closes a ranked record closes the ranks up, and prints each record so moved as `re-ranked ID N → M`, never as changed.
+A ready or active task's `rider` field marks it as riding the next piece of work handed to another session; the index lists such tasks under "Rider for the next hand-over".
 
 A design round is a task of the design kind: drawn before the round, closed by make or abort with the round record as its resolution and its discarded options one line each inside that record.
 Make and abort are where follow-up work is minted: a residue sharp enough to name becomes a task or a question of its own rather than prose in the resolution or a line appended to a question's body.
@@ -53,56 +72,62 @@ Make and abort are where follow-up work is minted: a residue sharp enough to nam
 ## Invariants the validator enforces
 
 - Every id is unique and matches its filename prefix; every referenced id exists and has the type the field demands; no cycles in `derived_from`.
-- State, kind, size and owner are legal values from `flow.toml`.
-- Active tasks per owner stay within the hand limit; a closed task lives in the archive and an open one does not; an abandoned record carries a dated reason.
-- Ranks are unique and contiguous, never on a closed record or on owner-only work, and a ranked record says why now and what the first move is ("none yet" is allowed).
+- State, kind, size and owner are legal values from `flow.toml`, and every field is the model's: a word of an older model fails, and `flow doctor` says what it reads now.
+- What a hand holds stays within its limit; a closed task lives in the archive and an open one does not; a removed, aborted or wrong record carries its dated reason in `closed`, and no other record carries one.
+- Parked and blocked sit on an open question or a ready task, each with its date and reason, a block with what it waits on; a block on a record that has closed is warned of.
+- Ranks are unique and contiguous, never on a closed record, and a ranked record says why now and what the first move is ("none yet" is allowed).
 - Every body is one sentence per line; the committed index equals a fresh render.
 - Every library key a record cites is a card the library holds, where a library is bound.
 
-`flow check` prints a coverage line saying which resolvers were configured, so a green says what it did not look at.
+`flow check` prints a coverage line saying which resolvers were configured, so a green says what it did not look at; on a failure it names the command that reproduces it, for a session where no skill is loaded.
 `flow.py --selftest` plants one defect per code the check reports, fails when one is planted nowhere, and must stay green.
 
 ## Reading discipline
 
-Start with `flow state`: the inbox slot of the directions file, the ranked next list and the log's top entry, every line carrying its file and line.
-The log is dated entries, newest first, each a level-2 heading `## YYYY-MM-DD — headline` opening with a `**State.**` paragraph; `flow state` prints the whole top entry, and its State paragraph is the one a cold session trusts.
-Then the generated index, which lists the ranked list, each owner's hand, ready work and owner-only items.
+Start with `flow state`: the inbox, the ranked next list, the hands and the log's top entry, every line carrying its file and line.
+The log is dated entries, newest first, each a level-2 heading `## YYYY-MM-DD — headline` opening with a State paragraph; `flow state` prints the whole top entry, and its State paragraph is the one a cold session trusts.
+Then the generated index, which lists the ranked list with each record's waits, each owner's hand, the ready work, the open, parked and blocked questions, and the settled ones.
 Locate records with `flow find` or `flow show ID`; open record files only by ID.
 Never glob the record directories, and never read a record directory whole.
-A cold session processes the inbox slot first, then reads the next list and the log's top State paragraph, and continues without asking, unless the project's instructions say the owner is asked before work is drawn.
+A session's start is the `whatsnext` skill: it reads the inbox, proposes what to make of each item, ranks under the focus the person gives, and draws.
 
 ## Writing discipline
 
 Transitions go through `flow`.
-Never edit `id`, `type`, `state`, `derived_from`, `consumed_by`, `owner`, `drawn`, `rank`, `abandoned`, `origin` or `created` by hand.
-The one record written by hand is one imported from before the flow: its whole file, with `origin: legacy`, which exempts it from the kill-criteria rule until its first round; no transition writes that value.
-Edit a body freely, and a `summary`, `size`, `dod` or `rider` with `flow set`, which refuses a field the record's type does not carry and a value the field does not take; a body is one sentence per line, and a write that adds a markdownlint violation is reverted where markdownlint is on PATH (with the project's configuration where `flow.toml` binds one or the root keeps one, else a built-in one under which a record's `summary:` is its title).
+Never edit `id`, `type`, `state`, `derived_from`, `consumed_by`, `owner`, `drawn`, `rank`, `parked`, `blocked`, `closed`, `origin` or `created` by hand.
+The one record written by hand is one imported from before the flow: its whole file, with `origin: legacy`, which exempts it from the criterion rule until its first round; no transition writes that value.
+Edit a body freely, and a `summary`, `size`, `dod`, or `rider` with `flow set`, which refuses a field the record's type does not carry and a value the field does not take; a body is one sentence per line, and a write that adds a markdownlint violation is reverted where markdownlint is on PATH (with the project's configuration where `flow.toml` binds one or the root keeps one, else a built-in one under which a record's `summary:` is its title).
 The front matter is the subset of YAML the script writes: plain scalars, single-quoted strings (a quote doubled inside), double-quoted strings with escapes, `null`, `true`/`false`, integers, block lists (`- item`) and one-level maps; a hand edit stays inside that subset, and `flow check` reads every record back.
 A record points at where its subject is STATED and never restates it, because the statement moves and a copy does not.
 A design record is never authority: a record points at a round for its reasoning or its history, never cites it for a rule, a criterion or a method, since the criteria a round fixed bound that round alone.
 Run `flow check` before committing; the project's hook runs it as well.
 
-## The log, the close and the project's other prose
+## An older model's records
+
+`flow doctor` names every record and binding written in the words of a model before this one, each with what it reads now, and exits 1 where it finds one: `abandoned` (now `closed`, the state `removed`, or `aborted` for a task that was drawn), `decomposed` (now `open`), `kill` (now `criterion`), a task in a question's `answered_by` (a finding settles a question: mint it with `flow finding … --from T`), `answered_by` as a list (one value now), several findings there (one answers, the others name the question in `derived_from`), `consumed_by` as one id (a list now), a task's or a finding's `question` field (gone: a task names the question it came from in `derived_from`), `question_optional_kinds`, an owner `[hand]` does not list, the `decision` kind and the `decision_kinds` and `decision_owners` bindings, a third hand, the directions file's `## Inbox` section, a missing inbox, and the fields a record lacks.
+There is no migration logic: the agent edits each file by hand from the doctor's lines, then runs `flow index` and `flow check`.
+
+## The log, the freeze and the project's other prose
 
 `flow log add FILE` writes the entry FILE holds at the top of the log, under its title: reflowed to one sentence per line, a bold label of at most four words ending in a period, such as `**State.**` or `**Theorem 2.1.**`, a parenthetical allowed after its words as in `**Proposition 5.3 (Jen 1990).**`, kept with its sentence, and reverted where markdownlint reports a violation the log did not have, as a record's write is.
-It refuses an entry that does not open with its `## YYYY-MM-DD — headline` and its `**State.**` paragraph, one dated after today or before the top entry, and a file holding two entries.
+It refuses an entry that does not open with its `## YYYY-MM-DD — headline` and its State paragraph, labelled `**State.**` or `**State (…).**` with a parenthesis of the project's, one dated after today or before the top entry, and a file holding two entries.
 `flow log archive --before DATE` moves every entry dated before DATE, verbatim and newest first, into one file per month (`2026-09.md`) in the log's archive directory, merging into a month's file that exists and keeping the link definitions closing it, and leaves one line under the log's title (under its front matter where it has no title) pointing there; the top entry always stays, and an entry whose heading carries no date is refused, since the archive files an entry by its date.
 The log's entries are its level-2 headings outside its front matter and its code fences, a fence closing only on a run of its own character at least as long as the one that opened it.
 A link definition closing the log goes to every file whose text uses its label: it moves to the archive files where only archived entries use it, is copied where the log uses it too, and stays in the log where nothing does.
 The log and its archive files are written together or not at all, and a markdownlint violation either would gain undoes both.
 
-`flow state --check --owner O`, at a session's close, decides what a machine can see of it, O being the working session's owner, and prints one line per failure:
+`flow state --check`, at the freeze, decides what a machine can see of it and prints one line per failure:
 
-- the directions file's inbox holds a line outside a comment;
-- an active task is held by another owner than O, other than a decision owner `flow.toml` names, whose hand the person holds;
 - the log's top entry is not dated today while the tree has changed since the commit of the newest committed entry — any commit since, on a shared repository another's as well;
 - a record changed since that commit, and no entry from the top down to that one names its id.
 
-The log's two need git and a committed log; where either is missing, or there is no inbox section, the check says which part it did not decide.
-It exits 1 when a part fails, else 2 when a part could not be decided, so a close it could not see whole is never read as clean, else 0; without `--owner`, or with one `flow.toml` does not list, it does not run and exits 2.
-What it cannot see stays the session's: what the conversation holds that no record does, and whether every site a change reaches says the same; `references/closing.md` is the close — the clone test, the inventory turn by turn, the sweep by meaning — and what the agent's memory holds.
+It prints each hand's active tasks and drawn ideas for the State paragraph, and fails on none: each hand continues its own work.
+An inbox holding items fails nothing, since the next session reads it.
+Both parts need git and a committed log; where either is missing, the check says which part it did not decide.
+It exits 1 when a part fails, else 2 when a part could not be decided, so a freeze it could not see whole is never read as clean, else 0.
+What it cannot see stays the session's: what the conversation holds that no record does, and whether every site a change reaches says the same; the `freeze` skill is the whole of it.
 
-`flow reflow --check PATH…` holds the project's other prose to the reflow the records get: it prints each line, as file and line, that the reflow would change, skipping a front matter block, reads the Markdown files under a directory, and exits 1 on any, or 2 on a path that is not there.
+`flow reflow --check PATH…` holds the project's other prose to the reflow the records get: it prints each line, as file and line, that the reflow would change, skipping a front matter block, reads the Markdown files under a directory, and exits 1 on any, or 2 on a path that is not there; it runs where no `flow.toml` stands, with the built-in reflow.
 A line the reflow does not split is left as written, so a hard break's two trailing spaces are not a change, and a line it splits keeps them on its last part; a code fence is read as the log's are.
 `flow reflow --as DEST DRAFT` checks a draft before it is placed: its lines the reflow would change, and the markdownlint violations it adds when appended to DEST (the draft alone where DEST does not exist yet), under the configuration a record's write runs with, each at the draft's own line, and never one DEST had already; it writes nothing.
 
@@ -110,9 +135,10 @@ A line the reflow does not split is left as written, so a hard break's two trail
 
 The ranked records are the schedule of the WORK, and the only one; the registry below orders the deliverables, not the work.
 A session works from the top.
-The list is filled or refreshed when the owner asks or when it is empty, on no cadence, with no per-landing re-triage; `references/next-list.md` is the refresh procedure.
+The list is filled or refreshed by the `whatsnext` skill, when the person asks or when it is empty, on no cadence, with no per-landing re-triage.
 Nothing is ranked down or left off for lacking a route: a record with no known route is ranked with a first move of "none yet", and finding the route is its first round's job.
-The one gate is owner-only work — a task of a decision kind, or held by a decision owner — which is never ranked, since it holds what only the owner can do or should decide; a decision gates a landing, never a start.
+A parked or blocked record keeps its rank, and the list marks what it waits for, so the order survives the wait.
+Goals and directions bias the choice of the next moves and never order the list.
 A done item clears its own rank through its transition, and the ranks below it close up, so the list stays 1..n without a hand on it.
 
 ## Questions and findings
@@ -123,22 +149,34 @@ The two kinds above hold the work; these two hold what is KNOWN and what is WANT
 
 | Kind | What it is | States |
 | --- | --- | --- |
-| question | a precisely stated question or conjecture, with kill criteria; what we want to know | open, decomposed, answered, abandoned |
-| finding | a CHECKABLE claim: its evidence is a declaration in a manifest, a document's numbered statement or table row, or a self-asserting probe | none; it accumulates |
+| question | what we think we have to answer to move the research, with a criterion: what would answer it, or show it wrong or impossible | open, answered, wrong, impossible, removed |
+| finding | a CHECKABLE claim: its evidence is a declaration in a manifest, a document's numbered statement or table row, or a self-asserting probe | none; it accumulates and never closes |
 
 Distinguishing tests: can you say what would count as an answer? then it is a question, not an idea.
 Can its evidence be resolved by a machine? then it is a finding; otherwise it is a claim inside a task's resolution until it earns evidence.
 Every task done and nobody can state the answer? then the question goes back to refine.
-A conjecture is a question of kind `conjecture` (`flow frame … --kind conjecture`), never a finding; a dead end is an abandoned task's resolution, never a finding.
-There is no artifact record: the documents and the machine-checked library ARE the artifacts, and findings point at them directly.
+A conjecture is a question of kind `conjecture` (`flow frame … --kind conjecture`), never a finding; a dead end is an aborted task's resolution, never a finding.
+A finding needs no goal above it, nor a question: the cards stand on their own where none is set.
 
-A question asks one thing, and its kill criteria say what answers it.
-An open end a round finds beyond those criteria is framed as a question of its own, from the finding that exposed it (`flow frame finding-0001 …`) or from an idea captured first, and is never appended to the first question's body as what stays open: a question that gathers its residues has no answer anyone can reach, and the next list can no longer rank it by how near it is to done.
+A question is minted in the expectation of a finding, a part of the research and not of the conversation, and closes one of four ways:
+
+- answered, by the one finding that settles it, minted `--answers Q`; the tasks that came from it stay linked to it through their `derived_from`, and other findings the answering produced name it in `derived_from`;
+- wrong, when it is shown to be stated incorrectly, with a reason and no finding; a re-stated question names the wrong one as its origin;
+- impossible, when it is shown that it cannot be answered, a paradox for one, by a finding with its evidence like any other; with no such evidence the question is not impossible but removed;
+- removed, dropped with a reason, its card kept but in none of the index's lists and out of `flow find` unless asked, the findings minted under it before staying.
+
+Tasks do not belong to a question: one made while answering it names it in `derived_from`, and a task may come from nothing.
+Each closing is refused while a task that came from the question is ready or active; before removing those tasks, weigh whether one should be made first.
+That a question was refined is read from the tasks that came from it, not from a state: an open question whose tasks are all closed is listed as needing refine or answer.
+Parking or blocking a question, propose what becomes of its tasks: those of a parked question are usually parked with it, while a blocked question may have tasks that go on.
+
+A question asks one thing, and its criterion says what answers it.
+An open end a round finds beyond that criterion is framed as a question of its own, from the finding that exposed it (`flow frame finding-0001 …`) or from an idea captured first, and is never appended to the first question's body as what stays open: a question that gathers its residues has no answer anyone can reach, and the next list can no longer rank it by how near it is to done.
 A question whose parts each carry weight alone is split: at framing, into one question per part; at answering, the part answered closes the question, and each part still open is framed on its own with a pointer to where it is stated.
 
 ### Evidence and status
 
-An evidence item is one of four forms, each resolved by the validator and by `make`:
+An evidence item is one of four forms, each resolved by the validator and by `flow finding`:
 
 | Form | Example | Resolved against |
 | --- | --- | --- |
@@ -147,6 +185,8 @@ An evidence item is one of four forms, each resolved by the validator and by `ma
 | statement | `papers/alpha.md#Theorem 2.1` | a numbered statement of that document — Theorem, Proposition, Lemma, Corollary, Definition, Remark, Fact, Conjecture or Example, then `N` or `N.M…` — found at a line start, after `**` or in a heading |
 | probe | `probes/p.py` | a self-asserting script, named with its directory, listed in the probes register the project binds: a Markdown table whose first column holds the file's name in backticks |
 
+A declaration resolves when it exists in the manifest, whatever its row's kind, a private declaration's included: that claim is existence.
+Whether a document may cite it is another claim, the `formal` plugin's gates' at the document row and the citation, and a finding resting on a private declaration is one no document row can cite.
 A finding's status is one of four roles the project names in `[finding]` (the defaults are `verified`, `stated`, `empirical`, `refuted`; a prover project may call them `lean-verified`, `proven`, `empirical`, `refuted`): verified needs a declaration among its evidence; stated is document-level, a statement or row and no declaration; empirical needs a probe and no declaration; refuted needs a guard declaration or a probe as the counterexample.
 The status follows the evidence and is never set by hand: a finding is verified only because its declaration resolves in the manifest the project's build regenerates.
 Where no manifest or register is bound, such evidence is reported unchecked, and the coverage line of `flow check` says so.
@@ -156,54 +196,58 @@ Findings shard by the document that registers them (`--paper`, read off a row or
 
 | Transition | Consumes and produces | Command |
 | --- | --- | --- |
-| frame | ideas → question (ideas consumed), or one finding → question | `flow frame idea-0001 --summary "…" --kill "…"`; `--kind conjecture`, `--parent Q` for a sub-question, `--size`, `--direction D`, `--tag`, `--source`, `--body FILE` |
-| refine | open or decomposed question → tasks, sub-questions, ideas; the question is decomposed (a parked one is unparked first) | `flow refine question-0001 --task "…" work --subq "…" "…" --idea "…"`; `--kind`, `--size`, `--dod` and `--requires ID` for the tasks minted, `--body FILE` appended to the question's body under its date and never to a task's, which `flow task "…" --question Q --body FILE` writes |
-| make, abort | an active task's closing transition may mint findings and questions | `flow make task-0001 --finding "…" verified Lib/Foo.lean#decl --resolution FILE`; `--paper P` names the shard, `--depends-on F` a finding's dependence |
-| answer | question with a finding → answered; refused while it has open tasks; a question whose kill names work rather than a result is answered by the done tasks drawn under it | `flow answer question-0001 --by finding-0001`; `flow answer question-0002 --by task-0003`; `--by` repeats where several findings or tasks answer it together |
-| kill | an open or decomposed question → abandoned with a dated reason | `flow kill question-0001 --reason "…"` |
-| park, unpark | an open question gains or loses a parking block: the date, the reason, and revival triggers where known (`--revival` is optional) | `flow park question-0001 --reason "…" --revival "…"`; `flow unpark question-0001` |
+| frame | ideas → question (ideas consumed), or one finding → question | `flow frame idea-0001 --summary "…" --criterion "…"`; `--kind conjecture`, `--parent Q` for a sub-question, `--size`, `--direction D`, `--tag`, `--source`, `--body FILE` |
+| refine | open question → tasks, sub-questions, ideas, the question staying open (a parked one is unparked first) | `flow refine question-0001 --task "…" work --subq "…" "…" --idea "…"`; `--kind`, `--size`, `--dod` and `--requires ID` for the tasks minted, `--body FILE` appended to the question's body under its date and never to a task's, which `flow task "…" --from Q --body FILE` writes |
+| finding | the one mint of a finding, whatever produced it; with `--answers Q`, an open question → answered by it | `flow finding "…" verified Lib/Foo.lean#decl papers/alpha.md#FV-1 --from task-0001 --answers question-0001`; `--from ID` names what it came from, a done or aborted task, an idea or a question, `--depends-on F` a finding it rests on, `--paper P` the shard, `--body FILE` |
+| wrong | an open question → wrong, with a dated reason | `flow wrong question-0001 --reason "…"` |
+| impossible | an open question → impossible, by the finding that shows it, minted first | `flow impossible question-0001 --by finding-0002` |
+| remove | an open question → removed with a dated reason | `flow remove question-0001 --reason "…"` |
 | checked | refresh a question's last-checked date | `flow checked question-0001 …` |
-| set | `kill` (the criteria), `depends_on` on a finding (a cycle is refused) | `flow set question-0001 kill "…"` |
+| set | `criterion`, `depends_on` on a finding (a cycle is refused) | `flow set question-0001 criterion "…"` |
 
-`flow task "…" --kind work --question Q` mints a task under a question outside a refine; without `--question` only a question-optional kind stands alone.
-A question tagged `do-not-reopen` (`--tag` at frame, or a hand edit of `tags`) is listed by the index under "Settled, do not re-open" whatever its state, so a settled matter is seen before it is asked again.
+On the usual path a task is made first and its finding minted after it: `flow make T`, then `flow finding … --from T --answers Q`.
+One finding answers a question, so `--answers` on a question already answered is refused; a later finding names it with `--from Q`.
+`flow task "…" --kind work --from Q` mints a task from an open question outside a refine; any task may stand alone.
+A wrong or impossible question is listed by the index under "Settled, do not re-open" with its word; so is any question but a removed one tagged `do-not-reopen` (`--tag` at frame, or a hand edit of `tags`), the person's mark for a matter that must not be asked again; a removed record is in none of the index's lists and none of its counts, listed only by `flow find --state removed` or `--id`.
 Refine is the commitment point: anything ready may be drawn without further approval, so refine with that weight.
-The last cheap "no" is at refine; most ideas should die, and a kill keeps its reason.
-The kill criteria a question carries are fixed when it is framed; the probes and criteria a round fixes bind that round alone, and the `method` skill's honest-change invariants say how a target may change.
+The last cheap "no" is at refine; most ideas should be removed, and a removal keeps its reason.
+The criterion a question carries is fixed when it is framed; the probes and criteria a round fixes bind that round alone, and the `method` skill's honest-change invariants say how a target may change.
 
 ### Directions
 
-A direction is a hint about what interests the owner, not a boundary or a gate: items toward one rank first on the list and may be opened with no known route; a direction changes nothing else.
+A direction is the way the research moves, not a boundary or a gate: the next moves lean toward the directions without being bound by them, a goal being the stronger pull where one is set, and the list stays open to new directions.
 Directions are bullets of the directions file's `## Directions` section, written by the owner, each in the form `- **Name** (date) — the words`; a question's `direction` carries the bold name and must match one (the validator's V22), and sessions propose directions in the log and mint none.
 
 ### Invariants the validator adds
 
-- A task has one question unless its kind is one the project lists as question-optional; an open task's question is open or decomposed.
+- An open task that came from a question came from an open one.
 - Every finding has evidence, each item resolves by its kind, and the status is consistent with the kinds present.
-- Every open question has a last-checked date; a current question has kill criteria, and a question imported from before the flow gains them at its first round; a parked question is open with a date and a reason and is never ranked.
-- A decomposed question has a task; one whose tasks are all closed is flagged as needing refine or answer.
+- Every open question has a last-checked date; a current question has a criterion, and a question imported from before the flow gains one at its first round.
+- An answered or impossible question names the one finding that settles it in `answered_by`, one value, never a task, one imported from before the flow excepted where it names none; no other question names one.
+- A consumed idea lists in `consumed_by` the cards it was folded into, each naming it in `derived_from`.
 - A question's direction names a bullet of the directions file.
 - No cycles in `depends_on`.
 
 ### Reading and writing them
 
 Everything above holds; in addition:
-never edit `question`, `answered_by`, `parked` or `abandoned` by hand, and change the kill criteria through `flow set … kill`; a question's body points at where the question is STATED (a document's section, a module) and never restates it.
-No question is parked, ranked down or excluded for lacking a route; parking carries a dated reason, and revival triggers where they are known, and a stalled item is parked rather than left ranked.
+never edit `answered_by` by hand, and change the criterion through `flow set … criterion`; a question's body points at where the question is STATED (a document's section, a module) and never restates it.
+No question is parked, ranked down or excluded for lacking a route; parking carries a dated reason, and revival triggers where they are known.
 A result is registered in a document as a specific numbered statement with its rows and boundary, never as a thesis rewrite, and the finding that records it is written from the landed artifact, never from the design record that commissioned it.
 
 ## What else a project keeps
 
-- A LOG of dated entries, newest first, one per landing or decision, each `## YYYY-MM-DD — headline` opening with a `**State.**` paragraph, the top one the paragraph a cold session trusts, written by `flow log add`; the commit message carries its headline and a pointer, never the entry; old entries are archived by month, verbatim, by `flow log archive`.
-- A directions file the owner writes: an inbox slot the next session processes before anything else — each item turned into a record or acted on, named in that session's log entry, and removed, the slot never serving as a log — and the owner's dated statements of interest.
+- A LOG of dated entries, newest first, one per landing or decision, each `## YYYY-MM-DD — headline` opening with a State paragraph, the top one the paragraph a cold session trusts, written by `flow log add`; the commit message carries its headline and a pointer, never the entry; old entries are archived by month, verbatim, by `flow log archive`.
+- An INBOX, `INBOX.md` at the root unless `[paths] inbox` names another, where the person leaves items between sessions and a freeze leaves a directive for the next one; the next session's `whatsnext` reads it and proposes what to make of each item, and no rule empties it at a freeze.
+- A directions file the owner writes: the owner's dated statements of where the research moves.
 - A REGISTRY of the deliverables — what the project produces (documents, a library, releases) and in what order they are read or shipped — the one place that order is stated; the ranked list orders the work, the registry the products.
 - Optionally a reference library of the works it refers to, the `library` skill's, bound to the flow by one command.
 - Optionally an annex for the artifacts it made that a recorded claim depends on and no other container owns, its front page carrying the test for what is admitted, a subdirectory made only when what fills it exists.
 
 ## What the project binds
 
-`flow init` in an empty project writes `flow.toml` with the bindings filled in and the optional ones commented, the record directories under `records/` (`--records DIR` for another), the directions file, the log where `--log FILE` names one, and the index, and prints the paragraph the project's instructions should carry; `--force` overwrites a bindings file that exists.
-It writes two owners unless `--owner` names others: `agent`, the working session, with a hand limit of two active tasks, and `owner`, the person, with no limit (a limit of 0 is unlimited), who is the decision owner — a task of a decision kind is minted under that owner's hand and is never ranked.
-`flow.toml` names the record directory, the index, the archive, the directions file, the log and its archive directory (beside the log, `WORKLOG-archive/` for `WORKLOG.md`, where unbound), the id prefixes and width, the owners and their hand limits, the task kinds, the default kind, the question-optional kinds, the decision kinds and owners (owners listed under `[hand]`, or none), the sizes, the finding statuses, the shards, the evidence resolvers, the reference library's command, the reflow module and the markdownlint config, and the library's command, which may stay unset: with a `library.toml` at the root the flow asks the library skill installed beside this one, else `library` on PATH, and `flow check`'s coverage line says which.
+`flow init` in an empty project writes `flow.toml` with the bindings filled in and the optional ones commented, the record directories under `records/` (`--records DIR` for another), the directions file, the inbox, the log where `--log FILE` names one, and the index, and prints the paragraph the project's instructions should carry; `--force` overwrites a bindings file that exists.
+It writes two owners unless `--owner` names others: `agent`, with a hand limit of four, and `owner`, the person, with no limit (a limit of 0 is unlimited).
+`flow.toml` names the record directory, the index, the archive, the directions file, the inbox, the log and its archive directory (beside the log, `WORKLOG-archive/` for `WORKLOG.md`, where unbound), the id prefixes and width, the owners and their hand limits, the task kinds, the default kind, the sizes, the finding statuses, the shards, the evidence resolvers, the reflow module and the markdownlint config, and the reference library's command, which may stay unset: with a `library.toml` at the root the flow asks the library skill installed beside this one, else `library` on PATH, and `flow check`'s coverage line says which.
 The project's instructions name the log, the registry, the gates that cover the records and the archive rule.
 The project's instructions also name where results are registered and what gates cover them.

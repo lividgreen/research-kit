@@ -8,7 +8,7 @@ under one of the library roots given, the declaration's full name and that modul
 grammar the `formal` CLI and the `flow` CLI read:
 
     lake build                                   # the manifest reads .olean files
-    lake env lean --run DeclManifest.lean --roots Root1,Root2 --out ../scripts/decls.txt
+    lake env lean --run DeclManifest.lean --roots Root1,Root2 --out <manifest>.txt
 
 `--roots` names the library roots of ONE package (one process serves one package, because of
 the single extension-loading import per process, next section); `--out` is the file written;

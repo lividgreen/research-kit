@@ -19,7 +19,7 @@ What the kit assumes of a project, what its agent does without asking, and what 
 ## What the agent does without asking, and what it may not do
 
 Without asking, the agent continues from the top of the ranked list when a session opens, corrects a sentence it finds false of the project's artifact at the sentence's own size, and, where the project has no rule of its own, registers a landed result by the `method` skill's register test, naming the clause that fired.
-Both are the `method` and `flow` skills' defaults; a project that wants to be asked first says so in one sentence of its instructions file, and the skills yield.
+These are the `method` and `flow` skills' defaults; a project that wants to be asked first says so in one sentence of its instructions file, and the skills yield.
 
 What it may not do, and what fails when it does:
 
@@ -31,6 +31,24 @@ What it may not do, and what fails when it does:
 - publish or send anything without the owner's word for that item, or schedule a publication.
 
 The owner decides what a result means, and where it is registered wherever the project's rule or the register test says they are asked; the agent decides nothing about scope or significance.
+
+## Where each fact lives
+
+A project that already keeps decision records, a roadmap, a log and an agent's memory has several places a fact could go, and a fact kept in two of them drifts; the kit gives each kind of fact one place:
+
+| A fact | Lives in | Never in |
+| --- | --- | --- |
+| open work: an idea, a question, a task | a record, moved by `flow` | a roadmap, a to-do list, the log |
+| a result | a finding naming its evidence, registered in a document | a table of results kept by hand |
+| the order of the work | the ranked list in the index, with a reason for each rank | a roadmap's order, the memory |
+| what the project produces, and in what order it is read or shipped | the registry the instructions name, and nowhere else | the records |
+| the state of the project | the log's top `**State.**` paragraph | the agent's memory, a roadmap, a notes file |
+| a decision to take | the reason a task waiting on it is parked with; the person's answer unparks it | a record of its own, a task kind |
+| a decision taken, with its reasons | the project's decision records where it keeps them, else the log entry that records it | a direction |
+| what interests the owner | a direction in the directions file, written by the owner | a decision record, the memory |
+| what the person leaves between sessions, and a freeze's directive to the next | the inbox, `INBOX.md`, read at the next session's start | the directions file, the log |
+| a rule of the process | the instructions file, or the skill that owns it | the log, the memory |
+| the agent's own traps and the owner's preferences | the agent's memory, which fails the clone test and so holds nothing a continuation needs | a second State paragraph |
 
 ## Compared with
 

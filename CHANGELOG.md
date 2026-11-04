@@ -4,6 +4,70 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The flow's model is re-settled in this release: its states, its closings, its hands and the session's start and end; a project's records and `flow.toml` are brought to it by hand, from what `flow doctor` prints.
+
+**Upgrading**:
+
+1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart the session before the next transition.
+2. Run `flow doctor` and edit each file it names by hand, as it says; no transition migrates a record. `abandoned` becomes `closed`, its state `removed`, or `aborted` for a task that was drawn; `decomposed` becomes `open`; `kill` becomes `criterion`; every record gains the fields it lacks; a task's and a finding's `question` field goes, the question named in `derived_from` where it is not; `answered_by` becomes one value and `consumed_by` a list. A question answered by a task gains a finding: mint it with `flow finding … --from TASK`, without `--answers`, which refuses a question that is not open, then write the finding's id into the question's `answered_by`, one value, in place of the list; where no finding is to be had, the question reads as removed, with `closed` holding the date and the reason. A question answered by several findings keeps the one that settles it in `answered_by`, and each other names the question in its `derived_from`. Then `flow index`; the `flow-check` hook fails until `flow check` is green.
+3. In `flow.toml`, delete `decision_kinds`, `decision_owners`, `question_optional_kinds` and the `decision` kind, park each open decision task with a reason naming the decision, and fold a prover's hand into the agent's (`agent = 4` is the new default).
+4. Move the directions file's `## Inbox` items to `INBOX.md` at the root (`[paths] inbox` names another) and delete the section.
+5. Where the project's instructions, scripts or notes call a command that is gone, name its replacement: `flow kill ID` is `flow remove ID --reason R` for an idea, an open question or a ready task, and `flow abort T --reason R` for an active task; `flow answer Q --by F` is `flow finding … --answers Q`, the finding minted with it; `flow make T --finding …` and `flow abort T --finding …` are the make or the abort, then `flow finding … --from T`; `--kill` is `--criterion`, on `frame`, and on `--subq` and `--question` as their second word; `flow task --question Q` and `flow find --question Q` are `--from Q`; `flow state --check --owner O` is `flow state --check`, and the freeze around it is `/research:freeze`; the flow's `references/closing.md` is `/research:freeze` and its `references/next-list.md` is `/research:whatsnext`.
+6. The paragraph `flow init` prints for the instructions file now names the inbox and the two skills; bring the project's own paragraph to it in the project's words.
+7. With the `formal` plugin, copy the `land` skill's `scripts/DeclManifest.lean` over the workspace's copy (its usage line changed), and remove a prover owner from `[hand]`.
+
+The flow:
+
+- A question closes answered, wrong, impossible or removed, each by its own verb: `flow finding … --answers Q`, `flow wrong Q --reason R`, `flow impossible Q --by F` and `flow remove ID --reason R`; a task closes made (state `done`), aborted or removed; an idea is consumed or removed. The dated reason is in one map, `closed`, and `flow kill` and the states `abandoned` and `decomposed` are gone; that a question was refined is read from its tasks.
+- `flow finding SUMMARY STATUS EVIDENCE… [--from ID]… [--answers Q]` is the one mint of a finding, whatever produced it; `make` and `abort` mint none, and `flow answer` is gone. One finding answers a question, and a later one names it with `--from Q`; a task id in `answered_by` fails V18.
+- A question's kill criteria are its `criterion`, read as what would answer it or show it wrong or impossible: the field, `flow frame --criterion`, `--subq SUMMARY CRITERION`, `--question SUMMARY CRITERION` and `flow set Q criterion`.
+- An open question or a ready task may be parked, by decision, and blocked, on a task, a question or a condition in words (`flow block ID --on X --reason R`, `flow unblock ID`), both at once; it keeps its rank, the index marks the wait, and `draw` refuses it until it is unparked and unblocked. A drawn task that must wait is returned first.
+- An idea is drawn into a hand like a task, works into cards that name it (`flow capture --from`, `flow task --from`, `flow finding --from`), and is consumed with `flow consume IDEA` into every card it was folded into, which `consumed_by` lists; one put back partly worked is returned with a note listing what it produced so far.
+- Two hands, the agent's and the person's: `flow init` writes `agent = 4`; a task handed to a prover session stays active in the agent's hand; the `decision` kind, `decision_kinds`, `decision_owners` and the index's Owner-only section are gone, and a task waiting on a decision is parked with a reason naming it.
+- Tasks no longer belong to questions: a task's `question` field, `flow task --question`, `[task] question_optional_kinds` and the check's V4 are gone, any task may stand alone, and a task names the question, idea or task it came from in `derived_from` (`flow task --from ID`, `flow find --from ID`); a question's closing is refused while a task that came from it is open.
+- A question's `answered_by` is one value, the finding that settles it; a finding has no `question` field and names what it came from in `derived_from`.
+- The inbox is `INBOX.md` at the root, written by `flow init`; `flow state` prints it, the ranked list, the hands and the log's top entry.
+- `flow state --check` is the freeze's check: `--owner`, its owner rule and its inbox rule are gone, and it prints the hands' active tasks; its help names both exit codes.
+- `flow doctor` names every record and binding written in an older model's words, with what each reads now.
+- The index lists wrong and impossible questions under "Settled, do not re-open", the parked and blocked questions together, and a removed record in no list and no count; `flow find` leaves a removed record out unless asked by `--state removed` or `--id`, and gains `--blocked` and `--held`.
+- A rank a closing moves is printed `re-ranked ID N → M`, not as a change; a rank refused as held names `rank --set`.
+- `flow log add` takes a State label with a parenthesis of the project's, `**State (…).**`.
+- `flow reflow --check` runs where no `flow.toml` stands, with the built-in reflow.
+- A failed `flow check` or `library check` names the command that reproduces it where no skill is loaded.
+
+The `research` plugin:
+
+- `/research:whatsnext` reads the inbox and proposes what to make of each item, ranks under the focus the person gives, draws the top work into the agent's hand and returns what no longer fits; it replaces the flow's `references/next-list.md`.
+- `/research:freeze` saves what only the conversation holds, runs `flow state --check` and the gates, commits and reports item by item; it replaces the flow's `references/closing.md`.
+- The flow skill says that a declaration resolves when it exists in the manifest, a private one included, and that citability is the `formal` gates' claim.
+- The library skill says that `library keep` with neither `--from` nor `--redistributable` refuses only where a kept directory is bound, and that `resolve --at NAME` asks that interface alone, any of the four; the flow skill calls `--grep` a regular expression and names the library's command once.
+- The setup skill says that the machine's items carry a need word and the project's what was found.
+
+The `formal` plugin:
+
+- `formal` takes `--root DIR` after its subcommand as well as before it, as `flow` and `library` do.
+- `formal handoffcheck` leaves an absolute path, and a path under a directory the project does not name, alone; it no longer fails a draft naming a file under the plugin's own install for a segment that equals the workspace's name or a root directory.
+- `formal init` takes the workspace's own instructions file, the manifests `flow.toml` binds (with the generate commands writing them), and the handoff's records, id prefixes, log name and citation-key pattern from `flow.toml` and `library.toml` where those exist.
+- The manifest generator's usage line names a neutral `<manifest>.txt`, so a project whose register forbids paths into its private tree no longer fails `formal register` on the kit's copy.
+- `formal handback` prints the live guard total after the change beside the delta, and counts the guards of a deleted file in the delta.
+- The handoff skill says the turn's order plainly: the records, the gates and the commit first, then the draft, its check and the dispatch, and nothing after.
+- The handoff keeps the prover's task active in the agent's hand, one handoff in flight at a time, and the landing closes it with `flow make` before minting each finding with `flow finding … --from T`; the prover owner in `[hand]` is gone.
+- The land skill names the four classes `formal handback` sorts a commission into: landed, private, already at base and absent.
+- The setup's report says the `formal:prover` agent type appears after a restart, and the handoff's fallback subagent is given the project root's absolute path.
+- The setup skill says the generate commands pass `--own` only where the workspace has several packages.
+
+The documentation:
+
+- [What is next](docs/research/whatsnext.md) and [The freeze](docs/research/freeze.md) are the two new skills' pages, listed by the README, the site's home and the documentation's index; Scope's table gains the inbox and says where a decision to take lives.
+- The README and the citation's abstract say a question carries a criterion; the dashboard colours the new states and no longer the old ones.
+- The marketplaces and the `research` plugin's manifests name a session's start and its freeze among what the plugin holds.
+
+- One page per tool: `docs/research/` holds the flow, the library, the dashboard, the working rules and the setup, `docs/formal/` the setup, the handoff and the landing, each page with the tool's commands, the files it keeps, its bindings file as `init` writes it, every code its check reports and its words, so the pages that mixed the tools' bindings, checks and glossary are gone; `docs/README.md` lists the pages, which is the site's navigation, and the tests read `docs/` whole.
+- `docs/research/flow-cards.md` and `docs/research/library-cards.md` specify the records and the cards: the files and their names, the front matter's form, every field and who writes it, the states, the grades and the transitions between them; the tests hold the field lists to the scripts' schemas.
+- Install says what the upgrade commands print and that the session is restarted before the next transition, that the `formal:prover` agent type is loaded at the next start, and how a session opened in a subdirectory, where the plugins are disabled, runs the checks that gate its commits.
+- Scope gains a table of where each kind of fact lives: a record, the log, the registry, a decision record, a direction, the agent's memory.
+- The pages read alike: a tool's page opens with what the tool is and what the page holds, then what it does, its commands, its files, its bindings, its check and its words; Install's pin table names `<tag>` rather than a release, its Claude Code pin is four numbered steps, and the sessions that share one tree have a section of their own; the plugin READMEs and Getting started point at the tool pages instead of repeating them.
+
 ## v0.2.1 — 2026-10-27
 
 - `docs/project-card.md`, the project's card on [www.livid.work](https://livid.work/projects/research-kit/), which the website copies at each release, held to the card's rules by the tests.
@@ -15,13 +79,13 @@ Each release is a tag; the version is read from the tag and the version fields `
 1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release; in Claude Code, add the marketplace again at the tag with `--scope project` and run `claude plugin update`, and never remove the marketplace, which uninstalls the plugins for every project on the machine. [Install](docs/install.md#the-plugins-at-the-hooks-tag) gives the commands.
 2. Copy the `land` skill's `scripts/DeclManifest.lean` over the workspace's copy: its `--own` now defaults to every root of the workspace's own packages, so the regenerated manifests can gain `hypothesis` rows for conditions defined in another package. Regenerate and commit the manifests before running `formal hypotheses` against an older revision.
 3. With `[packages]` bound, `formal check` now reads the tree, and the `formal-check` hook fails on a stale manifest, an umbrella that leaves a module out, a module under a root `[packages]` does not bind, an untracked file under a root that git does not ignore, and an import against `[workspace] package_order`; regenerate or fix, or set `umbrellas = false` where an umbrella leaves modules out on purpose.
-4. For the new gates, add `[anchors]`, `[register]` and the `[documents]` allowlists to `formal.toml` by hand, as [The bindings files](docs/bindings.md) shows them (`formal init` leaves an existing file alone), then the `formal-cite`, `formal-anchors` and `formal-register` hooks.
+4. For the new gates, add `[anchors]`, `[register]` and the `[documents]` allowlists to `formal.toml` by hand, as [The formal setup](docs/formal/formal-init.md) shows them (`formal init` leaves an existing file alone), then the `formal-cite`, `formal-anchors` and `formal-register` hooks.
 
 `[handoff] records` still reads a string, and the log's archive defaults to a directory beside the log.
 
 The `formal` plugin:
 
-- `formal cite` checks that every declaration name the documents cite resolves in the manifests, and that none is private only, retired yet present, or an API-docs link to a module not in the tree ([The checks](docs/checks.md#formal-cite-formal-anchors-formal-register) has the resolution order).
+- `formal cite` checks that every declaration name the documents cite resolves in the manifests, and that none is private only, retired yet present, or an API-docs link to a module not in the tree ([The landing](docs/formal/land.md#formal-cite-formal-anchors-formal-register) has the resolution order).
 - `formal anchors` checks every `[Key] §N`, `[Key] Theorem N.M` and `[Key] Appendix X` of the Lean files against the numbered headings, bold statements and appendices of the document the key is bound to.
 - `formal register` checks that the tracked files that ship carry none of the bound pattern classes, matched after the sanctioned expressions are cut from each line; an empty scope fails.
 - `formal hypotheses` fails where a public theorem shipped at a base revision, or listed in a `--baseline` file, gained a named condition; `--update` locks a discharge and a new declaration into the baseline and never a growth, and a manifest with no `hypothesis` row is reported INERT, with exit 0 and nothing compared.
