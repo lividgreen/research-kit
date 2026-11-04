@@ -12,7 +12,8 @@ abstract: >-
   Code, Grok Build and Factory Droid, Agent Plugins for Codex, GitHub Copilot,
   Cursor and the other clients of that standard, and Agent Skills for any agent
   that reads them. The research plugin keeps a
-  project's ideas, questions with kill criteria, tasks and findings as typed
+  project's ideas, questions with a criterion of what would answer them, tasks
+  and findings as typed
   Markdown records moved through their states by transitions, and one card per
   cited work recording how far it was read and what may be claimed from it; a
   check on every commit fails a hand-edited state, a citation of a work with no

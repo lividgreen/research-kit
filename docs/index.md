@@ -1,7 +1,7 @@
 # research-kit
 
 research-kit keeps a research project's ideas, open questions, tasks and results as checked Markdown files in its own repository.
-It is built for one person working with one coding agent: Claude Code or Grok Build as plugins, Codex, GitHub Copilot, Cursor and the other [Agent Plugins](https://agent-plugins.org) clients, or any agent that reads [Agent Skills](https://agentskills.io).
+It is built for one person working with one coding agent: Claude Code, Grok Build or Factory Droid as plugins, Codex, GitHub Copilot, Cursor and the other [Agent Plugins](https://agent-plugins.org) clients, or any agent that reads [Agent Skills](https://agentskills.io).
 
 A coding agent starts every session cold.
 It asks again about things that were settled, a notes file drifts away from what the project did, and a paper cites a work nobody read past the abstract.
@@ -20,12 +20,13 @@ Install the plugin ([Install](install.md)), open your agent in a project and tal
 | "Set up research-kit in this project." | The project is probed, what is missing proposed, and on your word the records, the library and the hooks are written. |
 | "At yesterday's talk someone claimed A might imply B. Keep that." | An idea record appears, with its source. |
 | "Let's look into it." | The idea becomes a question with what would settle it, split into tasks you see before they are written. |
-| "What's next?" | The ranked list is refreshed, a reason for each rank, and the top task is drawn. |
+| "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus with a reason for each rank, and the top work is drawn. |
 | "Add Stuart and Humphries (1996) to the library; I read chapter 2." | A card for the book records how far it was read, and a citation of it is checked against that. |
 | "Show me the dashboard." | The records and the cards open as a read-only page on localhost. |
 | "Where were we?" | The session summary is printed, and the work goes on from the top of the list. |
+| "Let's freeze here." | What the session found and did not record is saved to the records, the checks run, and the work is committed for the next session. |
 
-In Claude Code each skill is also a slash command: `/research:research-init`, `/research:flow`, `/research:library` and the rest.
+In Claude Code each skill is also a slash command: `/research:research-init`, `/research:whatsnext`, `/research:freeze`, `/research:flow`, `/research:library` and the rest.
 
 ## Where next
 
@@ -37,8 +38,8 @@ In Claude Code each skill is also a slash command: `/research:research-init`, `/
 
 ## What is in the box
 
-- The [`research` plugin](../plugins/research/README.md), for any research project: the records and their flow, the reference library, the checks on every commit, the dashboard and three working rules, seven skills in all.
-  [Getting started](research/getting-started.md) walks through a first project, and each tool has its page: [the flow](research/flow.md) and its [cards](research/flow-cards.md), [the library](research/library.md) and its [cards](research/library-cards.md), [the dashboard](research/dashboard.md), [the working rules](research/working-rules.md), [the setup](research/research-init.md).
+- The [`research` plugin](../plugins/research/README.md), for any research project: the records and their flow, the reference library, the checks on every commit, the dashboard, a session's start and its freeze, and three working rules, nine skills in all.
+  [Getting started](research/getting-started.md) walks through a first project, and each tool has its page: [the setup](research/research-init.md), [the flow](research/flow.md) and its [cards](research/flow-cards.md), [what is next](research/whatsnext.md) and [the freeze](research/freeze.md), [the library](research/library.md) and its [cards](research/library-cards.md), [the dashboard](research/dashboard.md), [the working rules](research/working-rules.md).
 - The [`formal` plugin](../plugins/formal/README.md), for a project that pairs its documents with a Lean 4 library: a handoff to a prover session that is checked before it is sent, a landing that reads the built tree before any document changes, and checks on the documents, three skills with the prover agent and the manifest generator.
   Its pages are [the setup](formal/formal-init.md), [the handoff](formal/handoff.md) and [the landing](formal/land.md).
 

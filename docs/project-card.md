@@ -19,7 +19,7 @@ The kit is what replaced each of those failures in one research project: a serie
 
 The **`research` plugin**, for any research project:
 
-- **Research records.** Ideas, questions with kill criteria, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next and a log a cold session starts from.
+- **Research records.** Ideas, questions with a criterion of what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next and a log a cold session starts from.
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it, and each document's citations checked against its own reference list.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
 - **A dashboard.** The records and the cards as a read-only page on localhost.
@@ -36,7 +36,7 @@ Each tool's page in the [documentation](README.md) lists everything its check ve
 ## How it works
 
 You talk to the agent as you already do, and the skills fold the kit into that conversation: "Where were we?" prints the session summary and the work goes on from the top of the ranked list; "Add this book to the library; I read chapter 2" writes a card, and a citation of that book is then checked against how far it was read.
-[How to use it](how-to-use.md) has more.
+[How to use](how-to-use.md) has more.
 
 Every tool is a single Python 3.11 script with no dependencies, and all the data is plain Markdown that can be read without the kit.
 

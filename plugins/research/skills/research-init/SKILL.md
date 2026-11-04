@@ -26,7 +26,7 @@ Required, each for the reason it gives (the flow itself runs without a library, 
 
 Recommended: `markdownlint` on PATH, so a record write that adds a violation is reverted.
 Optional, by what the project does: the `markdown` package for the dashboard's rendered bodies, `pdftotext` for the text of a kept PDF, and the `formal` plugin for a project with a Lean workspace.
-The probe labels every item with one of these words.
+The probe labels each item of the machine with one of these words, ok or MISSING beside it, and each of the project's with what it found, present or absent, found or none: a machine's item is installed, a project's is written by the setup where it is absent, so an absent one is no failure.
 
 ## The procedure
 

@@ -16,7 +16,7 @@ Required, each for the reason it gives:
 
 Recommended: `markdownlint` on PATH, so a record write that adds a violation is reverted.
 Optional, by what the project does: the `markdown` package for the dashboard's rendered bodies, `pdftotext` for the text of a kept PDF, and the `formal` plugin for a project with a Lean workspace.
-The probe labels every item with one of these three words, and compares the hooks' `rev`, the marketplace's `ref` in the project's settings and the installed plugin's version, so the three pins are seen to name one tag.
+The probe labels the machine's items with one of these three words and the project's with `present`, `absent`, `found` or `none`, and compares the hooks' `rev`, the marketplace's `ref` in the project's settings and the installed plugin's version, so the three pins are seen to name one tag.
 
 ## What it does
 
@@ -35,4 +35,4 @@ A project that already keeps its research elsewhere — notes, a roadmap, a to-d
 
 - **research-init** — the skill that sets a project up: it probes, proposes, writes what is absent and nothing that exists, and reports; `/research:research-init`.
 - **probe** — the report `setup probe` prints: the environment, the project, the kit's version, the proposals and a coverage line; it writes and installs nothing.
-- **required, recommended, optional** — the probe's three words for an item: without a required one the flow does not run; a recommended one is proposed; an optional one serves what the project does.
+- **required, recommended, optional** — the probe's three words for what the machine has: a required item is one the setup needs, a recommended one is proposed, an optional one serves what the project does; the project's own items read `present`, `absent`, `found` or `none`.

@@ -2,7 +2,7 @@
 
 Three skills with no script behind them, each brought in by the conversation itself; they came out of one research project and are optional, and the tools neither read nor need them.
 
-- [`method`](../../plugins/research/skills/method/SKILL.md), `/research:method`, says how to review, what to call things, what a document holds and when a landed result enters one, what counts as evidence, how to change a target honestly when a wall is hit, and how to work with the project's owner; its `references/reviews.md` is the review procedure, and its section "With a prover" orders ties among formal targets, which the `formal` plugin's landing follows.
+- [`method`](../../plugins/research/skills/method/SKILL.md), `/research:method`, says how to review, what to call things, what a document holds and when a landed result enters one, what counts as evidence, what to check before pricing a piece of work, how to change a target honestly when a wall is hit, and how to work with the project's owner; its `references/reviews.md` is the review procedure, and its section "With a prover" orders ties among formal targets, which the `formal` plugin's landing follows.
 - [`design`](../../plugins/research/skills/design/SKILL.md), `/research:design`, runs a design pass before anything new is built, whenever you say "let's add X" or "what about Y"; a design round is a task of the design kind in the flow, and a design record is never authority.
 - [`debug`](../../plugins/research/skills/debug/SKILL.md), `/research:debug`, insists on the root cause before a fix, and again before anything is called fixed.
 

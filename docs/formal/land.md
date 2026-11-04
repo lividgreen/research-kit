@@ -5,21 +5,7 @@ Then the document's rows are written from the landed proof, the summary sites sw
 The tool is `scripts/formal.py` of the [`land`](../../plugins/formal/skills/land/SKILL.md) skill (`/formal:land` in Claude Code), the one CLI of the `formal` plugin: the handback diff, the read-back packet, the check, the three gates over the documents and what ships, the hypotheses ratchet and the witnesses report, beside `formal probe`, `formal init` and `formal handoffcheck`, which [The formal setup](formal-init.md) and [The handoff](handoff.md) use.
 This page is the tool — its commands, the generator and the manifest it reads, its checks and its words — and the skill is the procedure of a landing.
 
-## The commands
-
-| Command | What it does |
-| --- | --- |
-| `formal handback [--base REV] [--handoff DRAFT]` | the manifest diff against HEAD: the new public and private declarations, the removals, the visibility flips, the field changes and the per-module counts; the instantiations of an existing generic; the joint-satisfiability witnesses owed; the guard delta in the workspace diff; every document site citing a declaration of a touched module; and the commission, every name of the handoff's `Commissioned:` line sorted into landed, already at base and absent; exit 1 on a document citing a name now private or removed |
-| `formal readback NAME… [-o FILE] [--depth N]` | the packet a cold reader writes each landed statement out from: the statement with its modifiers and scope lines, every project-local definition it names to depth two, docstrings and comments stripped |
-| `formal check` | the manifests parse and are the tree's, the umbrellas import their modules, the packages import in order, the bindings resolve |
-| `formal cite`, `formal anchors`, `formal register` | the three gates over the documents and what ships, each a pre-commit hook |
-| `formal hypotheses [--base REV \| --baseline FILE [--update]]` | no public theorem shipped at the base gained a named condition |
-| `formal witnesses [--base REV]` | the public theorems with two or more named conditions and no `_nonvacuous` witness, by module; a report |
-
-Every command reads `formal.toml` at the project root (`--root DIR` for another); `formal --help` prints every command and the manifest's row grammar, and needs no bindings file.
-The [skill](../../plugins/formal/skills/land/SKILL.md) names every flag, and the kit's tests hold it to the script.
-
-## What a landing does
+## What it does
 
 1. `formal handback` first, and the whole diff is read, not the names the report lists: everything the report names must be there, and everything the diff shows that the report omits is the surplus that makes a document boundary stale; each absent commissioned declaration is named in the log entry.
    It reads no proof: a `sorry`, an `admit`, a `native_decide` or a new `axiom` is the build's warnings and the project's `#print axioms` guards to catch.
@@ -28,7 +14,21 @@ The [skill](../../plugins/formal/skills/land/SKILL.md) names every flag, and the
 4. `formal check`, then the three gates over what the landing touched, and the project's own figure check where it states tree-derived figures, the new total written and never a delta.
 5. The result is registered by the project's rule, else the `method` skill's register test, and the rows and the boundary paragraph are written from the landed proof, each ADAPTER binder named as such and each UNANCHORED one with its reason.
 6. The summary sites are swept — the status label, the abstract, the contributions, the settled-and-open lists, an earlier row's boundary, every negative-coverage sentence about the result's kind — found by the claims' own words.
-7. The flow closes the prover's task with `flow make`, minting each finding from the landed proof with the declaration as its evidence, `flow answer` closes the question a finding settles, and the commit names its paths.
+7. The flow closes the prover's task with `flow make`, then each finding is minted from the landed proof with `flow finding … --from TASK`, the declaration among its evidence, the one that settles the question with `--answers Q`; a failed handoff is `flow abort`, its refuted finding minted after it; and the commit names its paths.
+
+## The commands
+
+| Command | What it does |
+| --- | --- |
+| `formal handback [--base REV] [--handoff DRAFT]` | the manifest diff against HEAD: the new public and private declarations, the removals, the visibility flips, the field changes and the per-module counts; the instantiations of an existing generic; the joint-satisfiability witnesses owed; the guards added and removed in the workspace diff with the live total after the change; every document site citing a declaration of a touched module; and the commission, every name of the handoff's `Commissioned:` line sorted into four classes, landed, private (in the tree, not citable), already at base and absent; exit 1 on a document citing a name now private or removed |
+| `formal readback NAME… [-o FILE] [--depth N]` | the packet a cold reader writes each landed statement out from: the statement with its modifiers and scope lines, every project-local definition it names to depth two, docstrings and comments stripped |
+| `formal check` | the manifests parse and are the tree's, the umbrellas import their modules, the packages import in order, the bindings resolve |
+| `formal cite`, `formal anchors`, `formal register` | the three gates over the documents and what ships, each a pre-commit hook |
+| `formal hypotheses [--base REV \| --baseline FILE [--update]]` | no public theorem shipped at the base gained a named condition |
+| `formal witnesses [--base REV]` | the public theorems with two or more named conditions and no `_nonvacuous` witness, by module; a report |
+
+Every command reads `formal.toml` at the project root (`--root DIR` for another, before the command or after it); `formal --help` prints every command and the manifest's row grammar, and needs no bindings file.
+The [skill](../../plugins/formal/skills/land/SKILL.md) names every flag, and the kit's tests hold it to the script.
 
 ## The manifest
 

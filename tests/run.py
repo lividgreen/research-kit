@@ -260,7 +260,7 @@ def main():
         lite = Path(tmp) / "lite"
         lite.mkdir()
         for argv in (["init", "--log", "WORKLOG.md"], ["capture", "A might imply B", "--source", "a talk"],
-                     ["frame", "idea-0001", "--summary", "Does A imply B?", "--kill", "a finite counterexample, or a proof"],
+                     ["frame", "idea-0001", "--summary", "Does A imply B?", "--criterion", "a finite counterexample, or a proof"],
                      ["refine", "question-0001", "--task", "prove the lemma", "work", "--task", "design the route", "design"]):
             subprocess.run([sys.executable, str(SCRIPTS["flow"]), *argv], capture_output=True, text=True, cwd=lite, check=True)
         started = (ROOT / "docs/research/getting-started.md").read_text(encoding="utf-8")

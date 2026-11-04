@@ -22,14 +22,14 @@ Against HEAD (or `--base REV`) it prints:
 - the new public and new private declarations, the removals, the visibility flips, the field changes and the per-module count deltas;
 - the INSTANTIATIONS of an existing generic (`mul_comm_int` under `mul_comm`) — the shape a report compresses into one clause and a document boundary turns on;
 - the joint-satisfiability witnesses owed: new public theorems with two or more named conditions and no `_nonvacuous` sibling — named conditions only, so count the binders yourself for the rest;
-- the guard delta in the workspace diff, untracked files included;
+- the guards, `+N -M` in the workspace diff, untracked files included, and the live total after the change, the figure a project that states a guard total writes;
 - every document site citing a declaration of a touched module, classed as a row, a boundary paragraph or prose;
-- the COMMISSION — every name of the handoff's `Commissioned:` line sorted into landed, already at base, and ABSENT.
+- the COMMISSION — every name of the handoff's `Commissioned:` line sorted into four classes: landed, PRIVATE (in the tree, not citable), already at base, and ABSENT.
 
 Everything the report names must be there; everything the diff shows that the report omits is the surplus that makes a document boundary stale.
 It exits 1 on a document citing a name that is now private or removed.
 It reads no proof: a `sorry`, an `admit`, a `native_decide` or a new `axiom` is the build's warnings and the project's `#print axioms` guards to catch, so quote both in the landing.
-Name each ABSENT commissioned declaration in the log entry under what did not land, whatever the report says.
+Name each ABSENT commissioned declaration in the log entry under what did not land, whatever the report says; a PRIVATE one is in the tree but not citable, so no row names it.
 Each manifest is compared with the edited modules of its own package only, so regenerating one package's manifest does not refuse on another's, and an edited umbrella that holds only imports and guards needs no regeneration; a proof-only edit elsewhere still does, since the text cannot tell it from a changed statement.
 
 `formal hypotheses` fails where a public theorem shipped at HEAD (`--base REV`) gained a named condition, and reports the new theorems, the discharges and the theorems gone; against a pinned `--baseline FILE` instead, which lists every public declaration with its conditions (`-` for none), `--update` locks a discharge and a new declaration in and never a growth.
@@ -63,7 +63,7 @@ A theorem under a hypothesis A and a guard refuting it under a condition B make 
   An anchor that resolves may still name a section other than the one meant;
 - `formal register`: the tracked files under `[register] ship`, minus `exclude`, carry none of the bound pattern classes — internal vocabulary, case-sensitive tags, stage forms, private paths, a package naming nothing above it by `scope` — each line matched after the `sanctioned` expressions are cut from it, so an internal tag beside a sanctioned word still fails; an empty scope fails as rot, since what ships carries zero internal register: a docstring renders into the public API docs.
 
-Where the project states tree-derived figures (guard totals, module counts), run its check, quote the drift list and sweep every site it names; write the new TOTAL, never a delta.
+Where the project states tree-derived figures (guard totals, module counts), run its check, quote the drift list and sweep every site it names; write the new TOTAL, never a delta, the guards' as step 1's live total prints it.
 
 ## 5. Register by the project's test, then write the rows and the registration from the LANDED proof
 
@@ -80,7 +80,12 @@ A sentence found false of the tree is corrected here, in this landing — never 
 
 ## 7. Gates, records, commit
 
-The project's offline gates by exit code; then the flow: `flow make TASK --finding "…" <verified status> <Path.lean#decl> <document row> --resolution DRAFT` closes the prover's task, archives it, clears its rank and mints each finding from the LANDED proof (evidence that does not resolve against the manifest or the document refuses the call); `flow answer Q --by F` closes the question a finding settles; a residue is a `frame` or a `park`, never a "what stays open" line appended to the question's body.
+The project's offline gates by exit code; then the flow.
+`flow make TASK --resolution DRAFT` closes the prover's task, done and archived, and takes it out of the agent's hand; it mints nothing.
+Each finding is then minted from the LANDED proof with `flow finding SUMMARY STATUS EVIDENCE… --from TASK`, STATUS the verified one and EVIDENCE the declaration (`Path.lean#decl`) and the document row (evidence that does not resolve against the manifest or the document refuses the call), with `--depends-on F` and `--paper P` where they hold.
+The one finding that settles the question carries `--answers Q`, which closes it; the question's other findings carry `--from` without it.
+A handoff that failed is `flow abort TASK --reason R`, its refuted finding minted after it the same way, `--from TASK`.
+A residue is a `flow capture`, a `flow frame IDEA… --summary S --criterion C` or a `flow park ID --reason R`, never a "what stays open" line appended to the question's body; a question found wrong is `flow wrong Q --reason R`, one shown impossible `flow impossible Q --by F`, and an idea, an open question or a ready task dropped is `flow remove ID --reason R`.
 Commit with NAMED paths — the prover session's sources, the package files, the manifests and the documents swept — never everything at once, since a sibling's in-flight work has been swept into a mislabelled commit that way.
 If the landing rewired a cross-document import, run the project's consistency audit in the same session, before the commit; if it did not, say so in the entry.
 

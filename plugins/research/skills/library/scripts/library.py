@@ -4326,6 +4326,8 @@ def _dispatch(cfg, a, today, as_json, quiet):
                  + f"; {cov['untied_cards']} registered card(s) no entry cites; a work a document names outside its entries is not read")
             if problems:
                 out["ok"] = False
+                emit("to reproduce: `library check` at the project root, the library skill's scripts/library.py; "
+                     "where no skill is loaded, `pre-commit run library-check --all-files`")
         else:
             raise Refused("no command (see --help)")
     except Refused as e:

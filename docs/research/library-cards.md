@@ -40,7 +40,7 @@ Everything else is written by the command named and never by hand.
 | `doi`, `arxiv`, `openalex`, `zbmath`, `isbn` | the work's identifiers, each normalized; no two cards share one; a preprint and its published version are one card carrying both | register; hand |
 | `url` | the work's address, a repository's or a page's | register; hand |
 | `metadata` | a map of `from` (`hand`, or the resolver that wrote the fields), `on` (the date) and `typed` (the fields a hand wrote over the resolver's, comma-separated, or `null`) | register; `type` and `verify --take` keep `typed` |
-| `verified` | `null` until a resolver has been asked; then a map of `on` and `by`, the interfaces that answered | `verify` |
+| `verified` | `null` until a resolver has been asked; then a map of `on` and `by`, the interfaces that answered | `resolve --register` (not with `--override`); `verify` |
 | `read` | a map of `grade` (`unread`, `skimmed`, `parts`, `full`; `ungraded` on a seeded card alone), `on` (the date of the reading, `null` for unread or an undated seeded reading) and `what` (the parts read, required for `parts`) | register (`--read`, `--read-on`, `--read-what`); `read` |
 | `via` | the key of the card the work is known through when it was not opened itself | register (`--via`); `read --via` |
 | `copy` | `null`, or a map of `path`, `sha256`, `fetched` (the date), `version`, `from` (the address it can be fetched from again, `null` for a copy obtained by hand), `pages` and `text` (whether it has text) | `fetch`, `keep`, `restore` |
