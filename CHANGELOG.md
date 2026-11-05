@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.4.2 — 2026-11-06
 
 A logo: `docs/assets/logo/` holds `logo.svg`, a small-size `favicon.svg`, the 1200×630 `og.png` for link previews and the original `logo.jpg`; the README shows it, and the project's site reads the folder from the tag for its header mark, favicon and link preview.
