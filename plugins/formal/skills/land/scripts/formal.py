@@ -2532,6 +2532,34 @@ def selftest():
                {r: d.relative_to(root).as_posix() for r, d in cfg.packages.items()} == {"ALT": "ws", "Guards": "ws", "Inner": "ws/inner", "Base": "lib/deep/base"}
                and len(cfg.manifests) == 3 and cfg.package_order[-1] == root / "ws",
                f"{cfg.packages} {cfg.package_order}")
+        # the pins, against an install record under CLAUDE_CONFIG_DIR: the machine's own is never read here
+        saved = os.environ.get("CLAUDE_CONFIG_DIR")
+        os.environ["CLAUDE_CONFIG_DIR"] = str(root / "claude")
+        try:
+            ver = skill_version(Path(__file__).resolve().parent.parent / "SKILL.md")
+            pins_of = lambda rep_: next(it for it in rep_["project"] if it["item"] == "pins at one tag")
+            rep = probe(root)
+            expect("probe reads the pins, and says the install record is absent where it is", pins_of(rep)["ok"] and "is absent or unreadable" in pins_of(rep)["detail"])
+            (root / ".pre-commit-config.yaml").write_text(f"repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v{ver}\n  hooks:\n  - id: formal-check\n", encoding="utf-8")
+            rec = root / "claude" / "plugins" / "installed_plugins.json"
+            rec.parent.mkdir(parents=True)
+            installed = lambda v: rec.write_text(json.dumps({"version": 2, "plugins": {"formal@research-kit": [
+                {"scope": "project", "projectPath": str(root), "installPath": str(root / "cache" / v), "version": v}]}}), encoding="utf-8")
+            installed("0.0.1")
+            rep = probe(root)
+            expect("probe names an installed plugin off the hooks' rev, with the steps that move it as a proposal",
+                   not pins_of(rep)["ok"] and "formal@research-kit differs from" in pins_of(rep)["detail"]
+                   and any(p["item"] == "pins" and "claude plugin update formal@research-kit --scope project" in p["commands"]
+                           and p["commands"][0].startswith("read the Upgrading paragraph of each release after v0.0.1") for p in rep["proposals"])
+                   and "MISSING  pins at one tag" in render_probe(rep), pins_of(rep)["detail"])
+            installed(ver)
+            rep = probe(root)
+            expect("the pins at one tag make no proposal", pins_of(rep)["ok"] and not any(p["item"] == "pins" for p in rep["proposals"]), pins_of(rep)["detail"])
+        finally:
+            if saved is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = saved
     with tempfile.TemporaryDirectory() as tmp:
         init_scenarios(Path(tmp), expect)
     print(f"formal selftest: {'OK' if not bad else str(len(bad)) + ' FAILED: ' + '; '.join(bad)}")
@@ -2631,6 +2659,169 @@ def manifest_commands(root, ws, packages, names=None):
     return files, cmds
 
 
+# --- the pins: duplicated byte-identical in research's setup.py and formal's formal.py (tests/run.py holds
+# them so), and copied into the runner `setup runner` writes -------------------------------------------------
+
+KIT_REPO = "lividgreen/research-kit"
+KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
+
+
+def skill_version(skill_md):
+    """The `metadata.version` of a SKILL.md's frontmatter: its plugin's version, whose release tag is `v` + it."""
+    try:
+        fm = Path(skill_md).read_text(encoding="utf-8").split("---")[1]
+    except (OSError, IndexError):
+        return None
+    m = re.search(r'^\s+version: "([^"]+)"', fm, re.M)
+    return m.group(1) if m else None
+
+
+def hooks_pin(text):
+    """The kit's entry of a .pre-commit-config.yaml: its repo and its rev, read from the list item that names
+    research-kit wherever its keys stand and with comments allowed; a rev frozen to a commit by
+    `autoupdate --freeze` is read as the tag its `# frozen:` comment names.  (None, None) where none names it."""
+    lines = text.split("\n")
+    indent = lambda l: len(l) - len(l.lstrip())
+    for i, l in enumerate(lines):
+        m = re.match(r"\s*(?:-\s+)?repo:\s*['\"]?([^\s'\"#]+)", l)
+        if not m or "research-kit" not in m.group(1):
+            continue
+        s = i  # the item's dash: on this line, or the nearest above it less indented than the key
+        while s > 0 and not (re.match(r"\s*-\s", lines[s]) and (s == i or indent(lines[s]) < indent(l))):
+            s -= 1
+        d, e = indent(lines[s]), s + 1
+        while e < len(lines) and not (lines[e].strip() and not lines[e].lstrip().startswith("#") and indent(lines[e]) <= d):
+            e += 1
+        for item in lines[s:e]:
+            r = re.match(r"\s*(?:-\s+)?rev:\s*['\"]?([^\s'\"#]+)['\"]?\s*(?:#\s*frozen:\s*(\S+))?", item)
+            if r:
+                return m.group(1), r.group(2) or r.group(1)
+        return m.group(1), None
+    return None, None
+
+
+def install_record():
+    """Claude Code's install record, `~/.claude/plugins/installed_plugins.json`; `CLAUDE_CONFIG_DIR` moves `~/.claude`."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "installed_plugins.json"
+
+
+def kit_installed(root, record):
+    """The plugins of the research-kit marketplace Claude Code installed for the project, name -> entry (its
+    `version`, `scope` and `installPath`), from the install record (`plugins` -> name -> entries): the entry of
+    scope local, else project, whose `projectPath` is the root, else the user one.  None where the record is
+    absent or unreadable."""
+    try:
+        raw = json.loads(Path(record).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    plugins = raw.get("plugins") if isinstance(raw, dict) else None
+    if not isinstance(plugins, dict):
+        return None
+    root, out = Path(root).resolve(), {}
+    for name, entries in sorted(plugins.items()):
+        if not name.endswith("@research-kit"):
+            continue
+        entries = [e for e in (entries if isinstance(entries, list) else [entries]) if isinstance(e, dict)]
+        for scope in ("local", "project", "user"):
+            hit = [e for e in entries if e.get("scope") == scope
+                   and (scope == "user" or bool(e.get("projectPath")) and Path(str(e["projectPath"])).resolve() == root)]
+            if hit:
+                out[name] = hit[0]
+                break
+    return out
+
+
+def kit_tag(tag):
+    """A release tag as a tuple to order by (`v0.4.3` -> (0, 4, 3)); None for anything else, a commit or a branch."""
+    m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", str(tag or ""))
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def kit_pins(root, version, record=None):
+    """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
+    settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
+    install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
+    a script outside the kit): whether they name one tag and, where they do not, the steps that move every pin
+    to the newest of them and the releases whose upgrading paragraphs lie between.  It writes nothing."""
+    root = Path(root).resolve()
+    record = Path(record) if record else install_record()
+    said, tags = [], {}
+    try:
+        pc = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pc = ""
+    repo, rev = hooks_pin(pc)
+    if repo and not re.match(r"(?:https?|ssh|git)://|[\w.-]+@", repo):
+        said.append(f"the hooks run from the local repository {repo}, whose rev is not compared")
+    elif rev:
+        said.append(f"the hooks pin rev {rev}")
+        tags["the hooks' rev"] = rev
+    try:
+        st = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = None
+    st = st if isinstance(st, dict) else {}
+    markets = st.get("extraKnownMarketplaces") if isinstance(st.get("extraKnownMarketplaces"), dict) else {}
+    src = markets["research-kit"].get("source") if isinstance(markets.get("research-kit"), dict) else None
+    unpinned = False
+    if isinstance(src, dict):
+        ref = src.get("ref") or (str(src.get("url") or "").partition("#")[2] or None)
+        if src.get("source") in ("directory", "file"):
+            said.append(f"the marketplace in .claude/settings.json is a local {src['source']}, which no ref pins")
+        elif ref:
+            said.append(f"the marketplace in .claude/settings.json pins ref {ref}")
+            tags["the marketplace's ref"] = str(ref)
+        else:
+            said.append("the marketplace in .claude/settings.json pins no ref and follows the default branch")
+            unpinned = True
+    if not repo and not isinstance(src, dict):
+        said.append("nothing in the project pins the kit yet")
+    enabled = st.get("enabledPlugins") if isinstance(st.get("enabledPlugins"), dict) else {}
+    inst, me, runs_installed = kit_installed(root, record), Path(__file__).resolve(), False
+    if inst is None:
+        said.append(f"Claude Code's install record {record} is absent or unreadable, so no installed plugin is compared (another agent, or no install)")
+    else:
+        for name, e in inst.items():
+            mine = bool(e.get("installPath")) and me.is_relative_to(Path(str(e["installPath"])).resolve())
+            runs_installed = runs_installed or mine
+            said.append(f"{name} is installed at v{e.get('version')} ({e.get('scope')} scope)" + (", which this runs from" if mine else ""))
+            tags[name] = f"v{e.get('version')}"
+        if not inst:
+            said.append(f"no plugin of research-kit is installed for this project in {record}")
+    missing = sorted(n for n, on in enabled.items() if on is True and n.endswith("@research-kit") and inst is not None and n not in inst)
+    said += [f"{n} is enabled in .claude/settings.json and not installed for this project" for n in missing]
+    if version and not runs_installed:
+        said.insert(0, f"the plugin this runs from is v{version}")
+        tags["the plugin this runs from"] = f"v{version}"
+    ordered = all(kit_tag(t) for t in tags.values())
+    target = (max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None
+    T = target or "<tag>"
+    off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned else []) + [f"{n} (not installed)" for n in missing]
+    steps, releases = [], None
+    if off:
+        if unpinned or tags.get("the marketplace's ref", T) != T:
+            steps.append(f"edit the `ref` of `extraKnownMarketplaces.research-kit` to {T} in .claude/settings.json, "
+                         "and in ~/.claude/settings.json where another project on the machine pinned it there")
+        lag = [n for n in (inst or {}) if tags.get(n) != T]
+        if steps or lag or missing:
+            steps.append(f"claude plugin marketplace add '{KIT_REPO}#{T}' --scope project")
+        steps += [f"claude plugin update {n} --scope {inst[n].get('scope') or 'project'}" for n in lag]
+        steps += [f"claude plugin install {n} --scope project" for n in missing]
+        if tags.get("the hooks' rev", T) != T:
+            steps.append(f"set the hooks' `rev` to {T} in .pre-commit-config.yaml, in the commit that moves the settings file")
+        if tags.get("the plugin this runs from", T) != T:
+            steps.append(f"move the plugin this runs from to {T}: its agent's marketplace pin, or by hand for a clone or a copy")
+        steps.append("restart the session, then read the pins again")
+        seen = sorted({t for t in tags.values() if kit_tag(t)}, key=kit_tag)
+        if len(seen) > 1:
+            releases = f"read the Upgrading paragraph of each release after {seen[0]} up to {seen[-1]}, in {KIT_CHANGELOG}"
+    named = off[0] if len(off) == 1 else ", ".join(off[:-1]) + " and " + off[-1] if off else ""
+    detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}"
+                                + (", the newest of them" if ordered and len(tags) > 1 else "") + ": move the pins together" if off else "")
+    return {"item": "pins at one tag", "need": "recommended", "ok": not off, "detail": detail, "target": target,
+            "commands": steps, "releases": releases}
+
+
 def probe(root):
     """What the project and the machine have for the prover side, and what the setup needs that is
     missing.  Writes nothing; the `formal-init` skill reads it."""
@@ -2713,7 +2904,12 @@ def probe(root):
                  "detail": "named in .pre-commit-config.yaml" if hook else ("not in .pre-commit-config.yaml" if pc.is_file() else "no .pre-commit-config.yaml") + "; `formal check` runs before a commit"})
     proj.append({"item": "documents", "need": "present" if (root / "papers").is_dir() else "absent", "ok": True,
                  "detail": "papers/ exists, the default `[documents] scan`" if (root / "papers").is_dir() else "no papers/ directory; `[documents] scan` names the documents' globs"})
+    # the hooks' rev, the marketplace's ref and the installed research-kit plugins, against this plugin's version
+    pins = kit_pins(root, skill_version(Path(__file__).resolve().parent.parent / "SKILL.md"))
+    proj.append(pins)
     proposals = []
+    if not pins["ok"]:
+        proposals.append({"item": "pins", "need": "recommended", "commands": ([pins["releases"]] if pins["releases"] else []) + pins["commands"]})
     if not shutil.which("lake") or not shutil.which("lean"):
         proposals.append({"item": "lean and lake", "need": "required", "commands": ["elan, from https://github.com/leanprover/elan, then `elan toolchain install $(cat lean-toolchain)` in the workspace"]})
     if not lsp:
