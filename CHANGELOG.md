@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.4.0 — 2026-11-05
 
 The flow gains the two ends of its chain, goals above the questions and the artifacts below the findings, a finding's trust read off the forms of its evidence in place of a status, tags in place of task kinds, and a task's due date and post-done instruction; a project's records and `flow.toml` are brought to it by hand, from what `flow doctor` prints.
 
