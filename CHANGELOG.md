@@ -16,6 +16,7 @@ The flow:
 - `flow doctor` without `--fix` counts the mechanical classes one line each ("645 × a field of this model the record lacks") instead of one line per record per field; `--all` lists each; under `--json` they are `mechanical` with a `class` and `summary`, the judgment lines `problems` as before, and `--fix` reports `fixed`.
 - The doctor's text: the third-hand line no longer names `flow out`, a command that does not exist, and says the prover's task stays active in the agent's hand; the line for a task in `answered_by` mints the finding in this model's form (`flow finding SUMMARY FORM:TARGET… --from T`); `paper: null` prints as such; a directions file with no bullets is told to go, not to mint each bullet; a decision task is found by its tag once its kind is one.
 - The flow script's module docstring describes this model (it still gave the v0.2.0 usage; nothing printed it).
+- Python 3.15 joins the test matrix: the kit's tests pass on 3.11, 3.13, 3.14 and 3.15, and every selftest runs clean with deprecation warnings as errors, so nothing the scripts use is slated for removal.
 
 The `formal` plugin:
 
