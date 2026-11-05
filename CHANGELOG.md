@@ -4,6 +4,33 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+Two consumers' first sessions under v0.4.1's model, read for where a command and its validator disagree, where an instruction misled and where a refusal left the session guessing; nothing in the records changes.
+
+**Upgrading**, from v0.4.1 or v0.4.2: move the three pins, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart.
+Where the project's instructions call `flow …` or `library …` bare, add the line the inits now print: it means the skill's script by its installed path, no command on PATH.
+A migration that brought only the recent results in as findings has more to mint: every committed measurement whose evidence resolves is one (the migration guide's third principle, below).
+
+The flow:
+
+- `flow tag ID +T -U…` adds and removes a record's tags after its mint, the others kept in their order; a tag it lacks, one both added and removed, or a change with no sign is refused.
+- `flow note ID --body FILE` appends a file's text to a record's body under today's date (`YYYY-MM-DD — note:`), through the record's own write, the reflow and markdownlint with it; a body is edited without its file name guessed.
+- The check's V0 on a file named for a record that reads at another path (a guessed name, most often) names that record's path and calls the file a stray, where it said "no frontmatter" alone.
+- `flow reflow --as DEST DRAFT` takes a record's id for DEST; a missing DEST named for a record that is elsewhere is refused with the record's path, and one named for a record not minted yet lints the draft as a record's body, under front matter whose `summary:` waives MD041, where it linted the draft alone and reported MD041.
+- An empty or blank `--reason` is refused by every command taking one (`park`, `block`, `abort`, `remove`, `wrong`, `reach`, `giveup`, `drop`), where `flow check` flagged the record after the write (V15).
+- `flow set T rider true|false`, the words the record stores, as well as `on|off`.
+- `make`, `abort` and `return` on a ready task say to draw it first, with the command.
+- `flow doctor`'s `kind: decision` line settles once the task is parked, as its own remedy says; it fired on a parked task tagged `decision` all the same.
+
+The three scripts:
+
+- A command that does not exist is answered with the way the usual word for it goes (`flow done` → `make T` or `finding … --answers Q`, `library grade` → `read KEY --grade GRADE`, `formal landing` → `handback`, `readback`) and the nearest names, in place of argparse's list of every command.
+- The paragraphs `flow init`, `library init` and `formal init` print for the project's instructions say that `flow …`, `library …` and `formal …` there mean the skill's script run by its installed path, the plugin cache's under Claude Code.
+
+The `research` plugin:
+
+- The README opens with what the kit is for and its *How to use* table, and points at the site for the agents, the reasons and the page list, which it no longer repeats.
+- The migration guide's third principle carries the open work and every finding: findings never close, so every committed measurement, evaluation or result whose evidence resolves today is a finding, the oldest as well as the newest, where "carry the live front, not the history" led a migration to fold 14 of about 35 evaluations.
+
 ## v0.4.2 — 2026-11-06
 
 A logo: `docs/assets/logo/` holds `logo.svg`, a small-size `favicon.svg`, the 1200×630 `og.png` for link previews and the original `logo.jpg`; the README shows it, and the project's site reads the folder from the tag for its header mark, favicon and link preview.

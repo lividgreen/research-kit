@@ -29,7 +29,7 @@ The probe labels the machine's items with one of these three words and the proje
 7. Runs `flow check`, `library check` and `flow state`, and fixes or names any problem.
 8. Reports what was written, installed and declined, each declined item with the command to do it later, the first move, and `/formal:formal-init` as the next step where the probe found a Lean workspace.
 
-A project that already keeps its research elsewhere — notes, a roadmap, a to-do list, a bibliography — is set up the same way first; its material is then brought into the records and the cards as a step of its own, by the skill's [`references/migration.md`](../../plugins/research/skills/research-init/references/migration.md): survey and propose before writing, classify by the kinds' own tests, carry the live front and point at the settled, go through the commands wherever one exists, remove nothing, and end with the checks.
+A project that already keeps its research elsewhere — notes, a roadmap, a to-do list, a bibliography — is set up the same way first; its material is then brought into the records and the cards as a step of its own, by the skill's [`references/migration.md`](../../plugins/research/skills/research-init/references/migration.md): survey and propose before writing, classify by the kinds' own tests, carry the open work and every finding, the old measurements among them, and point at the settled, go through the commands wherever one exists, remove nothing, and end with the checks.
 
 ## Words
 

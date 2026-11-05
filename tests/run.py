@@ -24,7 +24,7 @@ SKILL_DIRS = [d for pl in PLUGINS.values() if (pl / "skills").is_dir() for d in 
 SCRIPTS = {"flow": SKILLS / "flow/scripts/flow.py", "library": SKILLS / "library/scripts/library.py",
            "dashboard": SKILLS / "dashboard/scripts/dashboard.py", "formal": PLUGINS["formal"] / "skills/land/scripts/formal.py",
            "setup": SKILLS / "research-init/scripts/setup.py"}
-SHARED = ("_SENT", "FENCE_RUN", "fence_after", "_builtin_reflow", "project_lock")  # the helpers duplicated into each single-file script
+SHARED = ("_SENT", "FENCE_RUN", "fence_after", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
 failures = []
 
 
@@ -55,6 +55,8 @@ def main():
     a, b = source_of(SCRIPTS["flow"], SHARED), source_of(SCRIPTS["library"], SHARED)
     for n in SHARED:
         check(f"{n} identical in flow.py and library.py", n in a and n in b and a[n] == b[n])
+    c = source_of(SCRIPTS["formal"], ("unknown_command",))
+    check("unknown_command identical in formal.py", c.get("unknown_command") == a.get("unknown_command"))
 
     print("manifests")
     market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())

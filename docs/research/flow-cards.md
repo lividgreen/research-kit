@@ -24,7 +24,7 @@ A field of an older model, such as `abandoned`, `kill`, a task's `kind` or a fin
 The body is prose, one sentence per line, which `flow check` enforces because diffs and the index depend on it; where `markdownlint` is on PATH, a write that adds a violation is reverted.
 A body points at where its subject is STATED — a document's section, a module, a round — and never restates it, because the statement moves and a copy does not.
 It points at a repository path by a Markdown link whose target is the path from the project root, `[the theorem](<papers/alpha.md#Theorem 2.1>)`, the angle brackets where the target holds a space; `flow artifacts` lists every such path with the records naming it, and the check holds the path before any anchor to existence (V24 on a live record, a warning on a closed one), while a URL, a bare `#anchor` and a path in backticks are prose.
-Transitions append dated notes to the end of a body, each `YYYY-MM-DD — label:` and, after one blank line, the text of the file given: `resolution:` for a task made or aborted with `--resolution`, `refined:` for a question refined with `--body`; `returned:`, `unparked:` and `unblocked:` carry their one-line notes, and an idea returned partly worked has what it produced so far appended, as `returned: NOTE; produced so far: idea-0002, task-0003`.
+Transitions append dated notes to the end of a body, each `YYYY-MM-DD — label:` and, after one blank line, the text of the file given: `resolution:` for a task made or aborted with `--resolution`, `refined:` for a question refined with `--body`, `note:` for any record given `flow note ID --body FILE`; `returned:`, `unparked:` and `unblocked:` carry their one-line notes, and an idea returned partly worked has what it produced so far appended, as `returned: NOTE; produced so far: idea-0002, task-0003`.
 
 ## The fields
 
@@ -43,7 +43,7 @@ Every kind carries these:
 | `origin` | `current` for a record the flow minted, `legacy` for one imported from before it and written by hand, which exempts a question from the criterion rule until its first round | minted; hand, for a legacy record alone |
 | `source` | where it came from: a talk, a paper, `refine question-0001` for an idea minted at a refine, `make task-0001` for one minted at a make | minted (`--source`) |
 | `created` | the ISO date of the minting; a direction's date | minted |
-| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `refuted` marks a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open"; `flow tags` reports them | minted (`--tag`); hand |
+| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `refuted` marks a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open"; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
 
 The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a reached or given-up goal, a closed direction, and no other.
 
@@ -99,7 +99,7 @@ The closed records carry a map of `date` and `reason` in `closed`: a removed ide
 | `due` | its due date, `YYYY-MM-DD`, or `null`; it never moves a rank: the index lists the open tasks that have one under `Due`, soonest first, `flow state` names one that has passed and `flow check` warns on it | minted (`--due`); `flow set` |
 | `after` | what follows its completion, in words, or `null`; `make` and `abort` print it at the close for the agent to follow | minted (`--after`); `flow set` |
 | `rank`, `why_now`, `first_move` | as a question's | `rank`; cleared by `make`, `abort` and `remove` |
-| `rider` | `true` while it rides the next piece of work handed to another session | minted `false`; `flow set rider on` or `off`; `false` again at `make`, `abort` and `remove` |
+| `rider` | `true` while it rides the next piece of work handed to another session | minted `false`; `flow set rider on` or `off` (`true` or `false`); `false` again at `make`, `abort` and `remove` |
 | `parked`, `blocked` | as a question's, on a ready task | `park`, `unpark`, `block`, `unblock`; cleared by `remove` |
 | `closed` | `date` and `reason` once aborted or removed | `abort`, `remove` |
 

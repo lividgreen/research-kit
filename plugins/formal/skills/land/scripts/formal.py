@@ -41,6 +41,7 @@ distinct code, so an exit-code reader never mistakes "did not run" for "clean".
 """
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -1862,6 +1863,8 @@ def do_init(root, workspace, force=False):
     print()
     print("What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:")
     print()
+    print("- `formal …` here is the land skill's script run by its installed path from the project root, no command")
+    print("  on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/formal/<version>/skills/land/scripts/formal.py …`.")
     print(f"- The prover workspace is `{workspace}/`; its standing rules are `{instructions}`, which the")
     print("  prover session reads first and which the project's root session never overrides but by naming a file.")
     print("- Lean work ships as a checked handoff prompt (`formal handoffcheck`), and a handback is landed by")
@@ -2318,6 +2321,9 @@ def selftest():
         if not cond:
             bad.append(name)
 
+    r = subprocess.run([sys.executable, __file__, "--root", ".", "landing"], capture_output=True, text=True)
+    expect("a guessed verb is answered with its way, not the list of every command",
+           r.returncode == 2 and "`handback`" in r.stderr and "init, check" not in r.stderr)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         do_init(root, "ws")
@@ -2768,6 +2774,25 @@ def render_probe(rep):
 
 # --- main -----------------------------------------------------------------------------------
 
+# The words a session reaches for that are no command here, each with the way it goes (`unknown_command`).
+USUAL_WORDS = {
+    **dict.fromkeys(("handoff", "brief"), "`handoffcheck [DRAFT]` checks a handoff brief"),
+    **dict.fromkeys(("land", "landing"), "`handback` reads what the prover's branch changed, `readback NAME…` the declarations"),
+    **dict.fromkeys(("setup", "status", "doctor"), "`probe` reports the project against the prover side's setup"),
+}
+
+
+def unknown_command(parser, word, usual):
+    """The refusal for a subcommand that does not exist, or None where `word` is one (or a flag): the way the
+    usual word for it goes, and the nearest names, in place of argparse's list of every choice."""
+    names = [n for act in parser._actions if isinstance(act, argparse._SubParsersAction) for n in act.choices]
+    if not word or word.startswith("-") or word in names:
+        return None
+    near = difflib.get_close_matches(word, names, n=3, cutoff=0.6)
+    return (f"no command {word!r}" + (f": {usual[word]}" if word in usual else "")
+            + (f"; the nearest: {', '.join(near)}" if near else "") + f"; `{parser.prog} --help` lists every command")
+
+
 def main(argv=None):
     """The command line; a crash exits 2, could not run, never 1, which says problems were found."""
     try:
@@ -2802,6 +2827,12 @@ def _main(argv=None):
     p = sub("hypotheses", help="no public theorem shipped at the base gains a named condition"); p.add_argument("--base", default="HEAD")
     p.add_argument("--baseline", help="a pinned baseline file instead of the base revision"); p.add_argument("--update", action="store_true")
     p = sub("witnesses", help="theorems with two or more named conditions and no _nonvacuous witness; a report"); p.add_argument("--base")
+    args = sys.argv[1:] if argv is None else argv
+    words = [x for i, x in enumerate(args) if not x.startswith("-") and (i == 0 or args[i - 1] != "--root")]
+    msg = unknown_command(ap, words[0], USUAL_WORDS) if words and "--selftest" not in args else None
+    if msg:  # a guessed verb: its way and the nearest names, not the whole list
+        print(f"formal: {msg}", file=sys.stderr)
+        return 2
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
