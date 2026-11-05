@@ -12,9 +12,10 @@ The `flow` and `library` skills define what the records and the cards are; this 
    A thing to do is a task, a thing to know is a question, a raw signal is an idea, a claim whose evidence a machine resolves is a finding.
    A claim with no such evidence is never a finding: it stays prose where it stands, or becomes the task that would earn it evidence.
    An item that fits no kind is left where it is and named in the report.
-3. **Carry the live front, not the history.**
-   What is open now becomes records; what is settled stays in the old files and in git, and a record points at it rather than copying it.
-   A finding is minted only where its evidence resolves today.
+3. **Carry the open work and every finding.**
+   What is open now becomes ideas, questions and tasks; work that is settled stays in the old files and in git, and a record points at it rather than copying it.
+   Findings never close, so they are not the history to leave behind: every committed measurement, evaluation or result whose evidence resolves today is a finding, the oldest as well as the newest, and a survey that mints only the recent ones leaves the rest out silently.
+   A finding is minted only where its evidence resolves today; a result whose evidence does not resolve stays prose, as principle 2 says.
 4. **Through the tools wherever a command exists.**
    Records are made with `flow` and cards with `library`, so they are valid by construction.
    A record written by hand is only one the commands cannot express, with `origin: legacy`; an older list of works is loaded as seeded cards (`--seed`), ungraded, since no reading is claimed that nobody made.

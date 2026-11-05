@@ -93,6 +93,7 @@ string that is not a plain word is written in double quotes, JSON's escapes.
 import argparse
 import contextlib
 import datetime as dt
+import difflib
 import hashlib
 import html
 import http.client
@@ -3072,6 +3073,8 @@ limit = 10
 
 INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:
 
+- `library …` here is the library skill's script run by its installed path from the project root, no
+  command on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/research/<version>/skills/library/scripts/library.py …`.
 - The reference library is `{dir}/`: one card per work, found with `library find WORDS` or
   `library show KEY`, never by a glob over the cards; `library.toml` binds the names.
 - A work is cited as `lib:<key>`; a sentence that cites a work is written after `library show`
@@ -3127,6 +3130,9 @@ def selftest():
         if name.startswith("planted:"):
             planted.update(re.findall(r"→ (L\d+)", name))
 
+    r = subprocess.run([sys.executable, __file__, "grade", "k"], capture_output=True, text=True)
+    expect("a guessed verb is answered with its way, not the list of every command",
+           r.returncode == 2 and "`read KEY --grade GRADE`" in r.stderr and "register, read" not in r.stderr)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "library.toml").write_text(SELFTEST_TOML)
@@ -4340,6 +4346,28 @@ def _dispatch(cfg, a, today, as_json, quiet):
     return (0 if out["ok"] else 2 if offline else 1), out
 
 
+# The words a session reaches for that are no command here, each with the way it goes (`unknown_command`).
+USUAL_WORDS = {
+    "grade": "`read KEY --grade GRADE` records how far a work was read",
+    **dict.fromkeys(("add", "new", "cite"), "`register` adds a work's card"),
+    **dict.fromkeys(("list", "ls", "search"), "`find WORDS` lists cards, `show KEY` one card"),
+    **dict.fromkeys(("tag", "comment"), "`note KEY --note … --tag T` adds a dated note and tags"),
+    **dict.fromkeys(("edit", "update", "set"), "`type KEY …` corrects a work's own fields"),
+    "quote": "`extract KEY ID --at … --quote …` adds an addressed extract",
+}
+
+
+def unknown_command(parser, word, usual):
+    """The refusal for a subcommand that does not exist, or None where `word` is one (or a flag): the way the
+    usual word for it goes, and the nearest names, in place of argparse's list of every choice."""
+    names = [n for act in parser._actions if isinstance(act, argparse._SubParsersAction) for n in act.choices]
+    if not word or word.startswith("-") or word in names:
+        return None
+    near = difflib.get_close_matches(word, names, n=3, cutoff=0.6)
+    return (f"no command {word!r}" + (f": {usual[word]}" if word in usual else "")
+            + (f"; the nearest: {', '.join(near)}" if near else "") + f"; `{parser.prog} --help` lists every command")
+
+
 def refused(command, msg, as_json):
     """A refusal before any command ran, in the answer's own shape under --json."""
     if as_json:
@@ -4373,6 +4401,10 @@ def _main():
     if not rest or rest[0] in ("-h", "--help"):  # the command list needs no bindings file
         build_parser().print_help()
         return 0
+    msg = unknown_command(build_parser(), rest[0], USUAL_WORDS)
+    if msg:  # a guessed verb: its way and the nearest names, not the whole list
+        refused(rest[0], msg, known.json)
+        return 2
     if "-h" in rest or "--help" in rest:  # a subcommand's flags need none either
         build_parser().parse_args(rest)
         return 0

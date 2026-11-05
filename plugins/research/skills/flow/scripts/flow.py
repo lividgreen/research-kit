@@ -49,6 +49,8 @@ Transitions (the only writers of state and provenance):
   flow set ID FIELD VALUE        one hand-editable field: summary, criterion (question, goal), size,
                                  dod | due | after (task), rider on|off (ready or active task), serves (question),
                                  horizon (goal), depends_on "F F…"|none (finding; a cycle is refused)
+  flow tag ID +T -U...           a record's tags after its mint: +T adds one, -U removes one, the rest kept
+  flow note ID --body FILE       FILE's text appended to the record's body under today's date; no field changes
 
 Views: find, show, graph, state (the cold-start bundle), directions, tags, artifacts, index [--check | --print],
 check; `pages` (the dashboard's page manifest); `--json` on every command.
@@ -61,7 +63,8 @@ check; `pages` (the dashboard's page manifest); `--json` on every command.
   flow log add FILE              one entry at the top of the log, reflowed and linted as a record is
   flow log archive --before DATE the older entries moved verbatim, one file per month, into `[paths] log_archive`
   flow reflow --check PATH...    the lines of the project's other prose that are not one sentence per line
-  flow reflow --as DEST DRAFT    a draft checked as if appended to DEST: the reflow, then markdownlint
+  flow reflow --as DEST DRAFT    a draft checked as if appended to DEST (a file or a record's id): the reflow,
+                                 then markdownlint
 `flow init [--records DIR] [--log FILE] [--owner O]... [--force]` writes a project's `flow.toml`, its
 directories and its inbox, and prints the paragraph the project's instructions should carry.
 A goal and a direction are minted and closed on the owner's word alone; a question names them by id in
@@ -633,6 +636,12 @@ def load_all(cfg, broken=None):
             broken.append({"code": "V0", "id": None, "path": rel(cfg, p), "msg": f"the record cannot be read: {e}"})
             continue
         recs[r.id] = r
+    for b in broken or []:  # a file named for a record that reads elsewhere: a stray beside it, most often a guessed name
+        m = cfg.id_re.match(Path(b["path"]).name) if b["code"] == "V0" else None
+        twin = recs.get(f"{m.group(1)}-{m.group(2)}") if m else None
+        if twin is not None and rel(cfg, twin.path) != b["path"]:
+            b["msg"] += (f"; {twin.id} is {rel(cfg, twin.path)}, so this file is a stray beside it: its text belongs in that record "
+                         f"(`flow note {twin.id} --body FILE` appends a body), and this file goes")
     return recs
 
 
@@ -1411,7 +1420,8 @@ def get(recs, id_, type_=None, states=None):
     if type_ and r.type != type_:
         raise Refused(f"{id_} is a {r.type}, not a {type_}")
     if states and r["state"] not in states:
-        raise Refused(f"{id_} is {r['state']}, not {' or '.join(states)}")
+        raise Refused(f"{id_} is {r['state']}, not {' or '.join(states)}"
+                      + (f": draw it first (`flow draw {id_} --owner O`)" if r.type == "task" and r["state"] == "ready" and "active" in states else ""))
     return r
 
 
@@ -1953,8 +1963,9 @@ def cmd_set(cfg, recs, a, today):
         raise Refused(f"{r.id} is a {r.type}; {a.field} is a field of {', '.join(SETTABLE[a.field])}")
     v = a.value.strip()
     if a.field == "rider":
+        v = {"true": "on", "false": "off"}.get(v, v)  # the words the record stores, as well as on and off
         if v not in ("on", "off"):
-            raise Refused("rider takes on or off")
+            raise Refused("rider takes on or off (true or false)")
         if v == "on" and r["state"] not in ("ready", "active"):
             raise Refused(f"{r.id} is {r['state']}; only a ready or active task rides a hand-over")
         value = v == "on"
@@ -1995,6 +2006,43 @@ def cmd_set(cfg, recs, a, today):
             raise Refused(f"{a.field} cannot be empty")
         value = v
     r.fm[a.field] = value
+    save(cfg, r)
+    return [], [r]
+
+
+def cmd_tag(cfg, recs, a, today):
+    """`+T` adds a tag, `-T` removes one, the record's other tags kept in their order; no vocabulary is checked."""
+    r = get(recs, a.id)
+    if not a.changes:
+        raise Refused(f"tag takes +T to add a tag and -T to remove one: flow tag {r.id} +T -U")
+    add, drop = [], []
+    for c in a.changes:
+        if c[:1] not in "+-" or not c[1:].strip() or c[1:] != c[1:].strip():
+            raise Refused(f"{c!r}: each change is +T to add a tag or -T to remove one, T a word")
+        (add if c[0] == "+" else drop).append(c[1:])
+    both = sorted(set(add) & set(drop))
+    if both:
+        raise Refused(f"{', '.join(both)} both added and removed")
+    tags = list(r["tags"] or [])
+    lacks = [t for t in drop if t not in tags]
+    if lacks:
+        raise Refused(f"{r.id} carries no tag {', '.join(lacks)}; its tags: {', '.join(map(str, tags)) or 'none'}")
+    new = [t for t in tags if t not in drop] + [t for t in dict.fromkeys(add) if t not in tags]
+    if new == tags:
+        raise Refused(f"{r.id} carries {', '.join(add)} already")
+    r.fm["tags"] = new
+    save(cfg, r)
+    return [], [r]
+
+
+def cmd_note(cfg, recs, a, today):
+    """A file's text appended to a record's body under today's date, through the record's own write (the reflow,
+    markdownlint and the revert on a new violation): a body is edited without its file name guessed."""
+    r = get(recs, a.id)
+    text = read_body(a.body)
+    if not text.strip():
+        raise Refused(f"{a.body} is empty: a note needs words")
+    append_note(r, today, "note:", text)
     save(cfg, r)
     return [], [r]
 
@@ -2564,9 +2612,18 @@ def cmd_reflow(cfg, a):
     dest, draft = map(Path, a.as_)
     if not draft.is_file():
         raise NotRun(f"{draft}: no such file")
+    recs = load_all(cfg, []) if not dest.is_file() else {}
+    if a.as_[0] in recs:  # a record named by its id: its file, whatever its name
+        dest = recs[a.as_[0]].path
+    m = cfg.id_re.match(dest.name) if not dest.is_file() else None
+    if m:
+        twin = recs.get(f"{m.group(1)}-{m.group(2)}")
+        if twin is not None:
+            raise Refused(f"{dest} does not exist; {twin.id} is {rel(cfg, twin.path)}: name the record by its id, `--as {twin.id}`")
     text = read_body(draft).strip("\n")
     problems += [{"code": "REFLOW", "id": None, "path": f"{draft}:{n}", "msg": line} for n, line in reflow_misses(cfg, text)]
-    had = dest.read_text(encoding="utf-8").rstrip("\n") if dest.is_file() else ""
+    # a record not minted yet: its body will stand under front matter whose summary is the title, as for any record
+    had = dest.read_text(encoding="utf-8").rstrip("\n") if dest.is_file() else f"{FENCE}\nsummary: the record's\n{FENCE}" if m else ""
     fd, name = tempfile.mkstemp(prefix=f".{dest.stem}.", suffix=".flow-draft.md", dir=dest.parent if dest.parent.is_dir() else cfg.root)
     os.close(fd)
     tmp = Path(name)
@@ -2755,7 +2812,7 @@ def doctor(cfg, today):
         if st == "decomposed":
             final = "open"
             add("state: decomposed", "state: open (that it was refined is read from its tasks)", "state-decomposed", setter(fm, state="open"))
-        if t == "task" and (r["kind"] == "decision" or "decision" in (r["tags"] or [])) and st in ("ready", "active"):
+        if t == "task" and (r["kind"] == "decision" or "decision" in (r["tags"] or [])) and st in ("ready", "active") and r["parked"] is None:
             add("kind: decision", "a task waiting on a decision is parked with a reason naming it (`flow park T --reason …`, returned first if active); or removed")
         by = r["answered_by"] if t == "question" and isinstance(r["answered_by"], list) else None
         if by is not None:
@@ -2966,6 +3023,8 @@ forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 
 INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:
 
+- `flow …` here is the flow skill's script run by its installed path from the project root, no command
+  on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/research/<version>/skills/flow/scripts/flow.py …`.
 - The records are `{records}/`, one file each, read through `flow find`, `flow show ID`
   and `flow state`, never by a glob; `flow.toml` binds the names.
 - A record's state changes only through a `flow` transition; bodies are edited by hand,
@@ -3182,6 +3241,40 @@ def selftest():
         run(["block", q4, "--on", "the release", "--reason", "again"], ok=False)  # blocked already
         run(["block", q3, "--on", f, "--reason", "r"], ok=False)  # a finding is waited on by nothing
         run(["block", q3, "--on", q3, "--reason", "r"], ok=False)  # itself
+        tz = new(["task", "a task to tag and note"])
+        for verb in (["park", q3], ["block", q3, "--on", "the release"], ["remove", tz], ["abort", t1]):
+            run(verb + ["--reason", "  "], ok=False)  # a reason is words, refused here and not left to V15
+        p = run(["make", tz], ok=False)
+        expect("a refusal of a task not drawn names the draw", f"`flow draw {tz} --owner O`" in p["problems"][0]["msg"])
+        # a record's tags changed after its mint, and a body appended to without its file name
+        run(["tag", tz, "+upkeep"])
+        run(["tag", tz, "+chore", "-upkeep", "+chore"])
+        expect("tag adds and removes, the other tags kept in their order", load_all(cfg)[tz]["tags"] == ["chore"])
+        for bad in ([], ["-upkeep"], ["+a", "-a"], ["chore"], ["+"], ["+chore"]):
+            run(["tag", tz] + bad, ok=False)  # nothing, a tag it lacks, both ways, no sign, no word, there already
+        (root / "note.md").write_text("A remark on it.\nIt has two sentences.\n")
+        run(["note", tz, "--body", str(root / "note.md")])
+        expect("note appends a file's text to the body under the date", load_all(cfg)[tz].body.endswith(f"{today} — note:\n\nA remark on it.\nIt has two sentences.\n"))
+        (root / "note.md").write_text("\n")
+        run(["note", tz, "--body", str(root / "note.md")], ok=False)  # an empty note
+        run(["set", tz, "rider", "true"])
+        expect("set rider takes the words the record stores", load_all(cfg)[tz]["rider"] is True)
+        run(["set", tz, "rider", "false"])
+        run(["set", tz, "rider", "yes"], ok=False)
+        run(["tag", tz, "-chore", "+decision"])
+        decision = lambda: [x for x in dispatch(cfg, ["doctor"], today=today, as_json=True, quiet=True)[1]["problems"] if "kind: decision" in x["msg"]]
+        had = decision()
+        run(["park", tz, "--reason", "the owner's choice of route"])
+        expect("the doctor's decision line fires on a ready task tagged decision, and settles once it is parked", had and not decision())
+        run(["unpark", tz])
+        run(["tag", tz, "-decision"])
+        stray = load_all(cfg)[tz].path.with_name(tz + "-a-guess.md")
+        stray.write_text("A body written beside the record.\n")
+        p = run(["check"], ok=False)
+        expect("planted: a file named for a record that reads elsewhere → V0 naming the record's path",
+               any(x["code"] == "V0" and f"{tz} is {rel(cfg, load_all(cfg, [])[tz].path)}" in x["msg"] and "stray" in x["msg"] for x in p["problems"]))
+        stray.unlink()
+        run(["remove", tz, "--reason", "it stood here to test tag and note"])
         run(["refine", q4, "--task", "t"], ok=False)  # parked
         recs = load_all(cfg)
         expect("a parked and blocked question keeps its rank and both waits", recs[q4]["rank"] == 2
@@ -3697,6 +3790,11 @@ def selftest():
             (Path(bare) / "a.md").write_text("# A\n\nOne. Two on a line.\n", encoding="utf-8")
             r = subprocess.run([sys.executable, __file__, "reflow", "--check", "a.md"], capture_output=True, text=True, cwd=bare)
             expect("reflow --check runs where no flow.toml stands, with the built-in reflow", r.returncode == 1 and "a.md:3" in r.stdout)
+            r = subprocess.run([sys.executable, __file__, "done", "task-0001"], capture_output=True, text=True, cwd=bare)
+            expect("a guessed verb is answered with its way, not the list of every command",
+                   r.returncode == 2 and "no command 'done'" in r.stderr and "`make T`" in r.stderr and "capture, task" not in r.stderr)
+            r = subprocess.run([sys.executable, __file__, "chekced"], capture_output=True, text=True, cwd=bare)
+            expect("a misspelt verb is answered with the nearest names", r.returncode == 2 and "the nearest: checked" in r.stderr)
 
     # the log written at its top and archived by month, a freeze checked, the other prose reflowed
     with tempfile.TemporaryDirectory() as tmp:
@@ -3997,6 +4095,15 @@ def selftest():
                    [(x["code"], x["path"]) for x in p["problems"]] == [("MARKDOWNLINT", f"{draft}:2")])
             (root / "docs" / "b.md").unlink()
         draft.write_text("A clean draft.\n", encoding="utf-8")
+        tr = go(["task", "a task to append to"])["created"][0]
+        p = go(["reflow", "--as", tr, str(draft)])
+        expect("reflow --as takes a record's id for DEST", p["coverage"].endswith(f"markdownlint as at {load_all(cfg)[tr].path}, the draft appended to it"))
+        p = go(["reflow", "--as", str(cfg.research / "tasks" / f"{tr}-a-guess.md"), str(draft)], ok=False)
+        expect("reflow --as refuses a missing DEST named for a record that is elsewhere, naming its path",
+               f"{tr} is {rel(cfg, load_all(cfg)[tr].path)}" in p["problems"][0]["msg"])
+        p = go(["reflow", "--as", str(cfg.research / "tasks" / "task-0099-not-yet.md"), str(draft)])
+        expect("reflow --as on a record not minted yet lints the draft as a body under front matter, no MD041",
+               not p["problems"] and not (cfg.research / "tasks" / "task-0099-not-yet.md").exists())
         go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)])
         expect("reflow --as writes nothing", (root / "docs" / "a.md").read_text(encoding="utf-8") == "# A\n\nIt is fine.\n"
                and sorted(p.name for p in (root / "docs").iterdir()) == ["a.md"])
@@ -4067,6 +4174,10 @@ def build_parser():
     p.add_argument("--direction", metavar="D", help="a question's, by its id"); p.add_argument("--serves", metavar="G", help="the goal a question serves, by its id")
     p = sp.add_parser("checked"); p.add_argument("ids", nargs="+")
     p = sp.add_parser("set"); p.add_argument("id"); p.add_argument("field"); p.add_argument("value")
+    p = sp.add_parser("tag", help="+T adds a tag, -T removes one"); p.add_argument("id")
+    p.add_argument("changes", nargs=argparse.REMAINDER, metavar="+T|-T", help="each +T adds a tag and -T removes one, the others kept")
+    p = sp.add_parser("note", help="a file's text appended to a record's body under today's date"); p.add_argument("id")
+    p.add_argument("--body", required=True, metavar="FILE", help="the text appended, set apart under the date")
     p = sp.add_parser("find")
     for f in ("type", "state", "kind", "form", "tag", "owner", "requires", "grep"):
         p.add_argument("--" + f)
@@ -4088,7 +4199,7 @@ def build_parser():
     lp.add_parser("archive", help="--before DATE: the older entries moved, one file per month").add_argument("--before", required=True)
     p = sp.add_parser("reflow"); g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--check", nargs="+", metavar="PATH", help="exit 1 on a line the reflow changes, each printed")
-    g.add_argument("--as", nargs=2, metavar=("DEST", "DRAFT"), dest="as_", help="the draft checked as if appended to DEST: the reflow and markdownlint")
+    g.add_argument("--as", nargs=2, metavar=("DEST", "DRAFT"), dest="as_", help="the draft checked as if appended to DEST, a file or a record's id: the reflow and markdownlint")
     p = sp.add_parser("doctor", help="the records and bindings an older model wrote, and what each reads now")
     p.add_argument("--fix", action="store_true", help="write every edit whose line states it, in place; what needs judgment stays for the hand")
     p.add_argument("--all", action="store_true", help="list each mechanical edit, not only the count per class")
@@ -4105,7 +4216,7 @@ TRANSITIONS = {"capture": cmd_capture, "task": cmd_task, "frame": cmd_frame, "re
                "return": cmd_return, "make": cmd_make, "abort": cmd_abort, "finding": cmd_finding,
                "consume": cmd_consume, "remove": cmd_remove, "wrong": cmd_wrong, "impossible": cmd_impossible,
                "park": cmd_park, "unpark": cmd_unpark, "block": cmd_block, "unblock": cmd_unblock,
-               "rank": cmd_rank, "checked": cmd_checked, "set": cmd_set, "evidence": cmd_evidence,
+               "rank": cmd_rank, "checked": cmd_checked, "set": cmd_set, "tag": cmd_tag, "note": cmd_note, "evidence": cmd_evidence,
                "goal": cmd_goal, "reach": cmd_reach, "giveup": cmd_giveup, "direction": cmd_direction, "drop": cmd_drop}
 
 
@@ -4190,6 +4301,8 @@ def _dispatch(cfg, a, today, as_json, quiet):
         if a.cmd in TRANSITIONS:
             if a.cmd == "rank" and not a.set and not a.id:
                 raise Refused("rank takes ID N, --set ID..., or ID --clear")
+            if getattr(a, "reason", None) is not None and not a.reason.strip():  # what V15 and the closings need, refused here
+                raise Refused(f"{a.cmd} takes --reason in words: an empty one says nothing")
             _JOURNAL.clear()
             _RERANKED.clear()
             try:
@@ -4384,6 +4497,33 @@ def _dispatch(cfg, a, today, as_json, quiet):
     return (0 if out["ok"] else 2 if not_run else 1), out
 
 
+# The words a session reaches for that are no command here, each with the way it goes (`unknown_command`).
+USUAL_WORDS = {
+    **dict.fromkeys(("done", "close", "finish", "complete"), "a task closes with `make T` (or `abort T --reason R`), "
+                    "a question with the finding that settles it, `finding SUMMARY FORM:TARGET… --answers Q`"),
+    "answer": "a question is answered by the finding that settles it: `finding SUMMARY FORM:TARGET… --answers Q`",
+    "kill": "`remove ID --reason R` for an idea, an open question or a ready task; `abort T --reason R` for an active task",
+    **dict.fromkeys(("out", "release", "putback"), "`return ID --note N` puts a drawn record back"),
+    **dict.fromkeys(("start", "take", "claim"), "`draw ID --owner O`"),
+    **dict.fromkeys(("list", "ls", "search"), "`find` lists records, `state` prints the cold-start bundle"),
+    "status": "`state` prints the cold-start bundle, `show ID` one record",
+    **dict.fromkeys(("edit", "update"), "`set ID FIELD VALUE` changes a field, `note ID --body FILE` appends to a body"),
+    **dict.fromkeys(("comment", "append"), "`note ID --body FILE` appends to a record's body"),
+    "untag": "`tag ID -T` removes a tag, `tag ID +T` adds one",
+}
+
+
+def unknown_command(parser, word, usual):
+    """The refusal for a subcommand that does not exist, or None where `word` is one (or a flag): the way the
+    usual word for it goes, and the nearest names, in place of argparse's list of every choice."""
+    names = [n for act in parser._actions if isinstance(act, argparse._SubParsersAction) for n in act.choices]
+    if not word or word.startswith("-") or word in names:
+        return None
+    near = difflib.get_close_matches(word, names, n=3, cutoff=0.6)
+    return (f"no command {word!r}" + (f": {usual[word]}" if word in usual else "")
+            + (f"; the nearest: {', '.join(near)}" if near else "") + f"; `{parser.prog} --help` lists every command")
+
+
 def refused(command, msg, as_json):
     """A refusal before any command ran, in the answer's own shape under --json."""
     if as_json:
@@ -4417,6 +4557,10 @@ def _main():
     if not rest or rest[0] in ("-h", "--help"):  # the command list needs no bindings file
         build_parser().print_help()
         return 0
+    msg = unknown_command(build_parser(), rest[0], USUAL_WORDS)
+    if msg:  # a guessed verb: its way and the nearest names, not the whole list
+        refused(rest[0], msg, known.json)
+        return 2
     if "-h" in rest or "--help" in rest:  # a subcommand's flags need none either
         build_parser().parse_args(rest)
         return 0
