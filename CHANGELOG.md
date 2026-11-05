@@ -4,6 +4,38 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The flow gains the two ends of its chain, goals above the questions and the artifacts below the findings, a finding's trust read off the forms of its evidence in place of a status, tags in place of task kinds, and a task's due date and post-done instruction; a project's records and `flow.toml` are brought to it by hand, from what `flow doctor` prints.
+
+**Upgrading**:
+
+1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart the session before the next transition.
+2. Run `flow doctor` and edit each file it names by hand, as it says; no transition migrates a record. A task's `kind` goes, its value a tag where it says something; a finding's `status` and `paper` go, each evidence item gains its form as a prefix (`formal:` for a declaration, `statistical:` for a probe, `stated:` for a statement or row of the project's own document), a refuted finding gains the tag `refuted`, and a finding under a shard directory moves to `findings/`; every task gains `due` and `after`, every question `serves`. Then `flow index`; the `flow-check` hook fails until `flow check` is green.
+3. Directions are records: for each bullet of the directions file, `flow direction "Name" --body FILE` with the bullet's words in FILE, then write the new id into each question's `direction` in place of the bold name, and delete the file and `[paths] directions`; the doctor lists the bullets.
+4. In `flow.toml`, delete the `[task]` and `[finding]` sections, and add `[evidence] forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]`, keeping the forms the project accepts and adding its own words; say in the project's instructions what each form means for it.
+5. Where the project's instructions, scripts or notes call a command that is gone, name its replacement: `flow task … --kind K` is `flow task … --tag K`; `--task SUMMARY KIND` on `refine` and `make` is `--task SUMMARY`, with `--tag T` for the tasks minted; `flow finding SUMMARY STATUS EVIDENCE…` is `flow finding SUMMARY FORM:TARGET…`, `--tag refuted` for a disproof and no `--paper`; `flow find --status S` is `--form F`, `--paper P` is `--refers PATH`; the directions file is `flow directions`.
+6. A goal the project has is formed on the owner's word, `flow goal "…" --criterion "…" [--horizon "…"]`, and the questions serving it name it with `flow set Q serves G`.
+
+The flow:
+
+- Two record types, `goal` and `direction`, both the owner's: a goal is formed with what reached means and a horizon in words (`flow goal`, `flow reach G --reason R`, `flow giveup G --reason R`), a question names the goal it serves in `serves` (`frame --serves`, `rank --serves`, `flow set Q serves G|none`), and a goal given up releases its open questions, which keep their ranks; a direction is a record with its name as summary and the owner's words as body (`flow direction NAME --body FILE`, `flow drop D --reason R`), a question's `direction` names it by its id, a dropped direction clears it on the open questions, and `flow directions` renders the open ones in place of the directions file, which is gone with `[paths] directions`. A goal implies its own direction and may be produced along one (`goal --from D`), which stays open. The index gains `Goals`, each with the questions serving it, and `Directions`; V22 holds an open question's direction and goal to open records.
+- A finding's `status` is gone, and so are `[finding]`, `paper`, `--paper` and the shards: each evidence item is `form:target`, the form one of the words `[evidence] forms` lists, and the set of forms a finding carries is its trust, shown where the status stood and filtered by `flow find --form F`. The kit ships five forms — `formal`, `statistical`, `peer-reviewed`, `stated`, `reference` — resolved by their shape against the manifest, the probes register or a committed result, the library, a document of the project, or a link; a project adds its own, held to a path's existence or reported unchecked; a form not listed, an item with no form and an item twice fail V6. `flow finding SUMMARY EVIDENCE…` takes no status and gains `--tag`; `flow evidence F ITEM…` adds evidence and never removes it, the way a finding's trust is raised, and `refuted` is a tag.
+- A task's `kind` is gone, with `[task] kinds`, `default_kind`, `--kind` and the second word of `--task`: tags carry what a kind said, `research` and `upkeep` the usual ones, written by the agent at the mint (`--tag` on `task`, `refine` and `make`), no vocabulary validated; `flow tags` reports every tag with its records and the untagged (`--type` narrows).
+- A task carries a due date (`--due YYYY-MM-DD`, `flow set T due DATE|none`), which never moves a rank: the index lists the open tasks that have one under `Due`, soonest first, `flow state` prints that list before the ranked one and names a date that has passed, as it does a block on a condition whose date has passed, and `flow check` warns on both; and a post-done instruction (`--after "…"`, `flow set T after "…"|none`), which `make` and `abort` print at the close.
+- `flow artifacts` lists every repository path the records refer to, by an evidence item or a Markdown link in a body (root-relative; a URL, a bare anchor and a path in backticks are prose), with the records naming each and `MISSING` where it is gone; the check's V24 fails a live record whose body links a path that is not in the tree and warns on a closed one.
+- `flow find --refers ID|PATH` lists the records naming a record or a path in any reference field, an evidence item or a body link, and `--deep` the records naming those and so on; `flow show` and the back-references list `direction` and `serves`.
+- `flow doctor` names a task's `kind`, a finding's `status` and `paper`, an evidence item with no form and the prefix it takes, a finding under a shard, a question's `direction` holding a bold name, the directions file and its bullets, `[task] kinds` and `default_kind`, the `[finding]` section and a missing `[evidence] forms`; `flow init` writes `goals/` and `directions/`, the five forms, and no directions file.
+- The dashboard's record list shows a finding's forms, and gains the Artifacts and Tags pages.
+
+The `research` plugin:
+
+- The flow skill carries the tests for an idea's size (independence, not length), a task (big, or outliving the turn; an operation on a card never one, and one that finds work recommends a task), a task's size (one definition of done), and how a body refers to a repository path.
+- `/research:whatsnext` reads the open goals and directions off the index, ranks the questions serving a goal first under it, mints or closes a goal or a direction only on the person's word, re-ranks the questions a given-up goal released, and names a finding resting on `stated` evidence alone as work waiting.
+- The setup asks which evidence forms the project accepts and writes them into `[evidence] forms`, and the instructions section says what each means for the project.
+
+The `formal` plugin:
+
+- The handoff mints the prover's task with `--tag research`, and the landing mints each finding with `formal:Path.lean#decl` among its evidence, a failed handoff's refuting finding tagged `refuted`.
+
 ## v0.3.0 — 2026-11-05
 
 The flow's model is re-settled in this release: its states, its closings, its hands and the session's start and end; a project's records and `flow.toml` are brought to it by hand, from what `flow doctor` prints.

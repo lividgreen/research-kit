@@ -7,21 +7,22 @@ In a project with an agent, `/research:research-init` does the setup of the firs
 ## The records
 
 ```sh
-flow init --log WORKLOG.md     # flow.toml, records/{ideas,tasks,questions,findings,archive} with records/directions.md and records/INDEX.md, INBOX.md, a first log entry
+flow init --log WORKLOG.md     # flow.toml, records/{ideas,tasks,questions,findings,goals,directions,archive} with records/INDEX.md, INBOX.md, a first log entry
 library init --kept --scan records --scan WORKLOG.md --documents "papers/*.md"
 flow capture "A might imply B" --source "a talk"
 flow frame idea-0001 --summary "Does A imply B?" --criterion "a finite counterexample, or a proof"
-flow refine question-0001 --task "prove the lemma" work --task "design the route" design
+flow refine question-0001 --task "prove the lemma" --task "design the route" --tag research
 flow check
 flow state
 ```
 
 `flow init` writes two hands: `agent`, the agent's across its sessions, with a limit of four (its active tasks and the ideas drawn into it), and `owner`, the person's, with no limit (0 is unlimited); `--owner` names others.
-The task kinds it writes are `work`, `design`, `prose`, `survey`, `upkeep` and `community`; a task of any kind may come from a question, an idea or another task, named in its `derived_from`, or stand alone; edit the list in `flow.toml`, which [The flow](flow.md) shows whole.
-It also writes `INBOX.md`, where you leave items between sessions; `flow state` prints it first, before the ranked list, the hands and the log's top entry.
+A task has no kind: a tag says what it is, `research` for work that came from the research and `upkeep` for the project's own, any word of yours beside them, and `flow tags` reports them; a task may come from a question, an idea or another task, named in its `derived_from`, or stand alone.
+It also writes `INBOX.md`, where you leave items between sessions; `flow state` prints it first, before the due tasks, the ranked list, the hands and the log's top entry.
+It writes the five evidence forms a finding's items may take, `[evidence] forms` in `flow.toml`, which [The flow](flow.md) shows whole: `formal`, `statistical`, `peer-reviewed`, `stated` and `reference`; keep the ones the project accepts, add its own words, and say in the project's instructions what each means here.
 Then bind the evidence resolvers in `flow.toml` where the project has them — `[evidence] manifest`, `manifest_roots` and `manifest_extension` for a declaration manifest (a text file a prover's build regenerates, one `Module.Path name` line per declaration; of the other row kinds the `formal` plugin's generator writes, the flow reads `private`, `field` and `instance` rows as declarations too and passes over `module` and `hypothesis`), `probes` for a register of self-asserting scripts.
 The library needs no binding: where `library.toml` stands at the root, `flow check` asks the library skill installed beside the flow skill, else a `library` command on PATH, and its coverage line says which; `[library] command` in `flow.toml` names another command, and `command = []` asks none.
-Unbound, declaration and probe evidence is reported unchecked and the check's coverage line says so.
+Unbound, formal, probe and peer-reviewed evidence is reported unchecked and the check's coverage line says so.
 
 `library init --documents "papers/*.md"` binds the documents whose reference entries the library ties to cards: each entry is one line under a `## References` heading opening with the authors and the year in parentheses, as `Jen, E. (1990). *Title*. Venue.`, and an entry with no card, or with two, fails the check.
 A project whose documents keep a BibTeX or numbered bibliography binds no documents and cites by key alone.
@@ -35,7 +36,6 @@ The first task the block above minted is `records/tasks/task-0001-prove-the-lemm
 ---
 id: task-0001
 type: task
-kind: work
 state: ready
 summary: prove the lemma
 derived_from:
@@ -45,6 +45,8 @@ size: null
 owner: null
 drawn: null
 dod: null
+due: null
+after: null
 rank: null
 why_now: null
 first_move: null
@@ -55,11 +57,12 @@ closed: null
 origin: current
 source: null
 created: '2026-10-23'
-tags: []
+tags:
+- research
 ---
 ```
 
-The front matter is what the tool owns: `state`, `derived_from`, `owner`, `drawn`, `rank`, `parked`, `blocked`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`).
+The front matter is what the tool owns: `state`, `derived_from`, `owner`, `drawn`, `rank`, `parked`, `blocked`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`); `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
 The body below it is yours, one sentence per line.
 
 ### What a failed check looks like
@@ -69,7 +72,7 @@ Set the task's `state` to `active` by hand and run `flow check`:
 ```text
 records/tasks/task-0001-prove-the-lemma.md: V9 active without an owner
 records/INDEX.md: V11 records/INDEX.md is stale — run `flow index`
-flow check: 4 records of the kinds idea, question, task, finding; 2 problem(s), 0 warning(s); declaration evidence via NOT CONFIGURED; probe evidence via NOT CONFIGURED; reflow via built-in; markdownlint present
+flow check: 4 records of the kinds idea, question, task, finding, goal, direction; 2 problem(s), 0 warning(s); evidence forms formal, statistical, peer-reviewed, stated, reference; declaration evidence via NOT CONFIGURED; probe evidence via NOT CONFIGURED; reflow via built-in; markdownlint present
 library: 0 key(s) cited from 0 record(s); 0 of them excluded cards; the papers' reference entries are not read here; asked through the library skill beside this one
 to reproduce: `flow check` at the project root, the flow skill's scripts/flow.py; where no skill is loaded, `pre-commit run flow-check --all-files`
 ```
@@ -87,14 +90,15 @@ printf 'The lemma holds, and probes/lemma.py asserts it.\n' > resolution.md
 flow draw task-0001 --owner agent
 flow make task-0001 --resolution resolution.md
 flow remove task-0002 --reason "the lemma settles the question, so no route is left to design"
-flow finding "A implies B" empirical probes/lemma.py --from task-0001 --answers question-0001
+flow finding "A implies B" statistical:probes/lemma.py --from task-0001 --answers question-0001
 flow check
 flow state
 ```
 
 `flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution.
 The other task, never drawn, is removed with its reason, since the result settles the question; both tasks are now in `records/archive/`.
-Then `flow finding` mints `finding-0001` from the made task, its evidence the probe, and `--answers` closes the question answered by it; a question refuses to close while a task that came from it is ready or active, so the tasks are closed first.
+Then `flow finding` mints `finding-0001` from the made task, its evidence the probe in the `statistical` form, and `--answers` closes the question answered by it; a question refuses to close while a task that came from it is ready or active, so the tasks are closed first.
+The finding's trust is the forms its evidence carries, here `statistical`; a proof formalized later is added with `flow evidence finding-0001 formal:Lib/Foo.lean#decl`, and evidence is never removed.
 The check passes with one warning: no probes register is bound, so the probe is reported unchecked rather than resolved (`[evidence] probes` in `flow.toml` binds one, a Markdown table naming each self-asserting script).
 
 The log is not a transition.
@@ -108,7 +112,7 @@ The entry for the result is written by the agent, or by you, in the same commit 
 
 ### A session's start and end
 
-With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reads the inbox and proposes what to make of each item, ranks the next list with `flow rank`, and draws the top work into the agent's hand; [What is next](whatsnext.md) says the rest.
+With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and draws the top work into the agent's hand; [What is next](whatsnext.md) says the rest.
 It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
 
 ## A card

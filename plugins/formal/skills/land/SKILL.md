@@ -82,9 +82,9 @@ A sentence found false of the tree is corrected here, in this landing — never 
 
 The project's offline gates by exit code; then the flow.
 `flow make TASK --resolution DRAFT` closes the prover's task, done and archived, and takes it out of the agent's hand; it mints nothing.
-Each finding is then minted from the LANDED proof with `flow finding SUMMARY STATUS EVIDENCE… --from TASK`, STATUS the verified one and EVIDENCE the declaration (`Path.lean#decl`) and the document row (evidence that does not resolve against the manifest or the document refuses the call), with `--depends-on F` and `--paper P` where they hold.
+Each finding is then minted from the LANDED proof with `flow finding SUMMARY EVIDENCE… --from TASK`, EVIDENCE the declaration in the formal form (`formal:Path.lean#decl`) and the document row in the stated one (`stated:papers/x.md#FV-1`; an item that does not resolve against the manifest or the document refuses the call), with `--depends-on F` where it holds; a finding whose formal item lands later gains it with `flow evidence F formal:Path.lean#decl`.
 The one finding that settles the question carries `--answers Q`, which closes it; the question's other findings carry `--from` without it.
-A handoff that failed is `flow abort TASK --reason R`, its refuted finding minted after it the same way, `--from TASK`.
+A handoff that failed is `flow abort TASK --reason R`, its refuting finding minted after it the same way, `--from TASK --tag refuted`, its evidence the guard or the probe that shows the failure.
 A residue is a `flow capture`, a `flow frame IDEA… --summary S --criterion C` or a `flow park ID --reason R`, never a "what stays open" line appended to the question's body; a question found wrong is `flow wrong Q --reason R`, one shown impossible `flow impossible Q --by F`, and an idea, an open question or a ready task dropped is `flow remove ID --reason R`.
 Commit with NAMED paths — the prover session's sources, the package files, the manifests and the documents swept — never everything at once, since a sibling's in-flight work has been swept into a mislabelled commit that way.
 If the landing rewired a cross-document import, run the project's consistency audit in the same session, before the commit; if it did not, say so in the entry.
