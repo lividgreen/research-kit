@@ -1,5 +1,7 @@
 # research-kit
 
+![research-kit logo](docs/assets/logo/logo.svg)
+
 **A kit for doing research with a coding agent.**
 It keeps a project's ideas, questions, tasks, findings and cited works as checked Markdown in the repository, and ships as two plugins for coding agents.
 

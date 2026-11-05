@@ -9,6 +9,7 @@ import datetime
 import json
 import re
 import shutil
+import struct
 import subprocess
 import os
 import sys
@@ -244,6 +245,23 @@ def main():
     check("the card's body has no level-1 heading and starts at level 2",
           not re.search(r"^# ", body, re.M) and (first is None or first.group(1) == "##"))
     check("no link destination of the card holds a parenthesis", not re.search(r"\]\([^)\s]*\([^)]*\)", body))
+
+    print("the logo www.livid.work reads from the release tag (docs/assets/logo/)")
+    logo_dir = ROOT / "docs/assets/logo"
+    check("logo.svg is there: it alone turns the site's logo on", (logo_dir / "logo.svg").is_file())
+    for f in sorted(p for p in logo_dir.iterdir() if p.is_file()):
+        check(f"{f.name} is under 2 MB (the site ignores a larger file)", f.stat().st_size <= 2 * 1024 * 1024)
+    for f in sorted(logo_dir.glob("*.svg")):
+        svg = f.read_text(encoding="utf-8")
+        check(f"{f.name} is an SVG with a viewBox and nothing active in it (no script, foreignObject, on*= handler or javascript:)",
+              re.search(r"<svg\b[^>]*\bviewBox=", svg) is not None
+              and not re.search(r"<script|<foreignObject|\bon\w+\s*=|javascript:", svg, re.I))
+    if (logo_dir / "og.png").is_file():
+        png = (logo_dir / "og.png").read_bytes()
+        check("og.png is a 1200x630 PNG", png[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", png[16:24]) == (1200, 630))
+    check("no .gitattributes line leaves the logo out of the tag's tarball",
+          not (ROOT / ".gitattributes").is_file() or "export-ignore" not in (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+    check("the README shows docs/assets/logo/logo.svg", "](docs/assets/logo/logo.svg)" in readme)
 
     print("the documentation is true of the tools")
     with tempfile.TemporaryDirectory() as tmp:

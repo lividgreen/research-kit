@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="64" height="64" role="img" aria-labelledby="t">
+  <title id="t">research-kit</title>
+  <!-- Small-size variant of logo.svg: no rim, pinstripe, card frames or shadows; bolder shapes. -->
+  <rect width="1024" height="1024" rx="210" fill="#182536"/>
+
+  <!-- Left card: amber, magnifying glass -->
+  <rect x="64" y="380" width="430" height="580" rx="56" fill="#e9a02a"/>
+  <circle cx="207" cy="752" r="84" fill="none" stroke="#6b3f00" stroke-width="48"/>
+  <line x1="268" y1="813" x2="364" y2="909" stroke="#6b3f00" stroke-width="60" stroke-linecap="round"/>
+
+  <!-- Right card: mint, open book -->
+  <rect x="530" y="380" width="430" height="580" rx="56" fill="#88ebb8"/>
+  <g fill="#0b4a2c">
+    <rect x="586" y="728" width="318" height="140" rx="22"/>
+  </g>
+  <g fill="#88ebb8" stroke="#88ebb8" stroke-width="26" stroke-linejoin="round">
+    <path id="page-halo" d="M757 722 C800 696 850 696 888 708 L888 812 C850 802 800 806 757 838 Z"/>
+    <use href="#page-halo" transform="translate(1488 0) scale(-1 1)"/>
+  </g>
+  <g fill="#0b4a2c">
+    <path id="page" d="M757 722 C800 696 850 696 888 708 L888 812 C850 802 800 806 757 838 Z"/>
+    <use href="#page" transform="translate(1488 0) scale(-1 1)"/>
+  </g>
+
+  <!-- Apex card: silver, "AI"; the edge in the badge colour keeps it apart from the cards below -->
+  <rect x="292" y="84" width="440" height="590" rx="56" fill="#f1f5f9" stroke="#182536" stroke-width="16"/>
+  <g fill="#07152b" transform="translate(512 379) scale(1.7) translate(-509.5 -376)">
+    <path fill-rule="evenodd" d="M464.5 295 H503 L565.5 457 H529.5 L516.5 420.5 H450.5 L438 457 H402 Z M483.75 332 L462 392.5 H505.75 Z"/>
+    <rect x="583.75" y="295" width="33.5" height="162"/>
+  </g>
+</svg>
