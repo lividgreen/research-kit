@@ -4,6 +4,9 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A logo: `docs/assets/logo/` holds `logo.svg`, a small-size `favicon.svg`, the 1200×630 `og.png` for link previews and the original `logo.jpg`; the README shows it, and the project's site reads the folder from the tag for its header mark, favicon and link preview.
+`tests/run.py` checks the folder: the files' sizes, nothing active in an SVG, the preview's dimensions.
+
 ## v0.4.1 — 2026-11-05
 
 The migration to v0.4.0's model, made a procedure for a project of any size: `flow doctor --fix` writes the mechanical part, the upgrade steps say how the bump and the migration go under the hooks, and the doctor's text, the install page's pin order and the flow script's own usage are corrected from two consumers' upgrades.
