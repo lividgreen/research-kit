@@ -2501,6 +2501,19 @@ def selftest():
         expect("probe proposes the generator once, in the workspace, one command per package with every root as --own",
                len(gen) == 4 and all("--own ALT,Guards," in c for c in gen[1:]) and "--roots Inner --own" in gen[3]
                and "--out ../scripts/inner-decls.txt" in gen[3], str(gen))
+        (root / "ws" / "DeclManifest.lean").write_text("-- an older release's generator\n", encoding="utf-8")
+        rep = probe(root)
+        ws = {w["dir"]: w for w in rep["workspaces"]}
+        expect("probe names a generator that differs from the skill's copy as stale, with the copy as a proposal",
+               ws["ws"]["generator"] and ws["ws"]["generator_stale"] and "STALE" in render_probe(rep)
+               and any(p["item"] == "generator of ws" and "copy the land skill's scripts/DeclManifest.lean over ws/DeclManifest.lean" in p["commands"][0]
+                       and len(p["commands"]) == 4 and "--roots ALT,Guards" in p["commands"][1] for p in rep["proposals"])
+               and not any(p["item"] == "manifest of ws" for p in rep["proposals"]))
+        (root / "ws" / "DeclManifest.lean").write_bytes((Path(__file__).resolve().parent / "DeclManifest.lean").read_bytes())
+        rep = probe(root)
+        expect("the skill's copy in the workspace is present and not stale",
+               not next(w for w in rep["workspaces"] if w["dir"] == "ws")["generator_stale"] and not any(p["item"] == "generator of ws" for p in rep["proposals"]))
+        (root / "ws" / "DeclManifest.lean").unlink()
         quiet(do_init, root, "ws")
         cfg = Config(root)
         (root / "scripts").mkdir(exist_ok=True)
@@ -2655,9 +2668,13 @@ def probe(root):
                              "requires": [Path(os.path.relpath(r, ws)).as_posix() for r in lake_requires(d) if r in members]})
         tc = (ws / "lean-toolchain").read_text(encoding="utf-8", errors="replace").strip() if (ws / "lean-toolchain").is_file() else None
         instr = [f for f in ("CLAUDE.md", "AGENTS.md") if (ws / f).is_file()]
+        gen, skill_gen = ws / "DeclManifest.lean", Path(__file__).resolve().parent / "DeclManifest.lean"
+        # the generator's copy in the workspace against the skill's: a release that changes the generator is the one
+        # upgrade step no check saw until this one
+        stale = gen.is_file() and skill_gen.is_file() and gen.read_bytes() != skill_gen.read_bytes()
         workspaces.append({"dir": rel.as_posix() if rel.parts else ".", "package": packages[0]["package"], "roots": packages[0]["roots"],
                            "packages": packages, "toolchain": tc,
-                           "manifest_lock": (ws / "lake-manifest.json").is_file(), "generator": (ws / "DeclManifest.lean").is_file(),
+                           "manifest_lock": (ws / "lake-manifest.json").is_file(), "generator": gen.is_file(), "generator_stale": stale,
                            "instructions": instr})
     proj = []
     has_formal = (root / "formal.toml").is_file()
@@ -2703,6 +2720,12 @@ def probe(root):
             proposals.append({"item": f"manifest of {w['dir']}", "need": "required",
                               "commands": [f"copy DeclManifest.lean from the land skill into {w['dir']}/ (once, in the workspace, "
                                            "never in a package inside it), then in the workspace after a build:"] + cmds})
+        elif w["generator_stale"]:
+            _, cmds = manifest_commands(root, root / w["dir"], w["packages"], flow_manifests(root, w["packages"]))
+            proposals.append({"item": f"generator of {w['dir']}", "need": "required",
+                              "commands": [f"copy the land skill's scripts/DeclManifest.lean over {w['dir']}/DeclManifest.lean, which differs from it "
+                                           "(a release changed the generator, unless the difference is the project's own edit, kept on purpose), "
+                                           "then in the workspace after a build:"] + cmds})
     return {"root": str(root), "environment": env, "workspaces": workspaces, "project": proj, "proposals": proposals}
 
 
@@ -2720,8 +2743,9 @@ def render_probe(rep):
     if not rep["workspaces"]:
         lines.append("  none; the formal plugin needs a Lean workspace")
     for w in rep["workspaces"]:
+        gen_word = "STALE, differs from the land skill's copy" if w.get("generator_stale") else "present" if w["generator"] else "absent"
         lines.append(f"  {w['dir']}: package {w['package'] or 'UNNAMED'}; roots {', '.join(w['roots']) or 'NONE DECLARED'}; toolchain {w['toolchain'] or 'NO lean-toolchain'}; "
-                     f"lake-manifest.json {'present' if w['manifest_lock'] else 'absent'}; DeclManifest.lean {'present' if w['generator'] else 'absent'}; "
+                     f"lake-manifest.json {'present' if w['manifest_lock'] else 'absent'}; DeclManifest.lean {gen_word}; "
                      f"instructions {', '.join(w['instructions']) or 'none (CLAUDE.md or AGENTS.md in the workspace)'}")
         for p in w["packages"][1:]:
             lines.append(f"    package {p['package'] or 'UNNAMED'} at {p['dir']}/: roots {', '.join(p['roots']) or 'NONE DECLARED'}; "

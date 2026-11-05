@@ -18,7 +18,7 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 
 ## What it does
 
-1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator, the project's bindings, the proposals and a coverage line, and writes nothing.
+1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator (`DeclManifest.lean` present, absent, or stale where it differs from the skill's copy, with the copy as a proposal), the project's bindings, the proposals and a coverage line, and writes nothing.
    A lakefile under a workspace's directory, or one it requires by path, is a package of that workspace and never a workspace of its own: the generator goes into the workspace once and runs there for every package.
 2. Plans in one message and asks once: which workspace to bind where the probe found several, which proposals to install, and the slots of the instructions the probe cannot fill (the commands that re-verify a module, the build time, where the audit modules live).
 3. Installs what was chosen and probes again.

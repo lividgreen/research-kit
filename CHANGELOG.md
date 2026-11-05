@@ -4,6 +4,27 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The migration to v0.4.0's model, made a procedure for a project of any size: `flow doctor --fix` writes the mechanical part, the upgrade steps say how the bump and the migration go under the hooks, and the doctor's text, the install page's pin order and the flow script's own usage are corrected from two consumers' upgrades.
+
+**Upgrading**, from v0.4.0: move the three pins, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) now says in five steps, and restart; nothing in the records changes.
+From v0.3.0 or earlier: the steps of v0.4.0 below hold, with two corrections — step 2's "edit each file by hand" is `flow doctor --fix` for the mechanical classes, then the by-hand list it prints; and the bump and the migration land in one commit, since `flow-check` at the new tag fails every record-touching commit until the migration is done (or the intermediate commit runs with `SKIP=flow-check`, said so in the log); `flow task`, `flow state` and `flow show` run on the unmigrated tree, so the migration task is minted first.
+Rewrite the comments `flow init` wrote beside the `flow.toml` lines the doctor says to delete, which it does not read.
+
+The flow:
+
+- `flow doctor --fix` writes every edit whose line states it, in place: a field the record lacks, `kill`, `abandoned`, the states `abandoned` and `decomposed`, a task's `kind` to a tag, `question` into `derived_from`, a finding's `status` (the tag `refuted` where it was that) and `paper`, an evidence item's form prefix read off its shape, a finding moved out of a shard, a closed task moved into the archive, `answered_by` and `consumed_by` between a list and one value, a question's `direction` by name rewritten to its record's id once the record exists, an owner cleared on a ready or a closed record, and the inbox created; each record's front matter is re-ordered to the schema and the index refreshed. What needs judgment — a task or several findings in `answered_by`, a decision task, the directions file's bullets, a third hand, an owner on a held record, the bindings — stays printed for the hand, and `--fix` exits 1 while any is left.
+- `flow doctor` without `--fix` counts the mechanical classes one line each ("645 × a field of this model the record lacks") instead of one line per record per field; `--all` lists each; under `--json` they are `mechanical` with a `class` and `summary`, the judgment lines `problems` as before, and `--fix` reports `fixed`.
+- The doctor's text: the third-hand line no longer names `flow out`, a command that does not exist, and says the prover's task stays active in the agent's hand; the line for a task in `answered_by` mints the finding in this model's form (`flow finding SUMMARY FORM:TARGET… --from T`); `paper: null` prints as such; a directions file with no bullets is told to go, not to mint each bullet; a decision task is found by its tag once its kind is one.
+- The flow script's module docstring describes this model (it still gave the v0.2.0 usage; nothing printed it).
+
+The `formal` plugin:
+
+- `formal probe` names a workspace's `DeclManifest.lean` stale where it differs from the land skill's copy, with the copy as a proposal: the one upgrade step no check saw.
+
+The pages:
+
+- Install's pin order for Claude Code: edit the `ref` in every settings file that holds the entry first, since `marketplace add` refuses while a user-level entry names another ref, then `add`, then `plugin update` per plugin; the bump and the migration in one commit, or `SKIP=flow-check` said in the log; a session that must mint before its restart runs the new script by its cache path.
+
 ## v0.4.0 — 2026-11-05
 
 The flow gains the two ends of its chain, goals above the questions and the artifacts below the findings, a finding's trust read off the forms of its evidence in place of a status, tags in place of task kinds, and a task's due date and post-done instruction; a project's records and `flow.toml` are brought to it by hand, from what `flow doctor` prints.

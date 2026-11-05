@@ -203,21 +203,25 @@ A project keeps the two at one tag by pinning the marketplace to the tag its `re
 | Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#<tag>'` |
 
 A pinned marketplace updates to its tag and no further; the project moves it and the hooks' `rev` to the next tag together, in one commit where the pin is in a committed settings file.
+Where the release changes the records' model, that commit carries the migration too, since `flow-check` at the new tag fails every commit that touches a record until the records are in the new form, and the plugin already runs the new version; a project that must commit between the two runs that commit with `SKIP=flow-check` (prek and pre-commit read it) and says so in the log entry.
+`flow task`, `flow state` and `flow show` run on an unmigrated tree at the new version, so the migration task is minted first; `flow doctor --fix` then writes the mechanical part of the migration and lists the rest ([The flow](research/flow.md#flow-doctor)).
 Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move together by hand.
 The setup probe, run from the installed plugin, says whether the hooks' `rev`, the marketplace's `ref` in the project's `.claude/settings.json` and the plugin's own version name one tag.
 
-In Claude Code the marketplace is one per machine, known by its name to every project on it, and a project moves its pin in four steps:
+In Claude Code the marketplace is one per machine, known by its name to every project on it, and a project moves its pin in five steps:
 
-1. `claude plugin marketplace add 'lividgreen/research-kit#<tag>' --scope project` points the marketplace at the tag in place and writes the `ref` into the project's settings.
-   It answers `Marketplace 'research-kit' already on disk — declared in project settings`, which reads as a no-op while it has done both.
-2. `claude plugin update research@research-kit --scope project`, and the same for `formal@research-kit`, moves the project's plugins to the tag; every other project on the machine keeps the version it installed until it runs the update itself.
-   It ends with `Restart to apply changes`, which is literal: until the restart the session runs the old skills' text against the new hooks, the drift the pin exists to prevent.
-3. Set the hooks' `rev` to the tag, in the same commit as the settings file.
-4. Run the setup probe, which says whether the three pins name one tag, and restart the session before the next transition.
+1. Edit the `ref` to the tag in every settings file that holds the marketplace's entry: the project's `.claude/settings.json`, and the user's `~/.claude/settings.json` where another project on the machine pinned it there.
+   The `add` of the next step refuses while an entry elsewhere names another ref (`its source doesn't match its extraKnownMarketplaces entry in user or managed settings`), and writes the `ref` itself only where no other settings file carries one.
+2. `claude plugin marketplace add 'lividgreen/research-kit#<tag>' --scope project` points the marketplace at the tag in place, re-cloning it there.
+   It answers `Marketplace 'research-kit' already on disk — declared in project settings`, which reads as a no-op while it has moved the clone.
+3. `claude plugin update research@research-kit --scope project`, and the same for `formal@research-kit`, moves the project's plugins to the tag; every other project on the machine keeps the version it installed until it runs the update itself.
+   It ends with `Restart to apply changes`, which is literal: until the restart the session runs the old skills' text against the new hooks, the drift the pin exists to prevent; a session that must mint a record before its restart runs the new version's script by its cache path, as the skills say to anyway, and the records it writes pass the new check.
+4. Set the hooks' `rev` to the tag, in the same commit as the settings file.
+5. Run the setup probe, which says whether the three pins name one tag, and restart the session before the next transition.
 
 Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the tag the machine knows.
 Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
-Claude Code 2.1.310 behaves so.
+Claude Code 2.1.318 behaves so.
 
 ### Several sessions in one tree
 
