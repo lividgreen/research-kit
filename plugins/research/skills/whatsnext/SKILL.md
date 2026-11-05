@@ -4,7 +4,7 @@ description: What we do next, for the whole project — read the inbox and propo
 license: Apache-2.0
 compatibility: The `flow` skill beside this one, whose script it runs; git for the commit.
 metadata:
-  version: "0.4.2"
+  version: "0.4.3"
   requires: flow
 ---
 

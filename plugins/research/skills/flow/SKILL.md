@@ -4,7 +4,7 @@ description: The typed flow of research work — ideas, tasks, questions with a 
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), git (the log's part of the freeze check), a project reflow module (one sentence per line; built in otherwise); a declaration manifest, a probes register and a reference library for the findings' evidence, without which formal, probe and peer-reviewed evidence is reported unchecked.
 metadata:
-  version: "0.4.2"
+  version: "0.4.3"
   script: scripts/flow.py
 ---
 
