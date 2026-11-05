@@ -28,6 +28,7 @@ The three scripts:
 
 The `research` plugin:
 
+- The README opens with what the kit is for and its *How to use* table, and points at the site for the agents, the reasons and the page list, which it no longer repeats.
 - The migration guide's third principle carries the open work and every finding: findings never close, so every committed measurement, evaluation or result whose evidence resolves today is a finding, the oldest as well as the newest, where "carry the live front, not the history" led a migration to fold 14 of about 35 evaluations.
 
 ## v0.4.2 — 2026-11-06
