@@ -17,6 +17,7 @@ The one rule is to save what is important for the work, anything useful the sess
 
 1. **The records say what the session knows.**
    The log's top State paragraph is current and its next action names the fresh session's first move; where work happened after the entry, it is extended or a new entry added with `flow log add FILE`.
+   `flow touched --unnamed` lists the records changed since the newest committed entry that no entry names yet, the ids the entry is to name; `--ids` prints them on one line.
    At the month's first freeze, `flow log archive --before DATE` moves the older entries.
 2. **Flush what only the context holds.**
    Inventory the conversation turn by turn, the person's messages and the replies both, under the test: if the transcript were deleted now, would anything the person said, or anything the person was told, be lost?
