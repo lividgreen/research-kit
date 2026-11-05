@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.4.1 — 2026-11-05
 
 The migration to v0.4.0's model, made a procedure for a project of any size: `flow doctor --fix` writes the mechanical part, the upgrade steps say how the bump and the migration go under the hooks, and the doctor's text, the install page's pin order and the flow script's own usage are corrected from two consumers' upgrades.
 

@@ -4,7 +4,7 @@ description: Freeze a session so a cold one can continue it — save what the wo
 license: Apache-2.0
 compatibility: The `flow` skill beside this one, whose script it runs; git for the check, the commit and the push.
 metadata:
-  version: "0.4.0"
+  version: "0.4.1"
   requires: flow
 ---
 
