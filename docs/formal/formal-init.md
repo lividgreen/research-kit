@@ -18,7 +18,8 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 
 ## What it does
 
-1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator (`DeclManifest.lean` present, absent, or stale where it differs from the skill's copy, with the copy as a proposal), the project's bindings, the proposals and a coverage line, and writes nothing.
+1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator (`DeclManifest.lean` present, absent, or stale where it differs from the skill's copy, with the copy as a proposal), the project's bindings, the pins, the proposals and a coverage line, and writes nothing.
+   The pins are the hooks' `rev`, the marketplace's `ref` in `.claude/settings.json` and the version of each research-kit plugin Claude Code installed for the project, compared with the `formal` plugin's own version as [The research setup](../research/research-init.md#the-pins-and-the-upgrade-steps) says; where one is off, the proposal `pins` names the releases between whose **Upgrading** paragraphs to read and the steps that move them.
    A lakefile under a workspace's directory, or one it requires by path, is a package of that workspace and never a workspace of its own: the generator goes into the workspace once and runs there for every package.
 2. Plans in one message and asks once: which workspace to bind where the probe found several, which proposals to install, and the slots of the instructions the probe cannot fill (the commands that re-verify a module, the build time, where the audit modules live).
 3. Installs what was chosen and probes again.
@@ -136,4 +137,4 @@ Either kind of class whose scope reaches no shipped file fails as rot, and so do
 ## Words
 
 - **formal-init** — the skill that sets the prover side up: it probes, proposes, writes what is absent and nothing that exists, and reports; `/formal:formal-init`, after the `research` plugin's setup.
-- **probe** — the report `formal probe` prints: the workspaces with their roots and toolchains, the tools and what the setup is missing; it writes and installs nothing.
+- **probe** — the report `formal probe` prints: the workspaces with their roots and toolchains, the tools, the pins and what the setup is missing; it writes and installs nothing.
