@@ -78,6 +78,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -89,34 +90,43 @@ import traceback
 from collections import Counter, defaultdict
 from pathlib import Path
 
-TYPES = ("idea", "question", "task", "finding")
+TYPES = ("idea", "question", "task", "finding", "goal", "direction")
 STATES = {
     "idea": ("open", "consumed", "removed"),
     "question": ("open", "answered", "wrong", "impossible", "removed"),
     "task": ("ready", "active", "done", "aborted", "removed"),
     "finding": (),
+    "goal": ("open", "reached", "given_up"),
+    "direction": ("open", "closed"),
 }
 CLOSED_TASK = ("done", "aborted", "removed")
 SCHEMA = {
     "idea": ("id", "type", "state", "summary", "source", "derived_from", "owner", "drawn", "consumed_by",
              "closed", "origin", "created", "tags"),
     "question": ("id", "type", "kind", "state", "summary", "derived_from", "parent", "size",
-                 "criterion", "checked", "parked", "blocked", "rank", "why_now", "first_move", "direction",
+                 "criterion", "checked", "parked", "blocked", "rank", "why_now", "first_move", "direction", "serves",
                  "answered_by", "closed", "origin", "source", "created", "tags"),
-    "task": ("id", "type", "kind", "state", "summary", "derived_from", "requires",
-             "size", "owner", "drawn", "dod", "rank", "why_now", "first_move", "rider",
+    "task": ("id", "type", "state", "summary", "derived_from", "requires",
+             "size", "owner", "drawn", "dod", "due", "after", "rank", "why_now", "first_move", "rider",
              "parked", "blocked", "closed", "origin", "source", "created", "tags"),
-    "finding": ("id", "type", "summary", "status", "evidence", "derived_from",
-                "depends_on", "paper", "origin", "source", "created", "tags"),
+    "finding": ("id", "type", "summary", "evidence", "derived_from",
+                "depends_on", "origin", "source", "created", "tags"),
+    "goal": ("id", "type", "state", "summary", "criterion", "horizon", "derived_from",
+             "closed", "origin", "source", "created", "tags"),
+    "direction": ("id", "type", "state", "summary", "derived_from", "closed", "origin", "source", "created", "tags"),
 }
 LIST_FIELDS = ("derived_from", "requires", "evidence", "depends_on", "consumed_by", "tags")
 CLI_ONLY = ("id", "type", "state", "derived_from", "consumed_by", "owner", "drawn",
-            "answered_by", "rank", "parked", "blocked", "closed", "origin", "created")
-# The words of the model before 0.3, which `flow doctor` names and the check refuses: states and fields renamed,
-# and fields dropped (a task or a finding no longer belongs to a question; each names it in derived_from).
+            "answered_by", "direction", "serves", "rank", "parked", "blocked", "closed", "origin", "created")
+# The five evidence forms the kit ships, the words a finding's trust is read from; a project picks the ones it
+# accepts in [evidence] forms and adds its own.
+SHIPPED_FORMS = ("formal", "statistical", "peer-reviewed", "stated", "reference")
+# The words of the models before this one, which `flow doctor` names and the check refuses: states and fields
+# renamed, and fields dropped (a task or a finding no longer belongs to a question; a task's kind is a tag; a
+# finding's status is read from the forms of its evidence, and its paper is a reference like any other).
 OLD_STATES = {"abandoned", "decomposed"}
 OLD_FIELDS = {"abandoned": "closed", "kill": "criterion"}
-DROPPED_FIELDS = {"task": ("question",), "finding": ("question",)}
+DROPPED_FIELDS = {"task": ("question", "kind"), "finding": ("question", "status", "paper")}
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 FENCE = "---"
 
@@ -179,7 +189,8 @@ class Config:
         if not self.archive.resolve().is_relative_to(self.research.resolve()):
             raise Refused(f"flow.toml: [paths] archive {paths.get('archive')!r} is not under the records directory "
                           f"{rec_dir!r}, where the records are read and their ids counted")
-        self.directions = self.root / paths.get("directions", f"{rec_dir}/directions.md")
+        # the directions file of the models before this one, read by `flow doctor` alone: directions are records
+        self.directions_file = self.root / paths.get("directions", f"{rec_dir}/directions.md")
         # what the person drops between sessions, read at the start of the next one (the `whatsnext` skill)
         self.inbox = self.root / paths.get("inbox", "INBOX.md")
         self.log = self.root / paths["log"] if paths.get("log") else None
@@ -211,27 +222,19 @@ class Config:
         self.probes = ev.get("probes")
         self.ev_decl = re.compile(r"^([A-Za-z0-9_/]+\.(?:%s))#([A-Za-z0-9_.'!?]+)$" % ext_rx)
         self.ev_declfile = re.compile(r"^([A-Za-z0-9_/]+\.(?:%s))$" % ext_rx)
+        # The evidence forms the project accepts: of the five the kit ships, and its own words; an item of a
+        # form not listed is refused.  Unbound, the five shipped forms.
+        forms = ev.get("forms", SHIPPED_FORMS)
+        self.forms = tuple(str(f) for f in ([forms] if isinstance(forms, str) else forms))
+        for f in self.forms:
+            if not re.fullmatch(r"[a-z][a-z0-9-]*", f):
+                raise Refused(f"flow.toml: [evidence] forms names {f!r}: a form is one lowercase word (letters, digits, hyphens)")
         pre = raw.get("prefixes", {})
         self.prefix = {t: pre.get(t, t) for t in TYPES}
         self.id_width = int(pre.get("id_width", 4))
         self.hand = raw.get("hand", {})
         self.owners = tuple(self.hand.keys()) or ("agent",)
-        task = raw.get("task", {})
-        self.task_kinds = tuple(task.get("kinds", ("work", "design", "prose", "survey", "upkeep", "community")))
-        self.default_kind = task.get("default_kind", self.task_kinds[0])
         self.sizes = tuple(raw.get("question", {}).get("sizes", ("small", "medium", "large")))
-        fnd = raw.get("finding", {})
-        # A finding's status is one of four roles, named by the project: verified (a declaration
-        # in the manifest), stated (a document's statement or row, no declaration), empirical (a
-        # probe, no declaration), refuted (a guard declaration or a probe).  An older `statuses`
-        # list names the four in that order.
-        legacy = list(fnd.get("statuses", ()))
-        self.role_name = {}
-        for i, role in enumerate(("verified", "stated", "empirical", "refuted")):
-            self.role_name[role] = str(fnd.get(role, legacy[i] if i < len(legacy) else role))
-        self.statuses = tuple(self.role_name.values())
-        self.role_of = {v: k for k, v in self.role_name.items()}
-        self.shards = tuple(fnd.get("shards", ()))
         # The reference library, when the project has one: the command that answers `keys`
         # with its cite prefix and every card's state and grade.  The flow knows no more of it.
         lib_cmd = raw.get("library", {}).get("command")
@@ -252,9 +255,7 @@ class Config:
     def has(self, type_):
         return type_ in self.kinds
 
-    def dir_of(self, type_, paper=None):
-        if type_ == "finding":
-            return self.research / "findings" / paper if paper in self.shards else self.research / "findings"
+    def dir_of(self, type_):
         return self.research / (type_ + "s")
 
     # the project's reflow module, else the built-in splitter
@@ -761,14 +762,15 @@ def new_record(cfg, type_, fields, body="", today=None):
         fm.update({"kind": "question", "state": "open", "checked": today})
     elif type_ == "task":
         fm.update({"state": "ready", "rider": False})
+    elif type_ in ("goal", "direction"):
+        fm["state"] = "open"
     for k, v in fields.items():
         if k not in fm:
             raise Refused(f"{type_} has no field {k}")
         fm[k] = v
     if not fm.get("summary"):
         raise Refused(f"a {type_} needs a summary")
-    paper = fm.get("paper") if type_ == "finding" else None
-    path = cfg.dir_of(type_, paper) / f"{fm['id']}-{slugify(fm['summary'])}.md"
+    path = cfg.dir_of(type_) / f"{fm['id']}-{slugify(fm['summary'])}.md"
     rec = Record(path, fm, body)
     write_record(cfg, rec)
     return rec
@@ -808,79 +810,168 @@ EV_ROW = re.compile(r"^([^#\s]+\.md)#([A-Z]{2,3}-[A-Za-z0-9]+)$")
 STMT_WORDS = ("Theorem", "Proposition", "Lemma", "Corollary", "Definition", "Remark", "Fact", "Conjecture", "Example")
 EV_STMT = re.compile(r"^([^#\s]+\.md)#(" + "|".join(STMT_WORDS) + r") (\d+(?:\.\d+)*)$")
 EV_PROBE = re.compile(r"^([^#\s]+/[^/#\s]+\.py)$")
+EV_URL = re.compile(r"^[a-z][a-z0-9+.-]*://|^(?:mailto|doi|urn):", re.I)  # a scheme: the target is no repository path
+EV_KEY = re.compile(r"^([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?$")  # a library key, with an extract after `#`
+FORM_WORD = re.compile(r"^[a-z][a-z0-9-]*$")
+LINK = re.compile(r"\]\((?:<([^>]+)>|([^)\s]+))\)")  # a Markdown link's target, in angle brackets where it holds a space
 
 
-def evidence_kind(cfg, item):
-    """declaration (a `Path.ext#name` or a whole module), row, statement or probe; None otherwise."""
-    for kind, rx in (("declaration", cfg.ev_decl), ("declaration", cfg.ev_declfile), ("row", EV_ROW),
-                     ("statement", EV_STMT), ("probe", EV_PROBE)):
-        if rx.match(item):
-            return kind
+def split_evidence(item):
+    """(form, target) of an evidence item `form:target`; None where it carries no form."""
+    form, sep, target = str(item).partition(":")
+    if not sep or not target or not FORM_WORD.match(form):
+        return None
+    return form, target
+
+
+def evidence_form(item):
+    s = split_evidence(item)
+    return s[0] if s else None
+
+
+def forms_of(r):
+    """The forms a finding's evidence carries, sorted: its trust, as words."""
+    return sorted({f for f in (evidence_form(e) for e in r["evidence"] or []) if f})
+
+
+def norm_path(target):
+    """A repository path as the records compare it: the part before any anchor, root-relative, `./` and doubled
+    slashes folded, so `./papers//alpha.md` and `papers/alpha.md` are one path."""
+    return posixpath.normpath(target.split("#", 1)[0]) if target else target
+
+
+def evidence_path(item):
+    """The repository path an evidence item names, before any anchor: a probe, a result, a document; None for a
+    declaration (the manifest's, under its own roots), a library key or a URL."""
+    s = split_evidence(item)
+    if s is None or s[0] in ("formal", "peer-reviewed") or EV_URL.match(s[1]):
+        return None
+    return norm_path(s[1])
+
+
+def body_links(body):
+    """The repository paths a body links, root-relative, each before its anchor: a Markdown link's target that is
+    neither a URL nor a bare anchor; a path in backticks is prose."""
+    out = []
+    for m in LINK.finditer(body or ""):
+        t = (m.group(1) or m.group(2) or "").strip()
+        if not t or t.startswith("#") or EV_URL.match(t):
+            continue
+        out.append(norm_path(t))
+    return out
+
+
+def _resolve_declaration(cfg, target):
+    m = cfg.ev_decl.match(target) or cfg.ev_declfile.match(target)
+    if not m:
+        return f"formal takes a declaration (Path.{cfg.decl_ext or 'ext'}#name) or a whole module (Path.{cfg.decl_ext or 'ext'})"
+    names = cfg.manifest_names()
+    if names is None:
+        return "unchecked: no declaration manifest configured"
+    decl_file = next((cfg.root / r / m.group(1) for r in cfg.manifest_roots
+                      if (cfg.root / r / m.group(1)).is_file()), None)
+    if decl_file is None:
+        return f"{m.group(1)} is not a file under {cfg.manifest_root}/"
+    module = m.group(1).rsplit(".", 1)[0].replace("/", ".")
+    if m.re is cfg.ev_declfile:  # a whole module as evidence: it must be a manifest module
+        return None if module in cfg.manifest_modules() else f"module {module} is not in the manifest"
+    if m.group(2) not in names:
+        return f"`{m.group(2)}` is not in the manifest"
+    if module in cfg.manifest_modules() and m.group(2) not in cfg._in_module[module]:
+        return f"`{m.group(2)}` is not declared in {module}, the module of {m.group(1)}"
     return None
 
 
-def resolve_evidence(cfg, item, cache):
-    """Return None when the item resolves, else a reason; 'unchecked: …' when no resolver is configured."""
-    kind = evidence_kind(cfg, item)
-    if kind is None:
-        return f"not an evidence form (Path.{cfg.decl_ext or 'ext'}#decl, doc.md#ROW, doc.md#Theorem N[.M] (or {', '.join(STMT_WORDS[1:])}), or a probe .py)"
-    if kind == "declaration":
-        m = cfg.ev_decl.match(item) or cfg.ev_declfile.match(item)
-        names = cfg.manifest_names()
-        if names is None:
-            return "unchecked: no declaration manifest configured"
-        decl_file = next((cfg.root / r / m.group(1) for r in cfg.manifest_roots
-                          if (cfg.root / r / m.group(1)).is_file()), None)
-        if decl_file is None:
-            return f"{m.group(1)} is not a file under {cfg.manifest_root}/"
-        if m.re is cfg.ev_declfile:  # a whole module as evidence: it must be a manifest module
-            module = m.group(1).rsplit(".", 1)[0].replace("/", ".")
-            if module not in cfg.manifest_modules():
-                return f"module {module} is not in the manifest"
-            return None
-        if m.group(2) not in names:
-            return f"`{m.group(2)}` is not in the manifest"
-        module = m.group(1).rsplit(".", 1)[0].replace("/", ".")
-        if module in cfg.manifest_modules() and m.group(2) not in cfg._in_module[module]:
-            return f"`{m.group(2)}` is not declared in {module}, the module of {m.group(1)}"
-        return None
-    if kind in ("row", "statement"):
-        m = (EV_ROW if kind == "row" else EV_STMT).match(item)
-        f = cfg.root / m.group(1)
-        if not f.is_file():
-            return f"{m.group(1)} is not a file"
-        text = cache.setdefault(f, f.read_text(encoding="utf-8"))
-        if kind == "row":
-            if not re.search(r"^\| %s \|" % re.escape(m.group(2)), text, re.M):
-                return f"row {m.group(2)} is not in {m.group(1)}"
-        else:
-            if not re.search(r"(^|\*\*|#+ )%s %s\b" % (m.group(2), re.escape(m.group(3))), text, re.M):
-                return f"{m.group(2)} {m.group(3)} is not in {m.group(1)}"
-        return None
-    m = EV_PROBE.match(item)
-    if not (cfg.root / m.group(1)).is_file():
+def _resolve_document(cfg, target, cache):
+    """A statement or a row of a document of the project: the file, then the anchor in it."""
+    m = EV_ROW.match(target) or EV_STMT.match(target)
+    if not m:
+        return f"stated takes a document's statement (doc.md#Theorem N[.M], or {', '.join(STMT_WORDS[1:])}) or row (doc.md#ROW)"
+    f = cfg.root / m.group(1)
+    if not f.is_file():
         return f"{m.group(1)} is not a file"
+    text = cache.setdefault(f, f.read_text(encoding="utf-8"))
+    if m.re is EV_ROW:
+        return None if re.search(r"^\| %s \|" % re.escape(m.group(2)), text, re.M) else f"row {m.group(2)} is not in {m.group(1)}"
+    if not re.search(r"(^|\*\*|#+ )%s %s\b" % (m.group(2), re.escape(m.group(3))), text, re.M):
+        return f"{m.group(2)} {m.group(3)} is not in {m.group(1)}"
+    return None
+
+
+def _resolve_probe(cfg, target, cache):
+    if not (cfg.root / target).is_file():
+        return f"{target} is not a file"
     if not cfg.probes or not (cfg.root / cfg.probes).is_file():
         return "unchecked: no probes register bound ([evidence] probes)"
     text = cache.setdefault(cfg.root / cfg.probes, (cfg.root / cfg.probes).read_text(encoding="utf-8"))
-    name = Path(m.group(1)).name
+    name = Path(target).name
     listed = {mm.group(1) for line in text.splitlines() if line.startswith("|")
               for mm in [re.fullmatch(r"`([^`]+\.py)`", line.split("|")[1].strip())] if mm}
     return None if name in listed else f"{name} is not listed in the probes register"
 
 
-def status_for_kinds(cfg, status, kinds):
-    """The status a finding may carry given its evidence kinds; None when consistent."""
-    k, role, N = set(kinds), cfg.role_of.get(status), cfg.role_name
-    if role == "verified" and "declaration" not in k:
-        return f"{N['verified']} needs a declaration of the manifest among its evidence"
-    if role == "stated" and ("declaration" in k or not (k & {"row", "statement"})):
-        return f"{N['stated']} is document-level: a statement or row, and no declaration (use {N['verified']})"
-    if role == "empirical" and ("declaration" in k or "probe" not in k):
-        return f"{N['empirical']} needs a probe and no declaration (use {N['verified']})"
-    if role == "refuted" and not (k & {"declaration", "probe"}):
-        return f"{N['refuted']} needs a guard declaration or a probe as the counterexample"
-    return None
+def resolve_evidence(cfg, item, cache, lib=None):
+    """None when the item resolves; 'unchecked: …' where no resolver is bound for it; else the reason.  The form is
+    held to [evidence] forms, the target to the shape its form takes: `formal` a declaration of the manifest,
+    `statistical` a probe of the register or a committed result by its path (a row anchor checked), `peer-reviewed`
+    a card of the library (`lib` its `keys` answer, asked where None), `stated` a statement or row of a document of
+    the project, `reference` a URL for its form alone or a path for its existence; a form of the project's own, a
+    path for its existence and anything else unchecked."""
+    s = split_evidence(item)
+    if s is None:
+        return (f"no form: an item is form:target, the form one of {', '.join(cfg.forms)} "
+                "(`flow doctor` names the prefix an older item takes)")
+    form, target = s
+    if form not in cfg.forms:
+        return f"form {form!r} is not one [evidence] forms lists ({', '.join(cfg.forms)})"
+    if form == "formal":
+        return _resolve_declaration(cfg, target)
+    if form == "stated":
+        return _resolve_document(cfg, target, cache)
+    if form == "peer-reviewed":
+        m = EV_KEY.match(target)
+        if not m:
+            return "peer-reviewed takes a library key (key, or key#extract)"
+        lib = library_keys(cfg) if lib is None else lib
+        if lib is None:
+            return "unchecked: no library bound"
+        if lib.get("error"):
+            return f"unchecked: the library did not answer ({lib['error']})"
+        if m.group(1) not in lib["cards"]:
+            return f"the library holds no card {m.group(1)}"
+        held = (lib["cards"][m.group(1)] or {}).get("extracts")
+        if m.group(2) and held is not None and m.group(2) not in held:
+            return f"the library's card {m.group(1)} carries no extract {m.group(2)}"
+        return None
+    if form == "statistical" and EV_PROBE.match(target):
+        return _resolve_probe(cfg, target, cache)
+    if EV_URL.match(target):
+        return None if form == "reference" else f"unchecked: a form of the project's ({form}), its target no path"
+    path = target.split("#", 1)[0]
+    if form in ("statistical", "reference"):
+        if not (cfg.root / path).exists():
+            return f"{path} is not in the tree"
+        if form == "statistical" and EV_ROW.match(target):  # a result's row: checked as a document's is
+            return _resolve_document(cfg, target, cache)
+        return None
+    if (cfg.root / path).exists():
+        return None
+    if "/" in path or re.search(r"\.\w+$", path):
+        return f"{path} is not in the tree"
+    return f"unchecked: a form of the project's ({form})"
+
+
+def resolve_items(cfg, items, have=()):
+    """Every item of a mint or an append resolved, or the first reason refused; an item already held refused."""
+    cache, seen = {}, set(have)
+    lib = library_keys(cfg) if any(evidence_form(e) == "peer-reviewed" for e in items) else None
+    for e in items:
+        if e in seen:
+            raise Refused(f"evidence {e} is there already")
+        seen.add(e)
+        why = resolve_evidence(cfg, e, cache, lib)
+        if why and not why.startswith("unchecked"):
+            raise Refused(f"evidence {e}: {why}")
 
 
 # --- validation --------------------------------------------------------------
@@ -907,6 +998,22 @@ def came_from(r, id_):
     return isinstance(r["derived_from"], list) and id_ in r["derived_from"]
 
 
+LIVE = {"idea": ("open",), "question": ("open",), "task": ("ready", "active"), "goal": ("open",), "direction": ("open",)}
+
+
+def live(r):
+    """Whether a record is at the front of work: open, ready or active; a finding always, since it accumulates."""
+    return r.type == "finding" or r["state"] in LIVE.get(r.type, ())
+
+
+def passed_date(text, today):
+    """The first ISO date in a condition's words that is today or earlier, else None: a block `--on "2026-12-01"`."""
+    for d in re.findall(r"\d{4}-\d{2}-\d{2}", str(text or "")):
+        if d <= today:
+            return d
+    return None
+
+
 def live_tasks(recs, qid):
     """The open tasks that came from a question, which its closing waits on."""
     return [x.id for x in recs.values() if x.type == "task" and came_from(x, qid) and x["state"] in ("ready", "active")]
@@ -915,7 +1022,7 @@ def live_tasks(recs, qid):
 def validate(cfg, recs, today):
     problems, warnings = [], []
     cache = {}
-    coverage = {"records": len(recs), "kinds": list(cfg.kinds), "manifest": cfg.manifest_names() is not None,
+    coverage = {"records": len(recs), "kinds": list(cfg.kinds), "forms": list(cfg.forms), "manifest": cfg.manifest_names() is not None,
                 "probes": bool(cfg.probes and (cfg.root / cfg.probes).is_file()),
                 "reflow": cfg.reflow_source, "markdownlint": bool(shutil.which("markdownlint"))}
 
@@ -936,7 +1043,6 @@ def validate(cfg, recs, today):
     cited, citers = Counter(), set()
     if lib is not None and lib.get("error"):
         problems.append({"code": "V23", "id": None, "path": None, "msg": f"the library did not answer: {lib['error']}"})
-    directions = directions_of(cfg)
 
     for r in recs.values():
         t = r.type
@@ -950,7 +1056,7 @@ def validate(cfg, recs, today):
             bad("V1", r, "id does not match the filename prefix")
         if cfg.type_of_prefix.get(r.id.rsplit("-", 1)[0]) != t:
             bad("V1", r, f"prefix does not match type {t}")
-        expected_dir = cfg.dir_of(t, r["paper"] if t == "finding" else None)
+        expected_dir = cfg.dir_of(t)
         in_archive = r.path.parent.resolve() == cfg.archive.resolve()
         if t == "task" and r["state"] in CLOSED_TASK and not in_archive:
             bad("V21", r, "a closed task must live in the archive")
@@ -966,16 +1072,12 @@ def validate(cfg, recs, today):
                                                      " of an older model (`flow doctor`)" if k in DROPPED_FIELDS.get(t, ()) else ""))
         if STATES[t] and r["state"] not in STATES[t]:
             bad("V3", r, f"state {r['state']!r} not in {STATES[t]}" + (" (`flow doctor`)" if r["state"] in OLD_STATES else ""))
-        if t == "task" and r["kind"] not in cfg.task_kinds:
-            bad("V3", r, f"kind {r['kind']!r} not in {cfg.task_kinds}")
         if t == "question" and r["kind"] not in ("question", "conjecture"):
             bad("V3", r, f"kind {r['kind']!r}")
         if t in ("question", "task") and r["size"] not in (None, *cfg.sizes):
             bad("V3", r, f"size {r['size']!r} not in {cfg.sizes}")
         if t in ("task", "idea") and r["owner"] not in (None, *cfg.owners):
             bad("V3", r, f"owner {r['owner']!r} not in {cfg.owners}")
-        if t == "finding" and r["status"] not in cfg.statuses:
-            bad("V3", r, f"status {r['status']!r} not in {cfg.statuses}")
         if r["origin"] not in ("current", "legacy"):
             bad("V3", r, f"origin {r['origin']!r}")
         for f in ("created", "checked", "drawn"):
@@ -984,6 +1086,8 @@ def validate(cfg, recs, today):
                 bad("V20", r, f"{f} is not an ISO date")
             elif v is not None and str(v) > today:
                 bad("V20", r, f"{f} is in the future")
+        if t == "task" and r["due"] is not None and not ISO.match(str(r["due"])):
+            bad("V20", r, "due is not an ISO date")  # a due date lies ahead as a rule, so it is never held to today
         for f in ("parked", "blocked", "closed"):
             block = r[f] if f in SCHEMA[t] else None
             d = block.get("date") if isinstance(block, dict) else None
@@ -993,18 +1097,20 @@ def validate(cfg, recs, today):
                 bad("V20", r, f"{f}.date is in the future")
         # references
         refs = {"derived_from": None, "requires": "finding", "depends_on": "finding", "answered_by": None,
-                "parent": "question", "consumed_by": None}
+                "parent": "question", "consumed_by": None, "direction": "direction", "serves": "goal"}
         for f, want in refs.items():
             if f not in SCHEMA[t]:
                 continue
             vals = r[f] if isinstance(r[f], list) else ([r[f]] if r[f] else [])
             for v in vals:
                 if v not in recs:
-                    bad("V2", r, f"{f} names {v}, which does not exist")
+                    bad("V2", r, f"{f} names {v}, which does not exist"
+                        + (" (a direction is a record now, named by its id: `flow doctor`)" if f == "direction" else ""))
                 elif want and recs[v].type != want:
                     bad("V2", r, f"{f} names {v}, a {recs[v].type}, not a {want}")
         # the closing: a dated reason where the closing has one, and none on an open record
-        closing = {"idea": ("removed",), "question": ("wrong", "removed"), "task": ("aborted", "removed")}.get(t, ())
+        closing = {"idea": ("removed",), "question": ("wrong", "removed"), "task": ("aborted", "removed"),
+                   "goal": ("reached", "given_up"), "direction": ("closed",)}.get(t, ())
         c = r["closed"] if "closed" in SCHEMA[t] else None
         if r["state"] in closing and not (isinstance(c, dict) and c.get("date") and c.get("reason")):
             bad("V17", r, f"{r['state']} without a dated reason (`closed`: date, reason)")
@@ -1021,7 +1127,11 @@ def validate(cfg, recs, today):
                 bad("V15", r, f"blocked needs {where} with a date, what it waits on and a reason")
             if isinstance(b, dict) and b.get("on") in recs and stat(recs[b["on"]]) in (*CLOSED_TASK, "answered", "wrong", "impossible"):
                 warnings.append(f"{r.id}: blocked on {b['on']}, which is {stat(recs[b['on']])}: unblock it, or say what it waits on now")
+            elif isinstance(b, dict) and ok_state and b.get("on") not in recs and passed_date(b.get("on"), today):
+                warnings.append(f"{r.id}: blocked on {b['on']}, whose date has passed: unblock it, or say what it waits on now")
         if t == "task":
+            if r["state"] in ("ready", "active") and r["due"] is not None and ISO.match(str(r["due"])) and str(r["due"]) <= today:
+                warnings.append(f"{r.id}: due {r['due']} has passed")
             if r["state"] == "ready":
                 for f in r["requires"] or []:
                     if f not in recs:
@@ -1042,19 +1152,16 @@ def validate(cfg, recs, today):
         if t == "finding":
             if not r["evidence"]:
                 bad("V6", r, "no evidence")
-            kinds = []
+            seen = set()
             for e in r["evidence"] or []:
-                why = resolve_evidence(cfg, str(e), cache)
+                if str(e) in seen:
+                    bad("V6", r, f"evidence {e} twice")
+                seen.add(str(e))
+                why = resolve_evidence(cfg, str(e), cache, lib)
                 if why and why.startswith("unchecked"):
                     warnings.append(f"{r.id}: {e}: {why}")
-                    kinds.append(evidence_kind(cfg, str(e)))
                 elif why:
                     bad("V6", r, f"evidence {e}: {why}")
-                else:
-                    kinds.append(evidence_kind(cfg, str(e)))
-            msg = status_for_kinds(cfg, r["status"], kinds) if r["evidence"] else None
-            if msg:
-                bad("V6", r, msg)
         if t == "question":
             if r["state"] == "open" and not r["checked"]:
                 bad("V12", r, "open without a checked date")
@@ -1077,8 +1184,10 @@ def validate(cfg, recs, today):
                 ts = tasks_of.get(r.id, [])
                 if ts and all(x["state"] in CLOSED_TASK for x in ts):
                     warnings.append(f"{r.id}: needs refine or answer (every task closed)")
-            if r["direction"] and directions is not None and r["direction"] not in directions:
-                bad("V22", r, f"direction {r['direction']!r} is not in {rel(cfg, cfg.directions)}")
+            for f, want in (("direction", "direction"), ("serves", "goal")):
+                v = r[f]
+                if v in recs and recs[v].type == want and r["state"] == "open" and recs[v]["state"] != "open":
+                    bad("V22", r, f"{f} names {v}, a {want} that is {recs[v]['state']}: an open question names an open one, or none")
         if t == "idea":
             if r["state"] == "consumed":
                 into = r["consumed_by"] if isinstance(r["consumed_by"], list) else [r["consumed_by"]] if r["consumed_by"] else []
@@ -1106,8 +1215,7 @@ def validate(cfg, recs, today):
                 if held is not None and i not in held:
                     bad("V23", r, f"cites {lib['cite_prefix']}{k}#{i}, and the library's card {k} carries no extract {i}")
         if t in ("question", "task") and r["rank"] is not None:
-            live = (t == "question" and r["state"] == "open") or (t == "task" and r["state"] in ("ready", "active"))
-            if not live:
+            if not _rankable(cfg, r):
                 bad("V14", r, "rank on a closed record")
             if not r["why_now"] or not r["first_move"]:
                 bad("V14", r, "a ranked record needs why_now and first_move")
@@ -1117,6 +1225,13 @@ def validate(cfg, recs, today):
                 bad("V3", r, f"rank {r['rank']!r} is not a whole number")
         if cfg.reflow_source and r.body and cfg.reflow(r.body) != r.body:
             bad("V19", r, "body is not one sentence per line (reflow changes it)")
+        # the artifacts a body links: a path that is gone fails a live record and is warned of on a closed one
+        for p in sorted(set(body_links(r.body))):
+            if not (cfg.root / p).exists():
+                if live(r):
+                    bad("V24", r, f"the body links {p}, which is not in the tree")
+                else:
+                    warnings.append(f"{r.id}: the body links {p}, which is not in the tree")
     for n, ids in ranks.items():
         if len(ids) > 1:
             problems.append({"code": "V14", "id": None, "path": None, "msg": f"rank {n} on {', '.join(ids)}"})
@@ -1182,11 +1297,20 @@ def render_index(cfg, recs):
         out.extend(rows if rows else ["none"])
         out.append("")
 
+    # the due dates, soonest first: a date never moves a rank, and the index never reads the day, so a passed
+    # one is marked by `flow state` and warned of by `flow check`, not here
+    due = sorted((r for r in R if r.type == "task" and r["state"] in ("ready", "active") and r["due"] is not None),
+                 key=lambda r: (str(r["due"]), r.id))
+    if due:
+        section("Due", [_line(r, f"due {r['due']}" + (", active" if r["state"] == "active" else "")) for r in due])
+
     ranked = sorted((r for r in R if r["rank"] is not None), key=lambda r: (0, r["rank"], "") if isinstance(r["rank"], int) else (1, 0, str(r["rank"])))
     rows = []
     for r in ranked:
         bits = [f"why now: {r['why_now']}", f"first move: {r['first_move']}"]
-        if r["direction"]:
+        if r.type == "question" and r["serves"]:
+            bits.insert(0, f"serves: {r['serves']}")
+        if r.type == "question" and r["direction"]:
             bits.insert(0, f"direction: {r['direction']}")
         bits += [f"waits: {w}" for w in waits(r)]
         rows.append(f"{r['rank']}. `{r.id}` — {r['summary']}")
@@ -1210,20 +1334,34 @@ def render_index(cfg, recs):
         def what(r):
             if r.type == "idea":
                 return f"idea, drawn {r['drawn']}"
-            return ", ".join([r["kind"], f"drawn {r['drawn']}"] + list(r["derived_from"] or []))
+            return ", ".join([*(str(t) for t in r["tags"] or []), f"drawn {r['drawn']}"] + list(r["derived_from"] or []))
         rows += ([f"{len(held)} of {lim}", ""] if lim and held else []) + ([_line(r, what(r)) for r in held] or ["none"])
         rows.append("")
     section("Hand", rows[:-1])
 
+    # the goals and the directions, the pulls on the ranking: each open goal with what reached means, its horizon
+    # and the open questions serving it; each open direction with its date
+    goals = sorted((r for r in R if r.type == "goal" and r["state"] == "open"), key=lambda r: r.id)
+    if goals:
+        rows = []
+        for g in goals:
+            rows.append(_line(g, "; ".join(x for x in (f"reached: {g['criterion']}", f"horizon: {g['horizon']}" if g["horizon"] else "") if x)))
+            served = sorted((q for q in R if q.type == "question" and q["state"] == "open" and q["serves"] == g.id), key=lambda q: q.id)
+            rows += [f"  - `{q.id}` — {q['summary']}" for q in served] or ["  - no open question serves it"]
+        section("Goals", rows)
+    dirs = sorted((r for r in R if r.type == "direction" and r["state"] == "open"), key=lambda r: r.id)
+    if dirs:
+        section("Directions", [_line(r, str(r["created"])) for r in dirs])
+
     order = {s: i for i, s in enumerate(cfg.sizes)}
     ready = [r for r in R if r.type == "task" and r["state"] == "ready"]
     ready.sort(key=lambda r: (order.get(r["size"], len(order)), r.id))
-    section("Ready", [_line(r, "; ".join([", ".join(x for x in (r["kind"], r["size"], *(r["derived_from"] or [])) if x)] + waits(r))) for r in ready])
+    section("Ready", [_line(r, "; ".join([", ".join(x for x in (*(str(t) for t in r["tags"] or []), r["size"], *(r["derived_from"] or [])) if x)] + waits(r))) for r in ready])
 
     if cfg.has("question"):
         opn = [r for r in R if r.type == "question" and r["state"] == "open" and r["parked"] is None and r["blocked"] is None]
         opn.sort(key=lambda r: (str(r["checked"]), r.id))
-        section("Open questions", [_line(r, ", ".join(x for x in (r["size"], f"checked {r['checked']}", r["direction"]) if x)) for r in opn])
+        section("Open questions", [_line(r, ", ".join(x for x in (r["size"], f"checked {r['checked']}", r["direction"], r["serves"]) if x)) for r in opn])
 
         wait = [r for r in R if r.type == "question" and r["state"] == "open" and (r["parked"] is not None or r["blocked"] is not None)]
         wait.sort(key=lambda r: r.id)
@@ -1239,7 +1377,7 @@ def render_index(cfg, recs):
 
     if cfg.has("finding"):
         fnd = sorted((r for r in R if r.type == "finding"), key=lambda r: r.id, reverse=True)[:cfg.recent_findings]
-        section("Recent findings", [_line(r, ", ".join(x for x in (r["paper"], r["status"]) if x)) for r in fnd])
+        section("Recent findings", [_line(r, stat(r)) for r in fnd])
 
     if cfg.has("question"):
         settled = [r for r in R if r.type == "question" and (r["state"] in ("wrong", "impossible")
@@ -1303,31 +1441,31 @@ def cmd_capture(cfg, recs, a, today):
     return [r], []
 
 
-def directions_of(cfg):
-    """The bold names of the directions file's bullets, or None where the project keeps no such file."""
-    if not cfg.directions.is_file():
-        return None
-    text = re.sub(r"<!--.*?-->", "", cfg.directions.read_text(encoding="utf-8"), flags=re.S)  # the form init writes in a comment
-    return set(re.findall(r"^- \*\*(.+?)\*\*", text, re.M))
+def check_direction(recs, direction):
+    """A question's direction is an open direction record, named by its id."""
+    if direction:
+        get(recs, direction, "direction", ("open",))
 
 
-def check_direction(cfg, direction):
-    names = directions_of(cfg)
-    if direction and names is not None and direction not in names:
-        raise Refused(f"direction {direction!r} is not in {rel(cfg, cfg.directions)}, which names "
-                      f"{', '.join(sorted(names)) or 'none yet'}; the owner writes a direction there")
+def check_goal(recs, goal):
+    """A question serves an open goal, named by its id."""
+    if goal:
+        get(recs, goal, "goal", ("open",))
+
+
+def check_due(due):
+    if due is not None and not ISO.match(str(due)):
+        raise Refused("--due takes a date, YYYY-MM-DD")
+    return due
 
 
 def cmd_task(cfg, recs, a, today):
-    if a.kind not in cfg.task_kinds:
-        raise Refused(f"task kind {a.kind!r} not in {cfg.task_kinds}")
     derived = sources(recs, a.from_, "task")
     for i in derived:
         if recs[i].type == "question" and recs[i]["state"] != "open":
             raise Refused(f"{i} is {recs[i]['state']}: an open task comes from an open question")
-    r = new_record(cfg, "task", {"summary": a.summary, "kind": a.kind, "size": a.size,
-                                 "dod": a.dod, "derived_from": derived, "source": a.source,
-                                 "tags": a.tag or []}, read_body(a.body), today)
+    r = new_record(cfg, "task", {"summary": a.summary, "size": a.size, "dod": a.dod, "due": check_due(a.due), "after": a.after,
+                                 "derived_from": derived, "source": a.source, "tags": a.tag or []}, read_body(a.body), today)
     return [r], []
 
 
@@ -1351,10 +1489,11 @@ def cmd_frame(cfg, recs, a, today):
             raise Refused(f"{s.id} is {s['state']}")
     if a.parent:
         get(recs, a.parent, "question")
-    check_direction(cfg, a.direction)
+    check_direction(recs, a.direction)
+    check_goal(recs, a.serves)
     q = new_record(cfg, "question", {
         "summary": a.summary, "criterion": a.criterion, "size": a.size, "kind": a.kind, "parent": a.parent,
-        "direction": a.direction, "derived_from": [s.id for s in srcs], "tags": a.tag or [],
+        "direction": a.direction, "serves": a.serves, "derived_from": [s.id for s in srcs], "tags": a.tag or [],
         "source": a.source}, read_body(a.body), today)
     for s in ideas:
         consume(recs, s, [q.id])
@@ -1362,17 +1501,9 @@ def cmd_frame(cfg, recs, a, today):
     return [q], ideas
 
 
-def _mk_tasks(cfg, recs, specs, derived, today, kind=None, size=None, dod=None, requires=None):
-    out = []
-    for spec in specs or []:
-        summary, k = spec[0], (spec[1] if len(spec) > 1 else (kind or cfg.default_kind))
-        if len(spec) > 2:
-            raise Refused(f"--task takes SUMMARY [KIND]: {spec}")
-        if k not in cfg.task_kinds:
-            raise Refused(f"task kind {k!r} not in {cfg.task_kinds}")
-        out.append(new_record(cfg, "task", {"summary": summary, "kind": k, "derived_from": derived,
-                                            "size": size, "dod": dod, "requires": requires or []}, "", today))
-    return out
+def _mk_tasks(cfg, recs, specs, derived, today, size=None, dod=None, requires=None, tags=None):
+    return [new_record(cfg, "task", {"summary": summary, "derived_from": derived, "size": size, "dod": dod,
+                                     "requires": requires or [], "tags": list(tags or [])}, "", today) for summary in specs or []]
 
 
 def _mk_questions(cfg, specs, derived, parent, today):
@@ -1397,7 +1528,7 @@ def cmd_refine(cfg, recs, a, today):
         raise Refused("refine produces at least one task")
     for f in a.requires or []:
         get(recs, f, "finding")
-    made = _mk_tasks(cfg, recs, a.task, [q.id], today, a.kind, a.size, a.dod, a.requires)
+    made = _mk_tasks(cfg, recs, a.task, [q.id], today, a.size, a.dod, a.requires, a.tag)
     made += _mk_questions(cfg, a.subq, [q.id], q.id, today)
     made += _mk_ideas(cfg, a.idea, f"refine {q.id}", [q.id], today)
     if a.body:
@@ -1470,7 +1601,7 @@ def close_task(cfg, recs, t, state, today, reason=None):
 
 def cmd_make(cfg, recs, a, today):
     t = get(recs, a.task, "task", ("active",))
-    made = _mk_tasks(cfg, recs, a.task_out, [t.id], today)
+    made = _mk_tasks(cfg, recs, a.task_out, [t.id], today, tags=a.tag)
     made += _mk_questions(cfg, a.question, [t.id], None, today)
     made += _mk_ideas(cfg, a.idea, f"make {t.id}", [t.id], today)
     if a.resolution:
@@ -1505,8 +1636,6 @@ def close_question(cfg, recs, q, state, today, reason=None, by=None):
 def cmd_finding(cfg, recs, a, today):
     """The one mint of a finding, whatever produced it; --from names what it came from (a done or aborted task,
     an idea, a question), --answers the one question it settles, which closes answered."""
-    if a.status not in cfg.statuses:
-        raise Refused(f"status {a.status!r} not in {cfg.statuses}")
     srcs = [get(recs, i) for i in a.from_ or []]
     for r in srcs:
         if r.type == "task" and r["state"] not in ("done", "aborted"):
@@ -1526,31 +1655,76 @@ def cmd_finding(cfg, recs, a, today):
             raise Refused(f"{q.id} is {q['state']}" + (f", by {by}: one finding answers a question, "
                                                         f"and a later one names it with --from {q.id}" if q["state"] == "answered" else ""))
         check_closable(recs, q)
-    cache, kinds = {}, []
-    for e in a.evidence:
-        why = resolve_evidence(cfg, e, cache)
-        if why and not why.startswith("unchecked"):
-            raise Refused(f"evidence {e}: {why}")
-        kinds.append(evidence_kind(cfg, e))
-    msg = status_for_kinds(cfg, a.status, kinds)
-    if msg:
-        raise Refused(msg)
-    paper = a.paper
-    if not paper:
-        for e in a.evidence:
-            m = EV_ROW.match(e) or EV_STMT.match(e)
-            if m:
-                paper = Path(m.group(1)).stem
-                break
+    resolve_items(cfg, a.evidence)
     for d in a.depends_on or []:
         get(recs, d, "finding")
-    f = new_record(cfg, "finding", {"summary": a.summary, "status": a.status, "evidence": list(a.evidence),
-                                    "derived_from": [r.id for r in srcs],
-                                    "depends_on": a.depends_on or [], "paper": paper}, read_body(a.body), today)
+    f = new_record(cfg, "finding", {"summary": a.summary, "evidence": list(a.evidence), "derived_from": [r.id for r in srcs],
+                                    "depends_on": a.depends_on or [], "tags": a.tag or []}, read_body(a.body), today)
     if q is None:
         return [f], []
     close_question(cfg, recs, q, "answered", today, by=f.id)
     return [f], [q]
+
+
+def cmd_evidence(cfg, recs, a, today):
+    """Evidence added to a finding, never removed: the way its trust is raised, a proof formalized, a probe run,
+    a work cited; each item resolved as at the mint."""
+    f = get(recs, a.finding, "finding")
+    resolve_items(cfg, a.evidence, have=f["evidence"] or [])
+    f.fm["evidence"] = list(f["evidence"] or []) + list(a.evidence)
+    save(cfg, f)
+    return [], [f]
+
+
+def cmd_goal(cfg, recs, a, today):
+    """A goal the owner forms: an outcome with what reached means and a horizon; --from names the direction it was
+    produced along, which stays open, or the idea it came from."""
+    derived = sources(recs, a.from_, "goal")
+    for i in derived:
+        if recs[i].type == "direction" and recs[i]["state"] != "open":
+            raise Refused(f"{i} is {recs[i]['state']}: a goal comes along an open direction")
+    r = new_record(cfg, "goal", {"summary": a.summary, "criterion": a.criterion, "horizon": a.horizon, "derived_from": derived,
+                                 "source": a.source, "tags": a.tag or []}, read_body(a.body), today)
+    return [r], []
+
+
+def cmd_reach(cfg, recs, a, today):
+    g = get(recs, a.goal, "goal", ("open",))
+    g.fm.update({"state": "reached", "closed": {"date": today, "reason": a.reason}})
+    save(cfg, g)
+    return [], [g]
+
+
+def cmd_giveup(cfg, recs, a, today):
+    """A goal given up releases its open questions: they stay open, serve nothing and keep their ranks, for
+    `whatsnext` to re-rank; a closed question keeps what it served as history."""
+    g = get(recs, a.goal, "goal", ("open",))
+    g.fm.update({"state": "given_up", "closed": {"date": today, "reason": a.reason}})
+    save(cfg, g)
+    released = sorted((q for q in recs.values() if q.type == "question" and q["state"] == "open" and q["serves"] == g.id), key=lambda q: q.id)
+    for q in released:
+        q.fm["serves"] = None
+        save(cfg, q)
+    return [], [g] + released
+
+
+def cmd_direction(cfg, recs, a, today):
+    """A direction the owner opens: its name the summary, the owner's words its body, dated by `created`."""
+    r = new_record(cfg, "direction", {"summary": a.summary, "derived_from": sources(recs, a.from_, "direction"),
+                                      "source": a.source, "tags": a.tag or []}, read_body(a.body), today)
+    return [r], []
+
+
+def cmd_drop(cfg, recs, a, today):
+    """A direction dropped releases its open questions, their `direction` cleared; a closed question keeps its as history."""
+    d = get(recs, a.direction, "direction", ("open",))
+    d.fm.update({"state": "closed", "closed": {"date": today, "reason": a.reason}})
+    save(cfg, d)
+    released = sorted((q for q in recs.values() if q.type == "question" and q["state"] == "open" and q["direction"] == d.id), key=lambda q: q.id)
+    for q in released:
+        q.fm["direction"] = None
+        save(cfg, q)
+    return [], [d] + released
 
 
 def cmd_consume(cfg, recs, a, today):
@@ -1720,11 +1894,12 @@ def cmd_rank(cfg, recs, a, today):
         r.fm["why_now"] = a.why
     if a.first_move:
         r.fm["first_move"] = a.first_move
-    if a.direction:
-        if r.type != "question":
-            raise Refused(f"a direction is a question's; {r.id} is a {r.type}")
-        check_direction(cfg, a.direction)
-        r.fm["direction"] = a.direction
+    for f, v, chk in (("direction", a.direction, check_direction), ("serves", a.serves, check_goal)):
+        if v:
+            if r.type != "question":
+                raise Refused(f"a {f.replace('serves', 'goal')} is a question's; {r.id} is a {r.type}")
+            chk(recs, v)
+            r.fm[f] = v
     if r.type == "question":
         r.fm["checked"] = today
     if not r["why_now"] or not r["first_move"]:
@@ -1752,9 +1927,9 @@ def cmd_checked(cfg, recs, a, today):
 # The fields a record's prose owner may change at any time, through the CLI rather than by hand:
 # which record types carry each, and what a value must be.  State, provenance and rank stay with
 # their transitions.
-SETTABLE = {"summary": ("idea", "question", "task", "finding"), "criterion": ("question",),
-            "size": ("question", "task"), "dod": ("task",), "rider": ("task",),
-            "depends_on": ("finding",)}
+SETTABLE = {"summary": ("idea", "question", "task", "finding", "goal", "direction"), "criterion": ("question", "goal"),
+            "size": ("question", "task"), "dod": ("task",), "due": ("task",), "after": ("task",), "rider": ("task",),
+            "serves": ("question",), "horizon": ("goal",), "depends_on": ("finding",)}
 
 
 def cmd_set(cfg, recs, a, today):
@@ -1793,6 +1968,17 @@ def cmd_set(cfg, recs, a, today):
         if v not in (*cfg.sizes, "none"):
             raise Refused(f"size takes one of {', '.join(cfg.sizes)} or none")
         value = None if v == "none" else v
+    elif a.field == "due":
+        value = None if v == "none" else check_due(v)
+    elif a.field == "serves":
+        if r["state"] != "open":
+            raise Refused(f"{r.id} is {r['state']}: what a closed question served stays as history")
+        check_goal(recs, None if v == "none" else v)
+        value = None if v == "none" else v
+    elif a.field in ("after", "horizon"):
+        value = None if v == "none" else v
+        if value == "":
+            raise Refused(f"{a.field} takes words, or none")
     else:
         if not v:
             raise Refused(f"{a.field} cannot be empty")
@@ -1805,8 +1991,8 @@ def cmd_set(cfg, recs, a, today):
 # --- the reference library, asked and never read ----------------------------------
 
 def stat(r):
-    """The one word a listing shows after a record's id: its state, or a finding's status."""
-    return r["status"] if r.type == "finding" else r["state"]
+    """What a listing shows after a record's id: its state, or the forms a finding's evidence carries, its trust."""
+    return (", ".join(forms_of(r)) or "no evidence") if r.type == "finding" else r["state"]
 
 
 def library_keys(cfg):
@@ -1830,12 +2016,47 @@ def library_keys(cfg):
 
 # --- views -------------------------------------------------------------------
 
+def refers_to(r, target):
+    """Whether record r names `target`, a record's id or a repository path, in a reference field (`derived_from`,
+    `requires`, `depends_on`, `consumed_by`, `answered_by`, `parent`, `direction`, `serves`, `blocked.on`), an
+    evidence item or a body link."""
+    for f in ("derived_from", "requires", "depends_on", "consumed_by"):
+        if f in r.fm and isinstance(r[f], list) and target in r[f]:
+            return True
+    for f in ("answered_by", "parent", "direction", "serves"):
+        if f in r.fm and r[f] == target:
+            return True
+    b = r["blocked"] if "blocked" in r.fm else None
+    if isinstance(b, dict) and b.get("on") == target:
+        return True
+    if "evidence" in r.fm and any(evidence_path(e) == target for e in r["evidence"] or []):
+        return True
+    return target in body_links(r.body)
+
+
+def referrers(recs, target, deep=False):
+    """The ids of the records naming `target`; with `deep`, of those naming them, and so on."""
+    found, frontier = set(), [target]
+    while frontier:
+        x = frontier.pop()
+        for r in recs.values():
+            if r.id not in found and r.id != target and refers_to(r, x):
+                found.add(r.id)
+                if deep:
+                    frontier.append(r.id)
+    return found
+
+
 def cmd_find(cfg, recs, a, today):
     hits = []
     try:
         grep = re.compile(a.grep, re.I) if a.grep else None
     except re.error as e:
         raise Refused(f"--grep {a.grep!r} is not a regular expression: {e}")
+    if a.deep and not a.refers:
+        raise Refused("--deep follows --refers: flow find --refers ID --deep")
+    target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
+    naming = referrers(recs, target, a.deep) if a.refers else None
     for r in recs.values():
         if a.type and r.type != a.type:
             continue
@@ -1847,7 +2068,7 @@ def cmd_find(cfg, recs, a, today):
             continue
         if a.kind and r["kind"] != a.kind:
             continue
-        if a.status and r["status"] != a.status:
+        if a.form and (r.type != "finding" or a.form not in forms_of(r)):
             continue
         if a.tag and a.tag not in (r["tags"] or []):
             continue
@@ -1855,7 +2076,7 @@ def cmd_find(cfg, recs, a, today):
             continue
         if a.from_ and not came_from(r, a.from_):
             continue
-        if a.paper and r["paper"] != a.paper:
+        if naming is not None and r.id not in naming:
             continue
         if a.requires and a.requires not in (r["requires"] or []):
             continue
@@ -1875,13 +2096,17 @@ def cmd_find(cfg, recs, a, today):
     return hits
 
 
+REF_LISTS = ("derived_from", "requires", "depends_on", "consumed_by")
+REF_ONES = ("answered_by", "parent", "direction", "serves")
+
+
 def backlinks(recs, id_):
     out = defaultdict(list)
     for r in recs.values():
-        for f in ("derived_from", "requires", "depends_on", "consumed_by"):
+        for f in REF_LISTS:
             if f in r.fm and isinstance(r[f], list) and id_ in r[f]:
                 out[f].append(r.id)
-        for f in ("answered_by", "parent"):
+        for f in REF_ONES:
             if f in r.fm and r[f] == id_:
                 out[f].append(r.id)
     return dict(out)
@@ -1889,10 +2114,50 @@ def backlinks(recs, id_):
 
 def links(r):
     out = {}
-    for f in ("derived_from", "requires", "depends_on", "answered_by", "parent", "consumed_by"):
+    for f in REF_LISTS + REF_ONES:
         if f in r.fm and r[f]:
             out[f] = list(r[f]) if isinstance(r[f], list) else [r[f]]
     return out
+
+
+def cmd_tags(cfg, recs, a, today):
+    """Every tag in use with the records carrying it, and the records carrying none; a removed record is in neither."""
+    tags, untagged = defaultdict(list), []
+    for r in sorted(recs.values(), key=lambda r: r.id):
+        if r["state"] == "removed" or (a.type and r.type != a.type):
+            continue
+        if r["tags"]:
+            for t in r["tags"]:
+                tags[str(t)].append(r.id)
+        else:
+            untagged.append(r.id)
+    return {t: tags[t] for t in sorted(tags)}, untagged
+
+
+def cmd_artifacts(cfg, recs, a, today):
+    """Every repository path a record refers to, by an evidence item or a body link, with the records naming it and
+    whether it is in the tree: the artifacts index, a pure function of the records."""
+    paths = defaultdict(list)
+    for r in sorted(recs.values(), key=lambda r: r.id):
+        if r["state"] == "removed":
+            continue
+        for e in (r["evidence"] or []) if "evidence" in r.fm else []:
+            p = evidence_path(e)
+            if p:
+                paths[p].append({"id": r.id, "via": "evidence"})
+        for p in sorted(set(body_links(r.body))):
+            paths[p].append({"id": r.id, "via": "body"})
+    return [{"path": p, "exists": (cfg.root / p).exists(), "records": paths[p]} for p in sorted(paths)]
+
+
+def render_directions(recs):
+    """The open directions as the owner's list: the name, the date, the id and the words."""
+    opn = sorted((r for r in recs.values() if r.type == "direction" and r["state"] == "open"), key=lambda r: r.id)
+    out = ["# Directions", ""]
+    for r in opn:
+        words = " ".join(r.body.split())
+        out.append(f"- **{r['summary']}** ({r['created']}, `{r.id}`)" + (f" — {words}" if words else ""))
+    return "\n".join(out + (["none"] if not opn else [])) + "\n"
 
 
 def refs(recs, ids):
@@ -1901,7 +2166,7 @@ def refs(recs, ids):
 
 def show_text(cfg, recs, r):
     lines = [f"{rel(cfg, r.path)}", render(r.fm, r.body).rstrip("\n"), "", "links:"]
-    for f in ("derived_from", "requires", "depends_on", "answered_by", "parent", "consumed_by"):
+    for f in REF_LISTS + REF_ONES:
         if f in r.fm and r[f]:
             vals = r[f] if isinstance(r[f], list) else [r[f]]
             for v in vals:
@@ -1952,9 +2217,21 @@ def _section(lines, heading):
     return None
 
 
-def state_lines(cfg, skip=0, budget=14000):
-    """The inbox, the index's ranked list and hands, and the log's top entry, every line carrying its
-    FILE:LINE, under a byte budget; returns (lines, next_from)."""
+def passed_dates(cfg, recs, today):
+    """The dates that have passed, as lines: a due date on an open task, a block on a condition carrying one."""
+    out = []
+    for r in sorted(recs.values(), key=lambda r: r.id):
+        if r.type == "task" and r["state"] in ("ready", "active") and r["due"] is not None and str(r["due"]) <= today:
+            out.append(f"{rel(cfg, cfg.index)}: due {r['due']} has passed: {r.id} — {r['summary']}")
+        b = r["blocked"] if r.type in ("question", "task") else None
+        if isinstance(b, dict) and r["state"] in ("open", "ready") and b.get("on") not in recs and passed_date(b.get("on"), today):
+            out.append(f"{rel(cfg, cfg.index)}: the block's date has passed: {r.id} waits on {b['on']}")
+    return out
+
+
+def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
+    """The inbox, the index's due list, ranked list and hands, the dates that have passed, and the log's top
+    entry, every line carrying its FILE:LINE, under a byte budget; returns (lines, next_from)."""
     out = []
     if cfg.inbox.is_file():
         ls = cfg.inbox.read_text(encoding="utf-8").rstrip("\n").split("\n")
@@ -1963,10 +2240,12 @@ def state_lines(cfg, skip=0, budget=14000):
         out += [f"{rel(cfg, cfg.inbox)}: missing — the person's inbox (`[paths] inbox`)", ""]
     if cfg.index.is_file():
         ls = cfg.index.read_text(encoding="utf-8").split("\n")
-        for heading in ("Next (ranked)", "Hand"):
+        for heading in ("Due", "Next (ranked)", "Hand"):
             sec = _section(ls, heading)
             if sec:
                 out += [f"{rel(cfg, cfg.index)}:{i + 1}: {ls[i]}" for i in range(*sec)]
+        if recs is not None and today:
+            out += passed_dates(cfg, recs, today)
         out.append("")
     else:
         out += [f"{rel(cfg, cfg.index)}: missing — run `flow index`", ""]
@@ -2311,15 +2590,17 @@ def pages_manifest(cfg):
     ids = r"\b(?:%s)-\d+\b" % "|".join(re.escape(cfg.prefix[t]) for t in cfg.kinds)
     nav = [{"label": "Records", "path": "/flow"}]
     for t in cfg.kinds:
-        live = {"idea": "open", "question": "open", "task": "ready"}.get(t)
-        nav.append({"label": t.capitalize() + "s", "path": f"/flow/list?type={t}" + (f"&state={live}" if live else "")})
-    if cfg.directions.is_file():
-        nav.append({"label": "Directions", "path": "/flow/directions"})
+        if t == "direction":  # rendered as the owner's list below
+            continue
+        live_state = {"idea": "open", "question": "open", "task": "ready", "goal": "open"}.get(t)
+        nav.append({"label": t.capitalize() + "s", "path": f"/flow/list?type={t}" + (f"&state={live_state}" if live_state else "")})
+    nav.append({"label": "Directions", "path": "/flow/directions"})
+    nav.append({"label": "Artifacts", "path": "/flow/artifacts"})
+    nav.append({"label": "Tags", "path": "/flow/tags"})
     nav.append({"label": "Check", "path": "/flow/check"})
-    columns = ["id", "type", "state"] + (["status"] if cfg.has("finding") else []) + ["kind", "owner", "rank", "summary"]
-    params = ["type", "state", "kind", "tag", "owner", "grep"] + (["status", "paper"] if cfg.has("finding") else []) \
-        + ["from"]
-    flags = ["ranked", "held", "parked", "blocked"]
+    columns = ["id", "type", "state"] + (["forms"] if cfg.has("finding") else []) + ["owner", "rank", "summary"]
+    params = ["type", "state", "kind", "tag", "owner", "grep"] + (["form"] if cfg.has("finding") else []) + ["from", "refers"]
+    flags = ["ranked", "held", "parked", "blocked", "deep"]
     return {
         "component": "flow", "title": "Records", "mount": "/flow", "nav": nav,
         "links": [{"pattern": ids, "path": "/flow/r/{0}"}],
@@ -2332,6 +2613,8 @@ def pages_manifest(cfg):
              "sections": [{"field": "links", "title": "Links", "as": "refs"},
                           {"field": "backlinks", "title": "Back-references", "as": "refs"}]},
             {"path": "/flow/directions", "view": "markdown", "run": ["directions"], "field": "text", "title": "Directions"},
+            {"path": "/flow/artifacts", "view": "lines", "run": ["artifacts"], "field": "lines", "title": "Artifacts"},
+            {"path": "/flow/tags", "view": "lines", "run": ["tags"], "field": "lines", "title": "Tags"},
             {"path": "/flow/state", "view": "lines", "run": ["state"], "field": "lines", "title": "State"},
             {"path": "/flow/check", "view": "check", "run": ["check"], "title": "Check"},
         ],
@@ -2346,25 +2629,41 @@ def pages_manifest(cfg):
 def doctor(cfg, today):
     """(path, what is written, what it reads now) for every record and binding in an older model's words."""
     out = []
-    raw, task = cfg.raw, cfg.raw.get("task", {})
+    raw, task, fnd, ev = cfg.raw, cfg.raw.get("task", {}), cfg.raw.get("finding", {}), cfg.raw.get("evidence", {})
     for k in ("decision_kinds", "decision_owners"):
         if k in task:
             out.append(("flow.toml", f"[task] {k}", "goes: a decision is no card and no owner's work; delete the line"))
-    if "decision" in (task.get("kinds") or ()):
-        out.append(("flow.toml", "[task] kinds names \"decision\"",
-                    "goes: a task that waits on a decision is parked with a reason naming it; drop the kind"))
     if "question_optional_kinds" in task:
         out.append(("flow.toml", "[task] question_optional_kinds", "goes: any task may stand alone; delete the line"))
+    for k in ("kinds", "default_kind"):
+        if k in task:
+            out.append(("flow.toml", f"[task] {k}", "goes: a task's kind is a tag now, written with --tag; delete the line, and the section once empty"))
+    if fnd:
+        out.append(("flow.toml", "[finding]", "goes: a finding's status is read from the forms of its evidence, which [evidence] forms lists; delete the section"))
+    if "forms" not in ev:
+        out.append(("flow.toml", "no [evidence] forms", f"forms = [{', '.join(json.dumps(f) for f in SHIPPED_FORMS)}]: "
+                    "the forms the project accepts, of the five the kit ships and its own"))
     if len(cfg.hand) > 2:
         out.append(("flow.toml", f"[hand] names {len(cfg.hand)} owners ({', '.join(cfg.hand)})",
                     "two hands, the agent's and the person's: a prover's task stays in the agent's hand, marked out "
                     "(`flow out T --to prover`), so its owner goes and its limit folds into the agent's (4 by default)"))
-    if cfg.directions.is_file():
-        ls = cfg.directions.read_text(encoding="utf-8").split("\n")
-        sec = _section(ls, "Inbox")
-        if sec:
-            out.append((f"{rel(cfg, cfg.directions)}:{sec[0] + 1}", "an `## Inbox` section",
-                        f"the inbox is a file of its own: move its items to {rel(cfg, cfg.inbox)} and delete the section"))
+    legacy = list(fnd.get("statuses", ()))
+    refuted = str(fnd.get("refuted", legacy[3] if len(legacy) > 3 else "refuted"))
+    if "directions" in raw.get("paths", {}) or cfg.directions_file.is_file():
+        dfile = cfg.directions_file.is_file()
+        dpath = rel(cfg, cfg.directions_file)
+        out.append((dpath if dfile else "flow.toml", "the directions file" if dfile else "[paths] directions",
+                    "directions are records now: `flow direction NAME --body FILE` for each bullet, its words in FILE; a question's "
+                    "`direction` becomes the record's id; then delete the file and the binding"))
+        if dfile:
+            ls = cfg.directions_file.read_text(encoding="utf-8").split("\n")
+            sec = _section(ls, "Inbox")
+            if sec:
+                out.append((f"{dpath}:{sec[0] + 1}", "an `## Inbox` section",
+                            f"the inbox is a file of its own: move its items to {rel(cfg, cfg.inbox)} and delete the section"))
+            text = re.sub(r"<!--.*?-->", "", "\n".join(ls), flags=re.S)
+            for name in re.findall(r"^- \*\*(.+?)\*\*", text, re.M):
+                out.append((dpath, f"- **{name}**", f"`flow direction {json.dumps(name)} --body FILE`, the bullet's words in FILE"))
     if not cfg.inbox.is_file():
         out.append((rel(cfg, cfg.inbox), "absent", "the person's inbox: create it, a `# Inbox` title and nothing else"))
     recs = load_all(cfg, broken := [])
@@ -2388,7 +2687,7 @@ def doctor(cfg, today):
             out.append((path, "state: decomposed", "state: open (that it was refined is read from its tasks)"))
         if t == "task" and r["kind"] == "decision" and st in ("ready", "active"):
             out.append((path, "kind: decision", "a task waiting on a decision is parked with a reason naming it "
-                        "(`flow park T --reason …`, returned first if active), its kind one of the project's others; or removed"))
+                        "(`flow park T --reason …`, returned first if active); or removed"))
         by = r["answered_by"] if t == "question" and isinstance(r["answered_by"], list) else []
         tasks = [x for x in by if x in recs and recs[x].type == "task"]
         if tasks:
@@ -2404,11 +2703,31 @@ def doctor(cfg, today):
         if t == "idea" and r["consumed_by"] and not isinstance(r["consumed_by"], list):
             out.append((path, f"consumed_by: {r['consumed_by']}", f"consumed_by as a list, `- {r['consumed_by']}` (every card it was folded into)"))
         for k in DROPPED_FIELDS.get(t, ()):
-            if k in r.fm:
+            if k not in r.fm:
+                continue
+            if k == "question":
                 q = r[k]
                 answers = q in recs and r.id in (recs[q]["answered_by"] if isinstance(recs[q]["answered_by"], list) else [recs[q]["answered_by"]])
                 out.append((path, f"{k}: {q or 'null'}", "goes: a task or a finding no longer belongs to a question; delete the field"
                             + (f", and name {q} in derived_from, where it is not yet" if q and not answers and not came_from(r, q) else "")))
+            elif k == "kind":
+                out.append((path, f"kind: {r[k]}", f"goes: a kind is a tag now; add {json.dumps(str(r[k]))} to tags where it says something, and delete the field"))
+            elif k == "status":
+                out.append((path, f"status: {r[k]}", "goes: the forms of the evidence stand for it; delete the field"
+                            + (", and add the tag `refuted`" if str(r[k]) == refuted else "")))
+            elif k == "paper":
+                out.append((path, f"paper: {r[k]}", "goes: delete the field; the document is a reference `flow find --refers PATH` groups by"))
+        if t == "finding":
+            for e in r["evidence"] or []:
+                e = str(e)
+                if split_evidence(e) is None:
+                    prefix = ("formal" if cfg.ev_decl.match(e) or cfg.ev_declfile.match(e) else "statistical" if EV_PROBE.match(e)
+                              else "stated" if EV_ROW.match(e) or EV_STMT.match(e) else None)
+                    out.append((path, f"evidence {e}", f"{prefix}:{e} (its form as a prefix)" if prefix else "form:TARGET, the form one of [evidence] forms"))
+            if r.path.parent.resolve() != cfg.dir_of("finding").resolve():
+                out.append((path, f"under {rel(cfg, r.path.parent)}/", f"move to {rel(cfg, cfg.dir_of('finding'))}/: findings no longer shard by document"))
+        if t == "question" and r["direction"] and r["direction"] not in recs and not cfg.id_re.match(f"{r['direction']}.md"):
+            out.append((path, f"direction: {r['direction']}", "the id of the direction record minted from that bullet (`direction-0001`)"))
         owner = r["owner"] if t in ("task", "idea") else None
         held = (t == "task" and st == "active") or (t == "idea" and st == "open")
         if t == "task" and st == "ready" and (owner or r["drawn"]):
@@ -2432,10 +2751,10 @@ INIT_TOML = """# flow.toml — the flow's bindings for THIS project.  Every path
 # gates and the rest.
 
 [paths]
-records = "{dir}"                 # one file per record: ideas/ tasks/ questions/ findings/ archive/
+records = "{dir}"                 # one file per record: ideas/ tasks/ questions/ findings/ goals/ directions/ archive/
 index = "{dir}/INDEX.md"          # generated by `flow index`; `flow check` fails on drift
 archive = "{dir}/archive"         # closed tasks move here at their closing transition
-{directions}inbox = "INBOX.md"                 # the person's inbox: dropped between sessions, read at the next one's start
+inbox = "INBOX.md"                 # the person's inbox: dropped between sessions, read at the next one's start
 {log}# reflow_module = "scripts/reflow.py"   # exports reflow_text(text): one sentence per line; built-in otherwise
 # markdownlint_config = ".markdownlint.jsonc"  # a NEW violation after a write reverts it
 
@@ -2444,6 +2763,8 @@ idea = "idea"
 question = "question"
 task = "task"
 finding = "finding"
+goal = "goal"
+direction = "direction"
 id_width = 4
 
 [hand]
@@ -2451,9 +2772,6 @@ id_width = 4
 # the agent's (across sessions; a subagent works on it) and the person's.
 {owners}
 
-[task]
-kinds = [{kinds}]
-default_kind = "{default_kind}"
 {research}[index]
 recent_findings = 10
 oldest_ideas = 5
@@ -2462,17 +2780,13 @@ oldest_ideas = 5
 INIT_RESEARCH = """[question]
 sizes = ["small", "medium", "large"]
 
-[finding]
-# The four status roles, named as the project says them: verified needs a declaration of the
-# manifest, stated a document's statement or row, empirical a probe, refuted a guard or a probe.
-verified = "verified"
-stated = "stated"
-empirical = "empirical"
-refuted = "refuted"
-# Findings shard by the document that registers them ({dir}/findings/<paper>/).
-shards = []
-
 [evidence]
+# The forms a finding's evidence takes, each item `form:target`, the finding's trust the forms it carries.
+# The kit ships five: formal (a declaration of the manifest, machine-checked), statistical (a probe of the
+# register, or a committed result by its path), peer-reviewed (a card of the library), stated (a statement
+# or row of a document of the project: its own word, the trust to raise) and reference (any other source, a
+# link).  Keep the ones the project accepts and add its own words; the instructions say what each means here.
+forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 # A declaration manifest: a text file listing `Module.Path name` per line (a prover library's
 # declaration list is the instance); `manifest_roots` are the directories a `Path.ext#name`
 # item is looked up under.  Absent, declaration evidence is unchecked and the check says so.
@@ -2526,18 +2840,15 @@ def do_init(root, a):
     for o in owners:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", o):
             raise Refused(f"--owner {o!r}: an owner is one word of letters, digits, `_` and `-` (it is a key of flow.toml)")
-    task_kinds = ["work", "design", "prose", "survey", "upkeep", "community"]
     text = INIT_TOML.format(
         dir=a.records,
-        directions=f'directions = "{a.records}/directions.md" # owner-owned: the directions, one bullet each\n',
         log=(f'log = "{a.log}"                 # the dated log whose top entry `flow state` prints\n'
              f'log_archive = "{Path(a.log).with_name(Path(a.log).stem + "-archive").as_posix()}"   '
              '# `flow log archive` moves the old entries here verbatim, one file per month\n') if a.log else
             '# log = "WORKLOG.md"             # the dated log whose top entry `flow state` prints\n'
             '# log_archive = "WORKLOG-archive"   # `flow log archive` moves the old entries here verbatim, one file per month\n',
         owners="\n".join(f"{o} = {0 if o == owners[-1] and len(owners) > 1 else 4}" for o in owners),
-        kinds=", ".join(f'"{k}"' for k in task_kinds), default_kind=task_kinds[0],
-        research=INIT_RESEARCH.format(dir=a.records))
+        research=INIT_RESEARCH)
     written = []
     toml.write_text(text, encoding="utf-8")
     written.append("flow.toml")
@@ -2548,12 +2859,6 @@ def do_init(root, a):
             keep.write_text("")
             written.append(f"{d}/.gitkeep")
     cfg = Config(root)
-    if not cfg.directions.is_file():
-        cfg.directions.write_text(
-            "# The owner's directions\n\n## Directions\n\n"
-            "<!-- one bullet per direction, in this form; a question's `direction` names one by its bold name:\n"
-            "- **Name** (YYYY-MM-DD) — what interests the owner, in a sentence.\n-->\n", encoding="utf-8")
-        written.append(rel(cfg, cfg.directions))
     if not cfg.inbox.is_file():
         cfg.inbox.parent.mkdir(parents=True, exist_ok=True)
         cfg.inbox.write_text("# Inbox\n\n<!-- what the person leaves between sessions, one item per line; "
@@ -2576,8 +2881,8 @@ SELFTEST_TOML = """
 records = "research"
 index = "research/INDEX.md"
 archive = "research/archive"
-directions = "research/directions.md"
 [evidence]
+forms = ["formal", "statistical", "peer-reviewed", "stated", "reference", "benchmark"]
 manifest = "decls.txt"
 manifest_roots = "lean"
 manifest_extension = "lean"
@@ -2587,18 +2892,12 @@ idea = "idea"
 question = "question"
 task = "task"
 finding = "finding"
+goal = "goal"
+direction = "direction"
 id_width = 4
 [hand]
 root = 2
 author = 0
-[task]
-kinds = ["lean", "design", "prose", "survey", "upkeep", "community"]
-[finding]
-verified = "lean-verified"
-stated = "proven"
-empirical = "empirical"
-refuted = "refuted"
-shards = ["alpha"]
 """
 
 SOURCE = Path(__file__).read_text(encoding="utf-8")
@@ -2624,8 +2923,9 @@ def selftest():
         (root / "probes").mkdir()
         (root / "probes" / "p.py").write_text("print('ok')\n")
         (root / "probes" / "README.md").write_text("| file | claim |\n|---|---|\n| `p.py` | it |\n")
+        (root / "results").mkdir()
+        (root / "results" / "bench.md").write_text("# Bench\n\n| ID | rate |\n|---|---|\n| BR-1 | 0.9 |\n")
         (root / "research").mkdir()
-        (root / "research" / "directions.md").write_text("# Directions\n\n- **Bridge** (minted today) — the words.\n")
         cfg = Config(root)
         today = "2026-09-25"
 
@@ -2638,32 +2938,39 @@ def selftest():
             return payload
 
         new = lambda argv: run(argv)["created"][0]
+        ids = lambda argv: [r["id"] for r in run(argv)["records"]]
+        (root / "bridge.md").write_text("The bridge between A and B.\n")
+        d = new(["direction", "Bridge", "--body", str(root / "bridge.md")])
+        expect("a direction is a record, open, the owner's words its body",
+               load_all(cfg)[d]["state"] == "open" and load_all(cfg)[d].body == "The bridge between A and B.\n")
         idea = new(["capture", "an idea", "--source", "test"])
-        q = new(["frame", idea, "--summary", "Does A imply B?", "--criterion", "a finite counterexample", "--direction", "Bridge"])
-        run(["rank", q, "1", "--why", "w", "--first-move", "m", "--direction", "Nowhere"], ok=False)  # not in the directions file
-        p = run(["refine", q, "--task", "prove L", "lean", "--task", "design the route", "design", "--subq", "sub question", "its criterion"])
+        q = new(["frame", idea, "--summary", "Does A imply B?", "--criterion", "a finite counterexample", "--direction", d])
+        run(["rank", q, "1", "--why", "w", "--first-move", "m", "--direction", "direction-0099"], ok=False)  # no such direction
+        p = run(["refine", q, "--task", "prove L", "--task", "design the route", "--subq", "sub question", "its criterion", "--tag", "research"])
         t1, t2, sq = p["created"]
-        expect("refine leaves the question open, refined being read from its tasks", load_all(cfg)[q]["state"] == "open" and p["changed"] == [])
-        run(["rank", t1, "1", "--why", "w", "--first-move", "m", "--direction", "Bridge"], ok=False)  # a direction is a question's
+        expect("refine leaves the question open, refined being read from its tasks, and tags the tasks it mints",
+               load_all(cfg)[q]["state"] == "open" and p["changed"] == [] and load_all(cfg)[t1]["tags"] == ["research"] and "kind" not in load_all(cfg)[t1].fm)
+        run(["rank", t1, "1", "--why", "w", "--first-move", "m", "--direction", d], ok=False)  # a direction is a question's
         run(["draw", t1, "--owner", "root"])
         run(["draw", t2, "--owner", "root"])
-        t3 = new(["refine", sq, "--task", "third", "lean"])
+        t3 = new(["refine", sq, "--task", "third"])
         run(["draw", t3, "--owner", "root"], ok=False)  # hand full
         run(["return", t2, "--note", "later"])
         tree = lambda: {x: x.read_text(encoding="utf-8") for x in sorted((root / "research").rglob("*.md"))}
         before = tree()
-        run(["make", t1, "--task", "after", "lean", "--idea", "aside", "--resolution", "missing.md"], ok=False)
+        run(["make", t1, "--task", "after", "--idea", "aside", "--resolution", "missing.md"], ok=False)
         expect("a make refused after its follow-ups are minted leaves the tree as it was", tree() == before)
-        run(["finding", "L holds", "lean-verified", "Lib/Foo.lean#lemma_L", "--from", t1], ok=False)  # active: make first, then mint
+        run(["finding", "L holds", "formal:Lib/Foo.lean#lemma_L", "--from", t1], ok=False)  # active: make first, then mint
         p = run(["make", t1])
         expect("a made task is archived, its owner cleared and its drawn date kept",
                "research/archive/" in p["records"][-1]["path"] and load_all(cfg)[t1]["owner"] is None and load_all(cfg)[t1]["drawn"] == today)
         run(["make", t1], ok=False)  # done already
-        run(["finding", "L holds", "lean-verified", "Lib/Foo.lean#lemma_L", "--from", t1, "--answers", q], ok=False)  # t2 is open on q
-        p = run(["finding", "L holds", "lean-verified", "Lib/Foo.lean#lemma_L", "papers/alpha.md#FV-1", "--from", t1])
+        run(["finding", "L holds", "formal:Lib/Foo.lean#lemma_L", "--from", t1, "--answers", q], ok=False)  # t2 is open on q
+        p = run(["finding", "L holds", "formal:Lib/Foo.lean#lemma_L", "stated:papers/alpha.md#FV-1", "--from", t1])
         f = p["created"][0]
-        expect("a finding minted from a done task is sharded by paper and names the task it came from",
-               "findings/alpha/" in p["records"][0]["path"] and load_all(cfg)[f]["derived_from"] == [t1] and "question" not in load_all(cfg)[f].fm)
+        expect("a finding minted from a done task lives under findings/, names the task it came from, and its trust is the forms it carries",
+               "research/findings/" in p["records"][0]["path"] and load_all(cfg)[f]["derived_from"] == [t1]
+               and not {"question", "status", "paper"} & set(load_all(cfg)[f].fm) and p["records"][0]["forms"] == "formal, stated")
         run(["draw", t2, "--owner", "root"])
         (root / "wall.md").write_text("The route hits a wall.\n")
         p = run(["abort", t2, "--reason", "wall", "--resolution", str(root / "wall.md")])
@@ -2673,20 +2980,29 @@ def selftest():
         recs = load_all(cfg)
         expect("an aborted task carries its state and its dated reason in closed",
                recs[t2]["state"] == "aborted" and recs[t2]["closed"] == {"date": today, "reason": "wall"})
-        run(["finding", "the route fails", "refuted", "probes/p.py", "--from", t2])
+        fr = new(["finding", "the route fails", "statistical:probes/p.py", "--from", t2, "--tag", "refuted"])
         for had in ("", "A note.\n"):  # a resolution opening with a heading, on an empty body and after a note
             r = type("R", (), {"body": had})()
             append_note(r, today, "resolution:", "\n## Result\n\nIt is done.\n\n")
             expect("a resolution file's text is set apart from its dated line by one blank line" + (", after a note" if had else ", on an empty body"),
                    render({"id": "task-0001"}, r.body).endswith(f"---\n\n{had and had + chr(10)}{today} — resolution:\n\n## Result\n\nIt is done.\n"))
-        p = run(["finding", "B follows from L", "proven", "papers/alpha.md#Theorem 2.1", "--from", t1, "--answers", q])
+        p = run(["finding", "B follows from L", "stated:papers/alpha.md#Theorem 2.1", "--from", t1, "--answers", q])
         fa = p["created"][0]
         recs = load_all(cfg)
         expect("a finding minted --answers Q closes Q answered by it alone", recs[q]["state"] == "answered" and recs[q]["answered_by"] == fa
                and p["changed"] == [q])
-        run(["finding", "a second answer", "proven", "papers/alpha.md#Theorem 2.1", "--answers", q], ok=False)  # one finding answers
-        p = run(["finding", "a corollary", "proven", "papers/alpha.md#Theorem 2.1", "--from", q])
-        expect("a finding the answering produced names the question it came from", load_all(cfg)[p["created"][0]]["derived_from"] == [q])
+        run(["finding", "a second answer", "stated:papers/alpha.md#Theorem 2.1", "--answers", q], ok=False)  # one finding answers
+        p = run(["finding", "a corollary", "stated:papers/alpha.md#Theorem 2.1", "--from", q])
+        fc = p["created"][0]
+        expect("a finding the answering produced names the question it came from", load_all(cfg)[fc]["derived_from"] == [q])
+        # evidence is added and never removed: the trust raised, a proof formalized
+        run(["evidence", fa, "stated:papers/alpha.md#Theorem 2.1"], ok=False)  # there already
+        run(["evidence", fa, "formal:Lib/Foo.lean#nope"], ok=False)
+        p = run(["evidence", fa, "formal:Lib/Foo.lean#lemma_L"])
+        expect("evidence appends an item it resolves, and the finding's forms grow with it",
+               load_all(cfg)[fa]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1", "formal:Lib/Foo.lean#lemma_L"] and p["records"][0]["forms"] == "formal, stated")
+        expect("find --form lists the findings carrying a form",
+               fa in ids(["find", "--form", "formal"]) and fc in ids(["find", "--form", "stated"]) and f not in ids(["find", "--form", "statistical"]))
         run(["remove", t3, "--reason", "not needed"])
         i2 = new(["capture", "a second idea"])
         run(["frame", i2, "--summary", "Q2", "--criterion", "k", "--direction", "Nowhere"], ok=False)
@@ -2697,6 +3013,7 @@ def selftest():
         run(["set", q3, "rider", "on"], ok=False)  # a question carries no rider
         run(["set", q3, "size", "huge"], ok=False)  # not a size
         run(["set", q3, "state", "answered"], ok=False)  # a transition's field
+        run(["set", q3, "serves", "goal-0099"], ok=False)  # no such goal
         q4 = new(["frame", new(["capture", "an idea to park"]), "--summary", "Q to park", "--criterion", "k"])
         run(["rank", q4, "2", "--why", "x", "--first-move", "y"])
         run(["park", q4, "--reason", "waiting"])
@@ -2705,7 +3022,7 @@ def selftest():
         run(["block", q4, "--on", "the release", "--reason", "again"], ok=False)  # blocked already
         run(["block", q3, "--on", f, "--reason", "r"], ok=False)  # a finding is waited on by nothing
         run(["block", q3, "--on", q3, "--reason", "r"], ok=False)  # itself
-        run(["refine", q4, "--task", "t", "lean"], ok=False)  # parked
+        run(["refine", q4, "--task", "t"], ok=False)  # parked
         recs = load_all(cfg)
         expect("a parked and blocked question keeps its rank and both waits", recs[q4]["rank"] == 2
                and recs[q4]["parked"]["reason"] == "waiting" and recs[q4]["blocked"] == {"date": today, "on": q3, "reason": "needs its answer"})
@@ -2717,22 +3034,39 @@ def selftest():
         p = run(["check"])
         expect("check green on the happy path", not p["problems"])
         q5 = new(["frame", new(["capture", "idea four"]), "--summary", "Q4", "--criterion", "k"])
-        t4 = new(["refine", q5, "--task", "t", "lean"])
+        t4 = new(["refine", q5, "--task", "t"])
         run(["draw", t4, "--owner", "root"])
         run(["make", t4])
-        run(["finding", "bad", "lean-verified", "Lib/Foo.lean#nope", "--from", t4], ok=False)
-        run(["finding", "bad", "lean-verified", "Lib/Bar.lean#lemma_L", "--from", t4], ok=False)  # declared in Lib.Foo
-        run(["finding", "bad", "proven", "Lib/Foo.lean#lemma_L", "--from", t4], ok=False)
-        run(["finding", "bad", "empirical", "papers/alpha.md#Theorem 2.1", "--from", t4], ok=False)
-        run(["finding", "bad", "nonsense", "papers/alpha.md#Theorem 2.1", "--from", t4], ok=False)
-        run(["finding", "fine", "proven", "papers/alpha.md#Theorem 2.1", "--from", t4, "--answers", q5])
+        run(["finding", "bad", "formal:Lib/Foo.lean#nope", "--from", t4], ok=False)
+        run(["finding", "bad", "formal:Lib/Bar.lean#lemma_L", "--from", t4], ok=False)  # declared in Lib.Foo
+        run(["finding", "bad", "stated:Lib/Foo.lean#lemma_L", "--from", t4], ok=False)  # stated takes a document
+        run(["finding", "bad", "formal:papers/alpha.md#Theorem 2.1", "--from", t4], ok=False)  # formal takes a declaration
+        run(["finding", "bad", "nonsense:papers/alpha.md#Theorem 2.1", "--from", t4], ok=False)  # not a form the project lists
+        run(["finding", "bad", "papers/alpha.md#Theorem 2.1", "--from", t4], ok=False)  # no form
+        run(["finding", "bad", "statistical:results/nope.md", "--from", t4], ok=False)  # no such result
+        run(["finding", "bad", "statistical:results/bench.md#BR-9", "--from", t4], ok=False)  # no such row
+        run(["finding", "bad", "stated:papers/alpha.md#Theorem 2.1", "stated:papers/alpha.md#Theorem 2.1", "--from", t4], ok=False)  # twice
+        run(["finding", "bad", "benchmark:results/none.csv", "--from", t4], ok=False)  # a form of the project's, its path gone
+        p = run(["finding", "fine", "stated:papers/alpha.md#Theorem 2.1", "statistical:results/bench.md#BR-1", "benchmark:results/bench.md",
+                 "benchmark:the run of 2026-09", "reference:https://example.org/x", "--from", t4, "--answers", q5])
+        fb = p["created"][0]
+        expect("a finding carries a result's row, a form of the project's and a link, its forms the words it carries",
+               p["records"][0]["forms"] == "benchmark, reference, stated, statistical")
         run(["index"])
-        rt = new(["task", "an upkeep chore", "--kind", "upkeep"])
+        p = run(["check"])
+        expect("a form of the project's with no path is reported unchecked, never failed",
+               not p["problems"] and any(f"{fb}: benchmark:the run of 2026-09: unchecked" in w for w in p["warnings"]))
+        rt = new(["task", "an upkeep chore", "--tag", "upkeep", "--due", "2026-10-01", "--after", "mint the same chore for the next month"])
+        run(["task", "a chore due soon", "--due", "soon"], ok=False)
         run(["set", rt, "rider", "on"])
         run(["set", rt, "criterion", "k"], ok=False)  # a task carries no criterion
         run(["set", t4, "rider", "on"], ok=False)  # a done task rides nothing
+        run(["set", rt, "due", "never"], ok=False)
+        run(["set", rt, "due", "2026-10-02"])
+        run(["set", rt, "after", ""], ok=False)
         recs = load_all(cfg)
-        expect("set wrote the rider and the criterion", recs[rt]["rider"] is True and recs[q3]["criterion"] == "a sharper criterion")
+        expect("set wrote the rider, the criterion and the due date",
+               recs[rt]["rider"] is True and recs[q3]["criterion"] == "a sharper criterion" and recs[rt]["due"] == "2026-10-02")
         run(["set", rt, "rider", "off"])
         fs = sorted(r.id for r in load_all(cfg).values() if r.type == "finding")
         run(["set", fs[1], "depends_on", fs[0]])
@@ -2740,10 +3074,9 @@ def selftest():
         run(["set", fs[0], "depends_on", fs[0]], ok=False)  # itself
         run(["set", fs[0], "depends_on", q3], ok=False)  # not a finding
         run(["set", fs[1], "depends_on", "none"])
-        lt = new(["task", "a lean task with no question", "--kind", "lean"])  # any task may stand alone
-        run(["task", "a task from an answered question", "--kind", "lean", "--from", q], ok=False)
+        lt = new(["task", "a task with no question"])  # any task may stand alone
+        run(["task", "a task from an answered question", "--from", q], ok=False)
         run(["remove", lt, "--reason", "it stood alone to test it"])
-        run(["task", "a decision", "--kind", "decision"], ok=False)  # a decision is no task kind
         # a ready task waits too: parked and blocked at once, and drawn only once both are cleared
         run(["park", rt, "--reason", "after the release"])
         run(["block", rt, "--on", "the next release", "--reason", "it needs the tag"])
@@ -2756,9 +3089,14 @@ def selftest():
         run(["return", rt])
         # a task that came from a question holds its closing back; none is re-bound, since none belongs to it
         run(["set", rt, "question", q3], ok=False)
-        tq = new(["task", "a task from q3", "--kind", "lean", "--from", q3])
+        tq = new(["task", "a task from q3", "--from", q3])
         run(["remove", q3, "--reason", "r"], ok=False)  # a ready task came from it
-        expect("find --from lists the records that came from a record", [r["id"] for r in run(["find", "--from", q3])["records"]] == [tq])
+        expect("find --from lists the records that came from a record", ids(["find", "--from", q3]) == [tq])
+        shallow, deep = set(ids(["find", "--refers", q])), set(ids(["find", "--refers", q, "--deep"]))
+        expect("find --refers lists who names a record in any reference field, the idea consumed into it included, and --deep who names those",
+               shallow == {idea, t1, t2, sq, fc} and {f, fa, fr} <= deep and f not in shallow)
+        expect("find --refers PATH lists the records whose evidence names a repository path", {f, fa, fc, fb} <= set(ids(["find", "--refers", "papers/alpha.md"])))
+        run(["find", "--deep"], ok=False)  # --deep follows --refers
         run(["remove", tq, "--reason", "no longer needed"])
         # an idea drawn like a task, worked into other cards, consumed into one of them
         wi = new(["capture", "an idea to work"])
@@ -2770,7 +3108,7 @@ def selftest():
         expect("an idea put back partly worked lists what it produced so far",
                load_all(cfg)[wi].body.rstrip().endswith(f"returned: half worked; produced so far: {sub}"))
         run(["draw", wi, "--owner", "root"])
-        wt = new(["task", "a chore it shows", "--kind", "upkeep", "--from", wi])
+        wt = new(["task", "a chore it shows", "--tag", "upkeep", "--from", wi])
         run(["consume", wi])
         recs = load_all(cfg)
         expect("an idea consumed is folded into every card that came from it, and leaves the hand",
@@ -2781,9 +3119,7 @@ def selftest():
         run(["capture", "from a removed one", "--from", sub], ok=False)
         run(["remove", sub, "--reason", "again"], ok=False)
         expect("find leaves a removed record out unless asked by its state or its id",
-               sub not in [r["id"] for r in run(["find", "--type", "idea"])["records"]]
-               and sub in [r["id"] for r in run(["find", "--state", "removed"])["records"]]
-               and [r["id"] for r in run(["find", "--id", sub])["records"]] == [sub])
+               sub not in ids(["find", "--type", "idea"]) and sub in ids(["find", "--state", "removed"]) and ids(["find", "--id", sub]) == [sub])
         # wrong and impossible, each a settled closing listed as such
         qw = new(["frame", new(["capture", "a badly put idea"]), "--summary", "Is the empty sum odd?", "--criterion", "its parity"])
         run(["wrong", qw, "--reason", "parity is not defined for it"])
@@ -2802,13 +3138,78 @@ def selftest():
                         '"aside": {"state": "excluded", "grade": "unread"}}, "problems": []}))\n')
         cfg.library_cmd = [sys.executable, str(stub)]
         run(["capture", "an idea citing lib:jen1990 twice over, lib:jen1990, and lib:aside"])
+        run(["finding", "bad", "peer-reviewed:nobody2000", "--from", t4], ok=False)  # the library holds no such card
+        run(["finding", "bad", "peer-reviewed:jen1990#theorem9", "--from", t4], ok=False)  # no such extract
+        run(["finding", "bad", "peer-reviewed:Jen 1990", "--from", t4], ok=False)  # a key, not words
+        fp = new(["finding", "as Jen shows", "peer-reviewed:jen1990#lemma", "--from", t4])
         run(["index"])
         p = run(["check"])
-        expect("check green with a cited key the library holds", not p["problems"])
+        expect("check green with a cited key the library holds and a peer-reviewed item it holds", not p["problems"])
         expect("the coverage counts the cited keys by grade and the excluded ones",
                p["coverage"]["library"] == {"cited": 2, "records": 1, "grades": {"parts": 1, "unread": 1}, "excluded": 1})
 
+        # goals: formed by the owner, served by questions, reached or given up
+        g = new(["goal", "Reach B", "--criterion", "B is proved", "--horizon", "before the talk", "--from", d])
+        recs = load_all(cfg)
+        expect("a goal names the direction it was produced along, which stays open", recs[g]["derived_from"] == [d] and recs[d]["state"] == "open")
+        qg = new(["frame", new(["capture", "an idea for the goal"]), "--summary", "Qg", "--criterion", "k", "--serves", g])
+        run(["frame", new(["capture", "an idea for no goal"]), "--summary", "Qx", "--criterion", "k", "--serves", "goal-0099"], ok=False)
+        run(["rank", qg, "3", "--why", "w", "--first-move", "m", "--serves", g])
+        run(["rank", rt, "4", "--why", "w", "--first-move", "m", "--serves", g], ok=False)  # a goal is a question's
+        run(["set", q4, "serves", g])
+        run(["index"])
+        idx = cfg.index.read_text(encoding="utf-8")
+        expect("the index lists the due task first, the goal with what reached means, its horizon and the questions serving it, "
+               "the direction with its date, and what a ranked question serves",
+               idx.index("## Due") < idx.index("## Next (ranked)") and f"`{rt}` — an upkeep chore [due 2026-10-02]" in idx
+               and "## Goals" in idx and f"`{g}` — Reach B [reached: B is proved; horizon: before the talk]" in idx and f"  - `{qg}` — Qg" in idx
+               and "## Directions" in idx and f"`{d}` — Bridge [{today}]" in idx and f"   serves: {g}" in idx)
+        expect("flow directions renders the open directions as the owner's list",
+               f"- **Bridge** ({today}, `{d}`) — The bridge between A and B." in run(["directions"])["text"])
+        p = run(["giveup", g, "--reason", "B is out of reach this year"])
+        recs = load_all(cfg)
+        expect("a goal given up releases its open questions, which keep their ranks, and names them",
+               recs[g]["state"] == "given_up" and recs[g]["closed"] == {"date": today, "reason": "B is out of reach this year"}
+               and recs[qg]["serves"] is None and recs[q4]["serves"] is None and recs[qg]["rank"] == 3 and sorted(p["released"]) == sorted([q4, qg]))
+        run(["reach", g, "--reason", "r"], ok=False)  # given up already
+        run(["set", qg, "serves", g], ok=False)  # not open
+        g2 = new(["goal", "Reach C", "--criterion", "C is proved"])
+        run(["set", qg, "serves", g2])
+        run(["reach", g2, "--reason", f"C is proved, {fa}"])
+        recs = load_all(cfg)
+        expect("a goal reached carries its date and what shows it", recs[g2]["state"] == "reached" and recs[g2]["closed"]["reason"] == f"C is proved, {fa}")
+        run(["set", qg, "serves", "none"])
+        # a direction dropped by the owner releases its open questions; a closed question keeps its as history
+        qd = new(["frame", new(["capture", "an idea for the bridge"]), "--summary", "Qd", "--criterion", "k", "--direction", d])
+        p = run(["drop", d, "--reason", "the bridge is crossed"])
+        recs = load_all(cfg)
+        expect("a direction dropped releases its open questions and keeps a closed question's as history",
+               recs[d]["state"] == "closed" and recs[qd]["direction"] is None and recs[q]["direction"] == d and p["released"] == [qd])
+        run(["frame", new(["capture", "an idea for a closed direction"]), "--summary", "Qz", "--criterion", "k", "--direction", d], ok=False)
+        d2 = new(["direction", "Second"])
+        text = run(["directions"])["text"]
+        expect("flow directions lists the open directions alone", d not in text and d2 in text)
+        run(["goal", "along a closed direction", "--criterion", "k", "--from", d], ok=False)
+        # the tag report and the artifacts index
+        p = run(["tags"])
+        expect("tags lists each tag with its records, then the untagged, a removed record in neither",
+               p["tags"]["research"] == [t1, t2] and p["tags"]["refuted"] == [fr] and q in p["untagged"] and sub not in p["untagged"]
+               and q not in run(["tags", "--type", "task"])["untagged"])
+        (root / "linked.md").write_text("See [the paper](<./papers//alpha.md#Theorem 2.1>) and [the probe](probes/p.py), "
+                                        "not <https://example.org/x> nor `papers/prose.md`.\n")
+        li = new(["capture", "a linked idea", "--body", str(root / "linked.md")])
+        p = run(["artifacts"])
+        by = {x["path"]: x for x in p["artifacts"]}
+        expect("artifacts lists every path the records refer to, with who names it and how, a `./` and a doubled slash folded; "
+               "a URL, a backticked path and a declaration are not paths",
+               by["papers/alpha.md"]["exists"] and {"id": li, "via": "body"} in by["papers/alpha.md"]["records"]
+               and {"id": f, "via": "evidence"} in by["papers/alpha.md"]["records"] and by["probes/p.py"]["exists"] and "results/bench.md" in by
+               and "Lib/Foo.lean" not in by and not any("example.org" in k or "prose" in k or k.startswith(".") for k in by))
+        expect("find --refers PATH lists the records naming a path in a body link too, the path given in any spelling",
+               li in ids(["find", "--refers", "papers/alpha.md"]) and li in ids(["find", "--refers", "./papers/alpha.md"]))
+
         # a closing transition closes the ranks up and reports the moves as re-ranks (q3 holds rank 1, q4 rank 2)
+        run(["rank", qg, "--clear"])
         q6 = new(["frame", new(["capture", "an idea to rank and close"]), "--summary", "Q to close", "--criterion", "k"])
         run(["rank", q6, "3", "--why", "w", "--first-move", "m"])
         run(["rank", q3, "--clear"])
@@ -2836,13 +3237,13 @@ def selftest():
         run(["rank", idea, "--clear"], ok=False)
         # refine adds to a refined question; a closing refuses open tasks
         q8 = new(["frame", new(["capture", "an idea to refine twice"]), "--summary", "Q refined twice", "--criterion", "k"])
-        run(["refine", q8, "--task", "first", "lean"])
-        p = run(["refine", q8, "--task", "second", "lean"])
+        run(["refine", q8, "--task", "first"])
+        p = run(["refine", q8, "--task", "second"])
         expect("refine adds a task to a refined question", p["created"] and load_all(cfg)[q8]["state"] == "open")
         for verb in (["remove", q8, "--reason", "x"], ["wrong", q8, "--reason", "x"], ["impossible", q8, "--by", fs[0]]):
             run(verb, ok=False)  # two ready tasks under it
         (root / "refined.md").write_text("Split by the size of the case.\n")
-        p = run(["refine", q8, "--task", "third", "lean", "--body", str(root / "refined.md")])
+        p = run(["refine", q8, "--task", "third", "--body", str(root / "refined.md")])
         recs = load_all(cfg)
         expect("refine's body is appended to the question under its date, the answer names it, and the task minted carries none",
                recs[q8].body.rstrip().endswith(f"{today} — refined:\n\nSplit by the size of the case.")
@@ -2851,6 +3252,11 @@ def selftest():
         run(["index"])
         p = run(["check"])
         expect("check green after the rank and refine round", not p["problems"])
+        # the post-done instruction, printed at the close for the agent to follow
+        run(["draw", rt, "--owner", "root"])
+        p = run(["make", rt])
+        expect("make prints the task's post-done instruction", p["after"] == "mint the same chore for the next month")
+        run(["index"])
 
         # planted defects: each must be caught by the validator with its code
         planted = set()
@@ -2880,17 +3286,21 @@ def selftest():
         plant("bogus state", "V3", lambda R: raw_edit(R, q, lambda fm: fm.update(state="bogus")))
         plant("a state of the older model", "V3", lambda R: raw_edit(R, q3, lambda fm: fm.update(state="decomposed")))
         plant("a field of the older model", "V3", lambda R: raw_edit(R, q3, lambda fm: fm.update(kill=fm.pop("criterion"))))
+        plant("a task's kind, an older model's field", "V3", lambda R: raw_edit(R, wt, lambda fm: fm.update(kind="upkeep")))
+        plant("a finding's status, an older model's field", "V3", lambda R: raw_edit(R, f, lambda fm: fm.update(status="verified")))
         plant("a record with no id", "V1", lambda R: raw_edit(R, q, lambda fm: fm.update(id=None)))
         plant("a record whose id names another prefix", "V1", lambda R: raw_edit(R, q, lambda fm: fm.update(id="task-9998")))
         plant("a record that does not read", "V0", lambda R: R[q].path.write_text("---\nid: 'unterminated\n---\n"))
         plant("a record that is not UTF-8", "V0", lambda R: R[q].path.write_bytes(b"---\nid: " + q.encode() + b"\nsummary: \xff\n---\n"))
-        plant("a ready task whose requires is missing", "V5", lambda R: raw_edit(R, rt, lambda fm: fm.update(requires=["finding-9999"])))
+        plant("a ready task whose requires is missing", "V5", lambda R: raw_edit(R, wt, lambda fm: fm.update(requires=["finding-9999"])))
         plant("a parking block that is not a map", "V15", lambda R: raw_edit(R, q4, lambda fm: fm.update(parked="later")))
         plant("a parking block with no reason", "V15", lambda R: raw_edit(R, q4, lambda fm: fm.update(parked={"date": today})))
         plant("a block that names nothing it waits on", "V15", lambda R: raw_edit(R, q4, lambda fm: fm.update(blocked={"date": today, "reason": "r"})))
         plant("a done task parked", "V15", lambda R: raw_edit(R, t4, lambda fm: fm.update(parked={"date": today, "reason": "r"})))
         plant("a parking date that is not a date", "V20", lambda R: raw_edit(R, q4, lambda fm: fm.update(parked={"date": "soon", "reason": "r"})))
+        plant("a due date that is not a date", "V20", lambda R: raw_edit(R, wt, lambda fm: fm.update(due="soon")))
         plant("a removed record with no reason", "V17", lambda R: raw_edit(R, t3, lambda fm: fm.update(closed={"date": today})))
+        plant("a goal given up with no reason", "V17", lambda R: raw_edit(R, g, lambda fm: fm.update(closed=None)))
         plant("a closing dated in the future", "V20", lambda R: raw_edit(R, t3, lambda fm: fm.update(closed={"date": "2999-01-01", "reason": "r"})))
         plant("a closing reason on an open question", "V17", lambda R: raw_edit(R, q3, lambda fm: fm.update(closed={"date": today, "reason": "r"})))
         plant("a consumed idea naming a card that did not come from it", "V17", lambda R: raw_edit(R, i2, lambda fm: fm.update(consumed_by=[q5])))
@@ -2899,9 +3309,12 @@ def selftest():
         plant("a question answered by a task", "V18", lambda R: raw_edit(R, q, lambda fm: fm.update(answered_by=t1)))
         plant("a question answered by a list of findings", "V18", lambda R: raw_edit(R, q, lambda fm: fm.update(answered_by=[fa, f])))
         plant("an open question naming an answer", "V18", lambda R: raw_edit(R, q3, lambda fm: fm.update(answered_by=f)))
-        plant("a task that names a question in an older model's field", "V3", lambda R: raw_edit(R, rt, lambda fm: fm.update(question=q3)))
+        plant("a task that names a question in an older model's field", "V3", lambda R: raw_edit(R, wt, lambda fm: fm.update(question=q3)))
         plant("a created date that is not a date", "V20", lambda R: raw_edit(R, q, lambda fm: fm.update(created="yesterday")))
         plant("dangling derived_from ref", "V2", lambda R: raw_edit(R, t4, lambda fm: fm.update(derived_from=["question-9999"])))
+        plant("a direction of the directions file, by its bold name", "V2", lambda R: raw_edit(R, q3, lambda fm: fm.update(direction="Bridge")))
+        plant("an open question leaning on a dropped direction", "V22", lambda R: raw_edit(R, q3, lambda fm: fm.update(direction=d)))
+        plant("an open question serving a reached goal", "V22", lambda R: raw_edit(R, q3, lambda fm: fm.update(serves=g2)))
         plant("duplicate rank", "V14", lambda R: raw_edit(R, q8, lambda fm: fm.update(rank=1, why_now="w", first_move="m")))
         plant("rank on a closed question", "V14", lambda R: raw_edit(R, q5, lambda fm: fm.update(rank=4, why_now="w", first_move="m")))
         plant("stale index", "V11", lambda R: cfg.index.write_text(cfg.index.read_text() + "x\n"))
@@ -2914,22 +3327,35 @@ def selftest():
         expect("an index differing from the render only in its form says so, and a stale one does not",
                len(msgs) == 2 and "another version's form" in msgs[0] and "is stale" in msgs[1])
         plant("open question without checked", "V12", lambda R: raw_edit(R, q3, lambda fm: fm.update(checked=None)))
-        plant("open task that came from an answered question", "V13", lambda R: raw_edit(R, rt, lambda fm: fm.update(derived_from=[q5])))
+        plant("open task that came from an answered question", "V13", lambda R: raw_edit(R, wt, lambda fm: fm.update(derived_from=[q5])))
         plant("criterion blanked", "V16", lambda R: raw_edit(R, q3, lambda fm: fm.update(criterion=None)))
         plant("derived_from cycle", "V8", lambda R: raw_edit(R, f, lambda fm: fm.update(derived_from=[f])))
         plant("parent cycle", "V8", lambda R: raw_edit(R, q3, lambda fm: fm.update(parent=q3)))
         plant("closed task outside the archive", "V21", lambda R: shutil.move(str(R[t1].path), str(cfg.research / "tasks" / R[t1].path.name)))
+        plant("a finding under a shard of the older model", "V21",
+              lambda R: ((cfg.research / "findings" / "alpha").mkdir(), shutil.move(str(R[f].path), str(cfg.research / "findings" / "alpha" / R[f].path.name))))
+        shutil.rmtree(cfg.research / "findings" / "alpha", ignore_errors=True)
         plant("finding without evidence", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=[])))
+        plant("an evidence item with no form", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=["Lib/Foo.lean#lemma_L"])))
+        plant("an evidence item of a form the project does not list", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=["folklore:Lib/Foo.lean#lemma_L"])))
+        plant("an evidence item twice", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=["formal:Lib/Foo.lean#lemma_L"] * 2)))
         plant("finding whose declaration left the manifest", "V6",
               lambda R: ((root / "decls.txt").write_text("module Lib.Foo 0\n"), setattr(cfg, "_manifest", None)))
         (root / "decls.txt").write_text("module Lib.Foo 1\nLib.Foo lemma_L\n")
         cfg._manifest = None
+        plant("a body link to a path that is gone, on a live record", "V24",
+              lambda R: R[li].path.write_text(render(R[li].fm, "See [gone](papers/gone.md).\n")))
+        recs = load_all(cfg)
+        recs[t1].path.write_text(render(recs[t1].fm, recs[t1].body + "\nSee [gone](papers/gone.md).\n"))
+        problems, warnings, _ = validate(cfg, load_all(cfg), today)
+        expect("a body link to a path that is gone, on an archived task, is warned of, never failed",
+               not any(p["code"] == "V24" for p in problems) and any(f"{t1}: the body links papers/gone.md" in w for w in warnings))
+        recs[t1].path.write_text(render(recs[t1].fm, recs[t1].body))
         plant("a hand over its limit, a drawn idea counted", "V9", lambda R: (
-            raw_edit(R, rt, lambda fm: fm.update(state="active", owner="root", drawn=today)),
             raw_edit(R, wt, lambda fm: fm.update(state="active", owner="root", drawn=today)),
+            raw_edit(R, tq, lambda fm: fm.update(state="active", owner="root", drawn=today)),
             raw_edit(R, heap, lambda fm: fm.update(owner="root", drawn=today))))
         plant("a consumed idea in a hand", "V9", lambda R: raw_edit(R, wi, lambda fm: fm.update(owner="root", drawn=today)))
-        plant("unknown direction", "V22", lambda R: raw_edit(R, q3, lambda fm: fm.update(direction="Nowhere")))
         plant("body not one sentence per line", "V19", lambda R: R[q].path.write_text(render(R[q].fm, "One sentence. Two sentences on a line.\n")))
         plant("a citation of a key the library does not hold", "V23",
               lambda R: R[q].path.write_text(render(R[q].fm, "As lib:nobody2000 states.\n")))
@@ -2937,24 +3363,35 @@ def selftest():
               lambda R: R[q].path.write_text(render(R[q].fm, "As lib:jen1990#lemma states, and lib:jen1990#theorem9 does not.\n")))
         stub.write_text("raise SystemExit(3)\n")
         plant("a library that does not answer", "V23", lambda R: None)
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        expect("a peer-reviewed item is unchecked, never failed, while the library does not answer",
+               any(f"{fp}: peer-reviewed:jen1990#lemma: unchecked" in w for w in warnings))
         cfg.library_cmd = []
         recs = load_all(cfg)
         raw_edit(recs, q4, lambda fm: fm.update(blocked={"date": today, "on": q5, "reason": "its answer"}))
         expect("a block on a record that has closed is warned of, never failed",
                any(f"blocked on {q5}, which is answered" in w for w in validate(cfg, load_all(cfg), today)[1]))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(blocked={"date": today, "on": "the release of 2026-09-01", "reason": "its tag"}))
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(due="2026-09-01"))
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        expect("a due date that has passed and a block whose date has passed are warned of, never failed",
+               any(f"{wt}: due 2026-09-01 has passed" in w for w in warnings) and any(f"{q4}: blocked on the release of 2026-09-01, whose date has passed" in w for w in warnings))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(blocked={"date": today, "on": q3, "reason": "needs its answer"}))
         # the library found with no command bound: by library.toml at the root, then the sibling skill or PATH
         with tempfile.TemporaryDirectory() as t2:
             r2 = Path(t2)
             do_init(r2, build_parser().parse_args(["init", "--log", "LOG.md"]))
             c2 = Config(r2)
-            expect("the directions file init writes names no direction; the form in its comment is not one", directions_of(c2) == set())
+            expect("init writes no directions file: directions are records, with a directory of their own",
+                   not (r2 / "records" / "directions.md").exists() and (r2 / "records" / "directions").is_dir() and (r2 / "records" / "goals").is_dir())
             mdl = shutil.which("markdownlint")
             if mdl:  # init's files and the flow's writes, under the built-in configuration (no project one here)
                 (r2 / "body.md").write_text("A sentence well past eighty characters, " + "and on " * 12 + "until it ends.\n", encoding="utf-8")
                 rc, _ = dispatch(c2, ["capture", "A long sentence", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
                 expect("a body sentence longer than 80 characters is written under the built-in configuration", rc == 0)
-                dispatch(c2, ["task", "An upkeep", "--kind", "upkeep"], today=today, as_json=True, quiet=True)
+                dispatch(c2, ["task", "An upkeep", "--tag", "upkeep", "--due", "2026-12-01"], today=today, as_json=True, quiet=True)
+                dispatch(c2, ["goal", "A goal", "--criterion", "it is reached"], today=today, as_json=True, quiet=True)
+                dispatch(c2, ["direction", "A direction"], today=today, as_json=True, quiet=True)
                 (r2 / "body.md").write_text("A line.\n## A heading with no blank line above it\n", encoding="utf-8")
                 rc, _ = dispatch(c2, ["capture", "A violation", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
                 expect("a write adding a violation of the built-in configuration is refused and reverted",
@@ -2962,7 +3399,7 @@ def selftest():
                 (r2 / "body.md").unlink()
                 (r2 / "mdl.json").write_text(MDLINT_DEFAULT, encoding="utf-8")
                 r = subprocess.run([mdl, "-c", str(r2 / "mdl.json")] + [str(f) for f in sorted(r2.rglob("*.md"))], capture_output=True, text=True)
-                expect("the files init writes, and an index with records, pass the built-in configuration", r.returncode == 0)
+                expect("the files init writes, and an index with records, a due task, a goal and a direction, pass the built-in configuration", r.returncode == 0)
                 if r.returncode:
                     print("      ", (r.stdout + r.stderr).strip())
                 (r2 / "mdl.json").unlink()
@@ -2989,11 +3426,13 @@ def selftest():
         (root / "WORKLOG.md").write_text("# Log\n\n## 2026-09-25 — the top entry\n\n**State.** All is well.\n\n## 2026-09-24 — older\n\nx\n")
         cfg.log = root / "WORKLOG.md"
         (root / "INBOX.md").write_text("# Inbox\n\n- one item\n")
-        dispatch(cfg, ["draw", rt, "--owner", "root"], today=today, as_json=True, quiet=True)
-        lines, more = state_lines(cfg)
-        expect("state prints the inbox, the ranked list, the hands and the top log entry with FILE:LINE",
+        dispatch(cfg, ["draw", wt, "--owner", "root"], today=today, as_json=True, quiet=True)
+        dispatch(cfg, ["index"], today=today, as_json=True, quiet=True)
+        lines, more = state_lines(cfg, recs=load_all(cfg), today=today)
+        expect("state prints the inbox, the due list, the ranked list, the hands, the dates that have passed and the top log entry with FILE:LINE",
                any(l.startswith("INBOX.md:3:") and "one item" in l for l in lines)
-               and any("## Next (ranked)" in l for l in lines) and any(rt in l and "## Hand" not in l for l in lines)
+               and any("## Due" in l for l in lines) and any("## Next (ranked)" in l for l in lines) and any(wt in l and "## Hand" not in l for l in lines)
+               and any(f"due 2026-09-01 has passed: {wt}" in l for l in lines)
                and any(l.startswith("WORKLOG.md:") and "the top entry" in l for l in lines)
                and not any("older" in l for l in lines) and more is None)
         lines, more = state_lines(cfg, 0, 200)
@@ -3003,7 +3442,7 @@ def selftest():
         pm = pages_manifest(cfg)
         expect("the page manifest names a mount, routes and an id pattern",
                pm["mount"] == "/flow" and any(r["view"] == "record" for r in pm["routes"])
-               and re.search(pm["links"][0]["pattern"], "see question-0003 here"))
+               and re.search(pm["links"][0]["pattern"], "see question-0003 here") and re.search(pm["links"][0]["pattern"], "goal-0001"))
 
     # front matter: what PyYAML wrote reads back, and what is written reads back unchanged
     with tempfile.TemporaryDirectory() as tmp:
@@ -3052,7 +3491,7 @@ def selftest():
             problems, _, cov = validate(cfg, load_all(cfg), "2026-10-23")
             expect("init: a tree that checks green",
                    not problems and cfg.kinds == TYPES and "flow.toml" in written
-                   and (cfg.research / "archive").is_dir() and (cfg.research / "findings").is_dir())
+                   and all((cfg.research / d).is_dir() for d in ("archive", "findings", "goals", "directions")))
             rc, payload = dispatch(cfg, ["capture", "the first idea"], today="2026-10-23", as_json=True, quiet=True)
             expect("init: the first capture lands", rc == 0 and payload["created"] == ["idea-0001"])
             try:
@@ -3066,24 +3505,30 @@ def selftest():
         root = Path(tmp)
         (root / "flow.toml").write_text("[hand]\nroot = 2\n")
         cfg = Config(root)
-        expect("a bare flow.toml: records/, INBOX.md at the root, no decision kind",
-               cfg.records_name == "records" and cfg.inbox == root / "INBOX.md" and "decision" not in cfg.task_kinds
+        expect("a bare flow.toml: records/, INBOX.md at the root, the five shipped evidence forms",
+               cfg.records_name == "records" and cfg.inbox == root / "INBOX.md" and cfg.forms == SHIPPED_FORMS
                and cfg.decl_ext is None and cfg.ev_decl.match("src/Foo.agda#bar") and not cfg.ev_decl.match("papers/a.md#x"))
         expect("declaration evidence with no manifest is unchecked, not failed",
-               resolve_evidence(cfg, "src/Foo.agda#bar", {}).startswith("unchecked"))
+               resolve_evidence(cfg, "formal:src/Foo.agda#bar", {}).startswith("unchecked"))
         (root / "flow.toml").write_text("[evidence]\nmanifest = \"decls.txt\"\n")
         try:
             Config(root)
             expect("a manifest with no manifest_extension is refused", False)
         except Refused as e:
             expect("a manifest with no manifest_extension is refused", "manifest_extension" in str(e))
+        (root / "flow.toml").write_text("[evidence]\nforms = [\"Peer Reviewed\"]\n")
+        try:
+            Config(root)
+            expect("a form that is not one lowercase word is refused", False)
+        except Refused as e:
+            expect("a form that is not one lowercase word is refused", "forms" in str(e))
         a = argparse.Namespace(records="records", log="LOG.md", owner=["me"], force=True)
         written = do_init(root, a)
         cfg = Config(root)
         expect("init --log writes the log with a State paragraph, --owner the owner with a hand of four, the inbox, "
-               "and a research kind list with no prover word and no decision",
+               "and the five shipped evidence forms",
                "LOG.md" in written and "**State.**" in (root / "LOG.md").read_text() and cfg.owners == ("me",) and cfg.hand == {"me": 4}
-               and "INBOX.md" in written and "lean" not in cfg.task_kinds and "work" in cfg.task_kinds and "decision" not in cfg.task_kinds)
+               and "INBOX.md" in written and cfg.forms == SHIPPED_FORMS and "task" not in cfg.raw and "finding" not in cfg.raw)
         lines, _ = state_lines(cfg)
         expect("flow state prints the new log's top entry", any("the flow set up" in ln for ln in lines))
         r = subprocess.run([sys.executable, __file__, "--help"], capture_output=True, text=True, cwd=tempfile.gettempdir())
@@ -3224,7 +3669,7 @@ def selftest():
             cfg.inbox.write_text("# Inbox\n\n- look at the bound\n", encoding="utf-8")
             p = go(["state", "--check"])
             expect("an inbox holding items is no failure of the freeze: the next session reads it", not p["problems"])
-            t = go(["task", "an upkeep chore", "--kind", "upkeep"])["created"][0]
+            t = go(["task", "an upkeep chore", "--tag", "upkeep"])["created"][0]
             go(["draw", t, "--owner", "owner"])
             go(["draw", "idea-0001", "--owner", "agent"])
             entry.write_text(f"## 2026-10-27 — a chore\n\n**State.** The chore {t} is in the person's hand, idea-0001 in the agent's.\n", encoding="utf-8")
@@ -3245,8 +3690,8 @@ def selftest():
             rc, pl = dispatch(c2, ["doctor"], today=today, as_json=True, quiet=True)
             expect("the doctor finds nothing in a tree init wrote", rc == 0 and not pl["problems"])
             for argv in (["capture", "i"], ["frame", "idea-0001", "--summary", "Q", "--criterion", "k"],
-                         ["refine", "question-0001", "--task", "t", "work"], ["draw", "task-0001", "--owner", "agent"], ["make", "task-0001"],
-                         ["task", "a chore", "--kind", "upkeep"]):
+                         ["refine", "question-0001", "--task", "t"], ["draw", "task-0001", "--owner", "agent"], ["make", "task-0001"],
+                         ["task", "a chore", "--tag", "upkeep"], ["finding", "F", "reference:https://example.org/f", "--from", "task-0001"]):
                 dispatch(c2, argv, today=today, as_json=True, quiet=True)
             recs = load_all(c2)
 
@@ -3254,18 +3699,27 @@ def selftest():
                 fm = dict(recs[id_].fm)
                 fn(fm)
                 recs[id_].path.write_text(render(fm, recs[id_].body))
-            old("question-0001", lambda fm: (fm.update(state="decomposed", kill=fm.pop("criterion"), answered_by=[]), fm.pop("blocked")))
+            old("question-0001", lambda fm: (fm.update(state="decomposed", kill=fm.pop("criterion"), answered_by=[], direction="Bridge"), fm.pop("blocked")))
             old("task-0001", lambda fm: fm.update(abandoned={"date": today, "reason": "a wall"}, state="abandoned", drawn=today, owner="prover") or fm.pop("closed"))
-            old("task-0002", lambda fm: fm.update(abandoned=None, drawn=today, question="question-0001") or fm.pop("closed"))
+            old("task-0002", lambda fm: fm.update(abandoned=None, drawn=today, question="question-0001", kind="work") or fm.pop("closed"))
             old("idea-0001", lambda fm: fm.update(consumed_by="question-0001"))
-            (r2 / "flow.toml").write_text((r2 / "flow.toml").read_text(encoding="utf-8").replace('default_kind = "work"', 'default_kind = "work"\ndecision_owners = ["owner"]'))
-            c2.directions.write_text("# Directions\n\n## Inbox\n\n- an item\n\n## Directions\n", encoding="utf-8")
+            old("finding-0001", lambda fm: fm.update(status="refuted", paper="alpha",
+                                                     evidence=["papers/alpha.md#Theorem 2.1", "probes/p.py", "Lib/Foo.lean#lemma_L"]))
+            (r2 / "flow.toml").write_text((r2 / "flow.toml").read_text(encoding="utf-8")
+                                          + '\n[task]\ndefault_kind = "work"\ndecision_owners = ["owner"]\n[finding]\nstated = "proven"\n', encoding="utf-8")
+            (r2 / "records" / "directions.md").write_text("# Directions\n\n## Inbox\n\n- an item\n\n## Directions\n\n- **Bridge** (2026-01-01) — the words.\n", encoding="utf-8")
             c2 = Config(r2)
             rc, pl = dispatch(c2, ["doctor"], today=today, as_json=True, quiet=True)
             said = [x["path"] + ": " + x["msg"] for x in pl["problems"]]
-            want = ("decision_owners", "an `## Inbox` section", "state: decomposed — state: open", "kill — criterion", "no blocked",
+            want = ("decision_owners", "[task] default_kind — goes: a task's kind is a tag now", "[finding] — goes", "an `## Inbox` section",
+                    "the directions file — directions are records now", '- **Bridge** — `flow direction "Bridge" --body FILE`',
+                    "direction: Bridge — the id of the direction record",
+                    "state: decomposed — state: open", "kill — criterion", "no blocked",
                     "state: abandoned — state: aborted", "abandoned — closed", f"drawn: {today} on a ready task",
                     "owner: prover — an owner [hand] does not list", "question: question-0001 — goes", "name question-0001 in derived_from",
+                    "kind: work — goes: a kind is a tag now", "status: refuted — goes: the forms of the evidence stand for it; delete the field, and add the tag `refuted`",
+                    "paper: alpha — goes", "evidence papers/alpha.md#Theorem 2.1 — stated:papers/alpha.md#Theorem 2.1",
+                    "evidence probes/p.py — statistical:probes/p.py", "evidence Lib/Foo.lean#lemma_L — formal:Lib/Foo.lean#lemma_L",
                     "consumed_by: question-0001 — consumed_by as a list", "answered_by as a list — answered_by: null")
             expect("the doctor names each old word and field with what it reads now, and exits 1",
                    rc == 1 and all(any(w in x for x in said) for w in want))
@@ -3322,27 +3776,43 @@ def build_parser():
 
     p = sp.add_parser("capture"); p.add_argument("summary"); p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the record it came from, an idea worked for one; repeatable")
-    p = sp.add_parser("task"); p.add_argument("summary"); p.add_argument("--kind", required=True)
-    p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body")
+    p = sp.add_parser("task"); p.add_argument("summary")
+    p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
+    p.add_argument("--after", help="what follows its completion, in words; printed at the close")
+    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable; the usual ones are research and upkeep"); p.add_argument("--body")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="what it came from: a question, an idea, a task; repeatable")
     p = sp.add_parser("frame"); p.add_argument("ids", nargs="+"); p.add_argument("--summary", required=True); p.add_argument("--criterion", required=True)
     p.add_argument("--size"); p.add_argument("--kind", default="question", choices=("question", "conjecture")); p.add_argument("--parent")
-    p.add_argument("--direction"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body"); p.add_argument("--source")
-    p = sp.add_parser("refine"); p.add_argument("question"); p.add_argument("--task", action="append", help="a summary, then optionally a kind; repeatable", nargs="+", metavar=("SUMMARY", "KIND"))
+    p.add_argument("--direction", metavar="D", help="the open direction it leans toward, by its id"); p.add_argument("--serves", metavar="G", help="the open goal it serves, by its id")
+    p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body"); p.add_argument("--source")
+    p = sp.add_parser("refine"); p.add_argument("question"); p.add_argument("--task", action="append", metavar="SUMMARY", help="a task minted from the question; repeatable")
     p.add_argument("--subq", action="append", nargs=2, metavar=("SUMMARY", "CRITERION"), help="repeatable"); p.add_argument("--idea", action="append", help="repeatable")
-    p.add_argument("--kind"); p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--requires", action="append", help="repeatable")
+    p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--requires", action="append", help="repeatable")
+    p.add_argument("--tag", action="append", help="on every task minted; repeatable")
     p.add_argument("--body", help="appended to the question's body under the date, never to a task's: a task's own body is "
                                   "`flow task SUMMARY --from Q --body FILE`")
     p = sp.add_parser("draw"); p.add_argument("id"); p.add_argument("--owner", required=True)
     p = sp.add_parser("return"); p.add_argument("id"); p.add_argument("--note")
     p = sp.add_parser("make"); p.add_argument("task")
-    p.add_argument("--task", action="append", help="a summary, then optionally a kind; repeatable", nargs="+", dest="task_out", metavar=("SUMMARY", "KIND"))
-    p.add_argument("--question", action="append", nargs=2, metavar=("SUMMARY", "CRITERION"), help="repeatable"); p.add_argument("--idea", action="append", help="repeatable"); p.add_argument("--resolution")
+    p.add_argument("--task", action="append", metavar="SUMMARY", dest="task_out", help="a follow-up task; repeatable")
+    p.add_argument("--question", action="append", nargs=2, metavar=("SUMMARY", "CRITERION"), help="repeatable"); p.add_argument("--idea", action="append", help="repeatable")
+    p.add_argument("--tag", action="append", help="on every task minted; repeatable"); p.add_argument("--resolution")
     p = sp.add_parser("abort"); p.add_argument("task"); p.add_argument("--reason", required=True); p.add_argument("--resolution")
-    p = sp.add_parser("finding"); p.add_argument("summary"); p.add_argument("status"); p.add_argument("evidence", nargs="+")
+    p = sp.add_parser("finding"); p.add_argument("summary"); p.add_argument("evidence", nargs="+", metavar="FORM:TARGET")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="what it came from: a done or aborted task, an idea, a question; repeatable")
     p.add_argument("--answers", metavar="Q", help="the one question it settles, which closes answered")
-    p.add_argument("--depends-on", action="append", help="repeatable", dest="depends_on"); p.add_argument("--paper"); p.add_argument("--body")
+    p.add_argument("--depends-on", action="append", help="repeatable", dest="depends_on"); p.add_argument("--tag", action="append", help="repeatable; refuted for a disproof"); p.add_argument("--body")
+    p = sp.add_parser("evidence"); p.add_argument("finding"); p.add_argument("evidence", nargs="+", metavar="FORM:TARGET", help="added, never removed: how a finding's trust is raised")
+    p = sp.add_parser("goal"); p.add_argument("summary"); p.add_argument("--criterion", required=True, help="what reached means")
+    p.add_argument("--horizon", help="how far out the destination lies, in words")
+    p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the direction it was produced along, which stays open, or the idea it came from; repeatable")
+    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body")
+    p = sp.add_parser("reach"); p.add_argument("goal"); p.add_argument("--reason", required=True, help="what shows it reached")
+    p = sp.add_parser("giveup"); p.add_argument("goal"); p.add_argument("--reason", required=True)
+    p = sp.add_parser("direction"); p.add_argument("summary", help="its name")
+    p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the idea it came from; repeatable")
+    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body", help="the owner's words, a file")
+    p = sp.add_parser("drop"); p.add_argument("direction"); p.add_argument("--reason", required=True)
     p = sp.add_parser("consume"); p.add_argument("idea")
     p = sp.add_parser("remove"); p.add_argument("id"); p.add_argument("--reason", required=True)
     p = sp.add_parser("wrong"); p.add_argument("question"); p.add_argument("--reason", required=True)
@@ -3353,13 +3823,16 @@ def build_parser():
     p.add_argument("--reason", required=True)
     p = sp.add_parser("unblock"); p.add_argument("id"); p.add_argument("--note")
     p = sp.add_parser("rank"); p.add_argument("id", nargs="?"); p.add_argument("n", nargs="?", type=int); p.add_argument("--set", nargs="+")
-    p.add_argument("--clear", action="store_true"); p.add_argument("--insert", action="store_true"); p.add_argument("--why"); p.add_argument("--first-move", dest="first_move"); p.add_argument("--direction")
+    p.add_argument("--clear", action="store_true"); p.add_argument("--insert", action="store_true"); p.add_argument("--why"); p.add_argument("--first-move", dest="first_move")
+    p.add_argument("--direction", metavar="D", help="a question's, by its id"); p.add_argument("--serves", metavar="G", help="the goal a question serves, by its id")
     p = sp.add_parser("checked"); p.add_argument("ids", nargs="+")
     p = sp.add_parser("set"); p.add_argument("id"); p.add_argument("field"); p.add_argument("value")
     p = sp.add_parser("find")
-    for f in ("type", "state", "kind", "status", "tag", "owner", "paper", "requires", "grep"):
+    for f in ("type", "state", "kind", "form", "tag", "owner", "requires", "grep"):
         p.add_argument("--" + f)
     p.add_argument("--from", dest="from_", metavar="ID", help="the records that name ID in derived_from")
+    p.add_argument("--refers", metavar="ID|PATH", help="the records naming ID or PATH in any reference field, an evidence item or a body link")
+    p.add_argument("--deep", action="store_true", help="with --refers: the records naming those, and so on")
     p.add_argument("--depends-on", dest="depends_on"); p.add_argument("--parked", action="store_true"); p.add_argument("--ranked", action="store_true")
     p.add_argument("--blocked", action="store_true"); p.add_argument("--held", action="store_true", help="the active tasks and the ideas in a hand")
     p.add_argument("--id", action="append", dest="id_", metavar="ID", help="these records, a removed one among them; repeatable")
@@ -3377,7 +3850,9 @@ def build_parser():
     g.add_argument("--check", nargs="+", metavar="PATH", help="exit 1 on a line the reflow changes, each printed")
     g.add_argument("--as", nargs=2, metavar=("DEST", "DRAFT"), dest="as_", help="the draft checked as if appended to DEST: the reflow and markdownlint")
     sp.add_parser("doctor", help="the records and bindings an older model wrote, and what each reads now")
-    sp.add_parser("directions")
+    sp.add_parser("directions", help="the open directions as the owner's list")
+    p = sp.add_parser("tags", help="every tag in use with its records, then the untagged"); p.add_argument("--type")
+    sp.add_parser("artifacts", help="every repository path a record refers to, with the records naming it")
     sp.add_parser("pages")
     p = sp.add_parser("init"); p.add_argument("--records", default="records")
     p.add_argument("--log"); p.add_argument("--owner", action="append", help="repeatable"); p.add_argument("--force", action="store_true")
@@ -3388,12 +3863,15 @@ TRANSITIONS = {"capture": cmd_capture, "task": cmd_task, "frame": cmd_frame, "re
                "return": cmd_return, "make": cmd_make, "abort": cmd_abort, "finding": cmd_finding,
                "consume": cmd_consume, "remove": cmd_remove, "wrong": cmd_wrong, "impossible": cmd_impossible,
                "park": cmd_park, "unpark": cmd_unpark, "block": cmd_block, "unblock": cmd_unblock,
-               "rank": cmd_rank, "checked": cmd_checked, "set": cmd_set}
+               "rank": cmd_rank, "checked": cmd_checked, "set": cmd_set, "evidence": cmd_evidence,
+               "goal": cmd_goal, "reach": cmd_reach, "giveup": cmd_giveup, "direction": cmd_direction, "drop": cmd_drop}
 
 
 def summary_of(cfg, r):
     d = dict(r.fm)
     d["path"] = rel(cfg, r.path)
+    if r.type == "finding":
+        d["forms"] = stat(r)
     return d
 
 
@@ -3490,6 +3968,13 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 emit(f"re-ranked {i} {f} → {n}")
             if a.cmd in ("finding", "impossible") and changed:
                 emit(f"{changed[0].id} closed {changed[0]['state']} by {changed[0]['answered_by']}")
+            if a.cmd in ("make", "abort") and changed and changed[0]["after"]:  # the post-done instruction, for the agent to follow
+                out["after"] = changed[0]["after"]
+                emit(f"after {changed[0].id}: {changed[0]['after']}")
+            if a.cmd in ("giveup", "drop") and len(changed) > 1:
+                out["released"] = [r.id for r in changed[1:]]
+                emit(f"released: {', '.join(r.id for r in changed[1:])} — "
+                     + ("they serve nothing now and keep their ranks; re-rank them" if a.cmd == "giveup" else "they carry no direction now"))
             if a.cmd == "refine" and a.body:  # the body is the question's, not a minted task's: said, so it is not looked for there
                 out["body_appended_to"] = a.question
                 emit(f"the body of {a.body} appended to {a.question} under {today}")
@@ -3535,7 +4020,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             if found:
                 out["ok"] = False
         elif a.cmd == "state":
-            lines, more = state_lines(cfg, a.frm, a.budget)
+            lines, more = state_lines(cfg, a.frm, a.budget, recs, today)
             out["lines"], out["next_from"] = lines, more
             for ln in lines:
                 emit(ln)
@@ -3561,10 +4046,21 @@ def _dispatch(cfg, a, today, as_json, quiet):
             if problems:
                 out["ok"] = False
         elif a.cmd == "directions":
-            if not cfg.directions.is_file():
-                raise Refused(f"no directions file at {rel(cfg, cfg.directions)}")
-            out["text"] = cfg.directions.read_text(encoding="utf-8")
+            out["text"] = render_directions(recs)
             emit(out["text"].rstrip("\n"))
+        elif a.cmd == "tags":
+            tags, untagged = cmd_tags(cfg, recs, a, today)
+            out["tags"], out["untagged"] = tags, untagged
+            out["lines"] = [f"{t} ({len(ids)}): {', '.join(ids)}" for t, ids in tags.items()] + [f"(none) ({len(untagged)}): {', '.join(untagged) or '-'}"]
+            for ln in out["lines"]:
+                emit(ln)
+        elif a.cmd == "artifacts":
+            arts = cmd_artifacts(cfg, recs, a, today)
+            out["artifacts"] = arts
+            out["lines"] = [f"{x['path']}{'' if x['exists'] else '  MISSING'} — " + ", ".join(f"{y['id']} ({y['via']})" for y in x["records"]) for x in arts]
+            for ln in out["lines"]:
+                emit(ln)
+            emit(f"{len(arts)} path(s) referred to, {sum(not x['exists'] for x in arts)} missing")
         elif a.cmd == "pages":
             out["pages"] = pages_manifest(cfg)
             if not as_json:
@@ -3597,7 +4093,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for w in warnings:
                 emit(f"warning: {w}")
             emit(f"flow check: {len(recs)} records of the kinds {', '.join(cov['kinds'])}; {len(problems)} problem(s), {len(warnings)} warning(s); "
-                 + (f"declaration evidence via {cfg.manifest if cov['manifest'] else 'NOT CONFIGURED'}; "
+                 + (f"evidence forms {', '.join(cov['forms'])}; declaration evidence via {cfg.manifest if cov['manifest'] else 'NOT CONFIGURED'}; "
                     f"probe evidence via {cfg.probes if cov['probes'] else 'NOT CONFIGURED'}; " if cfg.has("finding") else "")
                  + f"reflow via {cov['reflow']}; markdownlint {'present' if cov['markdownlint'] else 'ABSENT'}")
             lc = cov["library"]

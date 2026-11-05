@@ -14,7 +14,7 @@ This page is the tool — its commands, the generator and the manifest it reads,
 4. `formal check`, then the three gates over what the landing touched, and the project's own figure check where it states tree-derived figures, the new total written and never a delta.
 5. The result is registered by the project's rule, else the `method` skill's register test, and the rows and the boundary paragraph are written from the landed proof, each ADAPTER binder named as such and each UNANCHORED one with its reason.
 6. The summary sites are swept — the status label, the abstract, the contributions, the settled-and-open lists, an earlier row's boundary, every negative-coverage sentence about the result's kind — found by the claims' own words.
-7. The flow closes the prover's task with `flow make`, then each finding is minted from the landed proof with `flow finding … --from TASK`, the declaration among its evidence, the one that settles the question with `--answers Q`; a failed handoff is `flow abort`, its refuted finding minted after it; and the commit names its paths.
+7. The flow closes the prover's task with `flow make`, then each finding is minted from the landed proof with `flow finding … --from TASK`, the declaration among its evidence as `formal:Path.lean#decl`, the one that settles the question with `--answers Q`; a failed handoff is `flow abort`, its refuting finding minted after it, tagged `refuted`; and the commit names its paths.
 
 ## The commands
 

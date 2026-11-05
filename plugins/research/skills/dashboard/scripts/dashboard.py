@@ -294,9 +294,9 @@ th{font-size:.82em;text-transform:uppercase;letter-spacing:.04em;color:var(--mut
 table.kv th{width:10em;text-transform:none;letter-spacing:0;font-size:.9em}
 .badge{display:inline-block;font-size:.76em;font-weight:600;padding:1px 7px;border-radius:99px;
 border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
-.s-open,.s-ready,.s-verified,.s-lean-verified,.s-full,.s-registered{color:var(--g)}
-.s-active,.s-stated,.s-proven,.s-parts{color:var(--b)}
-.s-empirical,.s-parked,.s-blocked,.s-skimmed{color:var(--y)}
+.s-open,.s-ready,.s-formal,.s-reached,.s-full,.s-registered{color:var(--g)}
+.s-active,.s-statistical,.s-peer-reviewed,.s-parts{color:var(--b)}
+.s-stated,.s-reference,.s-parked,.s-blocked,.s-skimmed{color:var(--y)}
 .s-refuted,.s-aborted,.s-wrong,.s-unread,.s-excluded{color:var(--r)}
 .s-done,.s-answered,.s-impossible,.s-consumed{color:var(--p)}.s-type,.s-ungraded,.s-removed{color:var(--n)}
 .body{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px 18px}
@@ -309,7 +309,10 @@ border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
 
 
 def badge(v):
-    return f'<span class="badge s-{esc(str(v).lower())}">{esc(v)}</span>' if v not in (None, "") else ""
+    """One badge per value: a finding's forms come as `formal, stated`, each its own word and colour."""
+    if v in (None, ""):
+        return ""
+    return " ".join(f'<span class="badge s-{esc(w.lower())}">{esc(w)}</span>' for w in str(v).split(", "))
 
 
 def dig(obj, path):
@@ -350,7 +353,7 @@ def fmt(R, v, href=None):
     return R.inline(v)
 
 
-STATE_COLS = ("state", "status", "grade", "read.grade")
+STATE_COLS = ("state", "status", "forms", "grade", "read.grade")
 
 
 class Site:
@@ -452,7 +455,7 @@ class Site:
                 items = "".join(f"<li>{R.inline(x) if isinstance(x, str) else fmt(R, x)}</li>" for x in data)
             secs.append(f'<section class="card"><h2>{esc(sec.get("title") or sec["field"])}</h2><ul class="recs">{items}</ul></section>')
         body_md = dig(ans, rt["body"]) if rt.get("body") else None
-        state = rec.get("state") or rec.get("status")
+        state = rec.get("state") or rec.get("status") or rec.get("forms")
         if rec.get("summary"):
             head = f"<h1>{esc(title)} {badge(state)}<br>{R.inline(rec['summary'])}</h1>"
         else:

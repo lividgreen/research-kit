@@ -34,13 +34,14 @@ The probe labels each item of the machine with one of these words, ok or MISSING
    Run the probe with the project root as the working directory: `python3 ${CLAUDE_PLUGIN_ROOT}/skills/research-init/scripts/setup.py probe` under Claude Code, this skill's own `scripts/setup.py` by its full path under any other agent (`--root DIR` for another project; `--json` for the same as data) and read the whole report: the environment, the project, the kit's version and layout, the proposals, the coverage line.
 2. Plan, in one message.
    Say what exists and is left alone, what will be written, and what is missing with the proposal's command for each.
-   Ask the person once, in one question: which proposals to install; the log's name where none exists (`WORKLOG.md` unless they say otherwise); whether copies the project keeps by hand may be redistributed with the repository (`--kept`), no unless they say so.
+   Ask the person once, in one question: which proposals to install; the log's name where none exists (`WORKLOG.md` unless they say otherwise); which evidence forms the project accepts, of the five the flow ships and its own words (step 4); whether copies the project keeps by hand may be redistributed with the repository (`--kept`), no unless they say so.
    Install nothing before the answer.
    In a run nobody can answer, write the project files with the defaults and list every proposal as left to the person.
 3. Install what was chosen, with the proposal's command as shown, then run the probe again.
 4. Write the bindings.
    `flow init --log LOG` where `flow.toml` is absent; `library init --scan RECORDS --scan LOG --documents GLOB…` where `library.toml` is absent, RECORDS the records directory `flow init` named, the globs those the probe found with a References section, `--kept` only when ruled.
    An `init` refuses over an existing bindings file; `--force` is used only when the person asks for the file to be rewritten.
+   `flow init` writes the five evidence forms the kit ships in `[evidence] forms` (`formal`, `statistical`, `peer-reviewed`, `stated`, `reference`): ask the person, in the one question of step 2, which the project accepts and which words of its own to add (a project with a prover keeps `formal`, one with datasets `statistical`, one with a library `peer-reviewed`; `stated` is the project's own word and the trust to raise), edit the list, and put what each form means for the project into the instructions section of step 5.
 5. Write the instructions.
    Append a section `## Research records` to the instructions file the probe found, or where none exists to `CLAUDE.md` under Claude Code and `AGENTS.md` under any other agent, holding the paragraphs both inits printed, in the project's words where its names differ; a file that already has the section is left as it is.
 6. Write the hooks.

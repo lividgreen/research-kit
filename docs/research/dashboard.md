@@ -1,6 +1,6 @@
 # The dashboard
 
-The dashboard serves the records and the cards as a read-only page on localhost: the ranked list, each record with its links and back-references, the directions file and the validator's verdict; each card with its notes, extracts and citing sites, the candidates and the watches and the check.
+The dashboard serves the records and the cards as a read-only page on localhost: the ranked list, each record with its links and back-references, the directions, the artifacts, the tags and the validator's verdict; each card with its notes, extracts and citing sites, the candidates and the watches and the check.
 The tool is `scripts/dashboard.py` of the [`dashboard`](../../plugins/research/skills/dashboard/SKILL.md) skill (`/research:dashboard` in Claude Code), one Python 3.11 file on the standard library; the `markdown` package renders bodies where it is installed, paragraphs otherwise.
 This page is the tool: its commands, what it mounts, how a component is written, and its words.
 

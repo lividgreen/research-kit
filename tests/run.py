@@ -261,7 +261,7 @@ def main():
         lite.mkdir()
         for argv in (["init", "--log", "WORKLOG.md"], ["capture", "A might imply B", "--source", "a talk"],
                      ["frame", "idea-0001", "--summary", "Does A imply B?", "--criterion", "a finite counterexample, or a proof"],
-                     ["refine", "question-0001", "--task", "prove the lemma", "work", "--task", "design the route", "design"]):
+                     ["refine", "question-0001", "--task", "prove the lemma", "--task", "design the route", "--tag", "research"]):
             subprocess.run([sys.executable, str(SCRIPTS["flow"]), *argv], capture_output=True, text=True, cwd=lite, check=True)
         started = (ROOT / "docs/research/getting-started.md").read_text(encoding="utf-8")
         record = re.findall(r"```markdown\n(.*?)```", started, re.S)[0]
@@ -276,7 +276,8 @@ def main():
               r.returncode == 1 and r.stdout.splitlines()[:2] == failed.splitlines()[:2])
     records = (ROOT / "docs/research/flow-cards.md").read_text(encoding="utf-8")
     schema = ast.literal_eval(re.search(r"^SCHEMA = (\{.*?^\})", SCRIPTS["flow"].read_text(encoding="utf-8"), re.S | re.M).group(1))
-    for kind, heading in (("idea", "### An idea"), ("question", "### A question"), ("task", "### A task"), ("finding", "### A finding")):
+    for kind, heading in (("idea", "### An idea"), ("question", "### A question"), ("task", "### A task"), ("finding", "### A finding"),
+                          ("goal", "### A goal"), ("direction", "### A direction")):
         listed = tuple(re.findall(r"`([a-z_]+)`", records.split(heading + "\n", 1)[1].strip().splitlines()[0]))
         check(f"docs/research/flow-cards.md lists a {kind}'s fields as the flow writes them", listed == tuple(schema[kind]), str(listed))
     cards = (ROOT / "docs/research/library-cards.md").read_text(encoding="utf-8")
