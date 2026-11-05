@@ -90,7 +90,8 @@ scan = ["lean/**/*.lean"]
 
 [register]
 # `formal register`: what ships (tracked files under these paths, minus `exclude`) carries none
-# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line.
+# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line,
+# and names no file its file classes do not allow.
 ship = ["lean"]
 exclude = ["lean/AGENTS.md"]
 sanctioned = []
@@ -99,6 +100,14 @@ sanctioned = []
 # [[register.class]]
 # name = "internal vocabulary"
 # patterns = ['\bworklog\b', '\bhandoff\b']   # literal strings: a backslash is the regex's
+# A file class: every `X.lean` its `scope` names is a module (a tracked `.lean` file) of its
+# `packages`, directories as in package_order (omitted: each file's own package and those before
+# it), or a file of another project an `allow` expression matches, by the name or its file name.
+# [[register.files]]
+# name = "the lower package names only its own files"
+# scope = ["lean/lower/**/*.lean"]
+# packages = ["lower"]
+# allow = ['^Mathlib/', '^Average\.lean$']
 
 [handoff]
 # The project's own directories (its documents, its scripts) a handoff may name: a path into one
@@ -115,6 +124,14 @@ id_prefixes = ["idea", "question", "task", "finding"]
 meta_names = ["WORKLOG.md"]
 key_patterns = ['lib:[a-z0-9][a-z0-9-]*']
 ```
+
+`[register]` binds two kinds of class.
+A pattern class (`[[register.class]]`) is a set of regular expressions that no line of a shipped file in its `scope` may match.
+A file class (`[[register.files]]`) holds a package to the files a public reader can follow: every file name with the `.lean` extension that a shipped file of its `scope` mentions, bare (`Foo.lean`) or with a path (`Lib/Foo.lean`), is a module of one of its `packages` or matches one of its `allow` expressions.
+A module of a package is a tracked `.lean` file under its directory and not under a package directory inside it, the build's `.lake` left out; a bare name is matched by the file name, a name with a path as the end of the module's path from the project root, a leading `./` or `../` dropped.
+`packages` lists package directories relative to the workspace, as `package_order` does, and an entry that is no directory of `package_order` or `[packages]` is refused when `formal.toml` is read; omitted, each file's own package and every package before it in `package_order` count.
+`allow` takes regular expressions for the files of other projects (an upstream library, a vendored port named as attribution), each tried against the name as written and against its file name.
+Either kind of class whose scope reaches no shipped file fails as rot, and so does a file class naming a package that holds no tracked `.lean` file.
 
 ## Words
 

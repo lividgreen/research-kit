@@ -21,7 +21,8 @@ must not carry, and the words a handoff must not carry.
                                            a landed statement for a cold reader, stripped
     formal cite                            every declaration name the documents cite resolves
     formal anchors                         every `[Key] §N` of the Lean files resolves in its document
-    formal register                        what ships carries none of the bound pattern classes
+    formal register                        what ships carries none of the bound pattern classes and
+                                           names only the files its file classes allow
     formal hypotheses [--base REV | --baseline FILE [--update]]
                                            no shipped public theorem gains a named condition
     formal witnesses [--base REV]          theorems owing a joint-satisfiability witness; a report
@@ -112,7 +113,8 @@ scan = ["{ws}/**/*.lean"]
 
 [register]
 # `formal register`: what ships (tracked files under these paths, minus `exclude`) carries none
-# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line.
+# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line,
+# and names no file its file classes do not allow.
 ship = ["{ws}"]
 exclude = ["{instructions}"]
 sanctioned = []
@@ -121,6 +123,14 @@ sanctioned = []
 # [[register.class]]
 # name = "internal vocabulary"
 # patterns = ['\\bworklog\\b', '\\bhandoff\\b']   # literal strings: a backslash is the regex's
+# A file class: every `X.lean` its `scope` names is a module (a tracked `.lean` file) of its
+# `packages`, directories as in package_order (omitted: each file's own package and those before
+# it), or a file of another project an `allow` expression matches, by the name or its file name.
+# [[register.files]]
+# name = "the lower package names only its own files"
+# scope = ["{ws}/lower/**/*.lean"]
+# packages = ["lower"]
+# allow = ['^Mathlib/', '^Average\\.lean$']
 
 [handoff]
 # The project's own directories (its documents, its scripts) a handoff may name: a path into one
@@ -185,6 +195,10 @@ class Config:
         self.ship_exclude = as_list(reg.get("exclude", [ws.get("instructions", f"{self.workspace_name}/AGENTS.md")]))
         self.sanctioned = as_list(reg.get("sanctioned", []))
         self.register_classes = list(reg.get("class", []))
+        # the package directories a file class may name: the package order's and the roots' own
+        self.package_dirs = list(dict.fromkeys([*self.package_order, *self.packages.values()]))
+        files = reg.get("files", [])
+        self.register_files = [self.files_class(c) for c in ([files] if isinstance(files, dict) else files)]
         h = raw.get("handoff", {})
         self.root_dirs = tuple(as_list(h.get("root_dirs", ["papers", "docs"])))
         self.banned = tuple(as_list(h.get("banned", [])))
@@ -192,6 +206,34 @@ class Config:
         self.id_prefixes = tuple(as_list(h.get("id_prefixes", ["idea", "question", "task", "finding"])))
         self.meta_names = tuple(as_list(h.get("meta_names", [])))
         self.key_patterns = tuple(as_list(h.get("key_patterns", [])))
+
+    def files_class(self, c):
+        """A `[[register.files]]` table: its name, its scope, its package directories (None: each file's own
+        package and those before it in the package order) and its allowlist, refused where it cannot be read."""
+        name = c.get("name", "unnamed files class") if isinstance(c, dict) else repr(c)
+        where = f"formal.toml's [[register.files]] `{name}`"
+        if not isinstance(c, dict):
+            raise Refused(f"{where} is not a table")
+        if unknown := sorted(set(c) - {"name", "scope", "packages", "allow"}):
+            raise Refused(f"{where} binds {', '.join(unknown)}, which it does not read (name, scope, packages, allow)")
+        packages = None
+        if "packages" in c:
+            if not as_list(c["packages"]):
+                raise Refused(f"{where} binds packages = [], which names no package; omit it for each file's own package and those before it")
+            packages = []
+            for d in as_list(c["packages"]):
+                p = Path(os.path.normpath(self.workspace / d))
+                if p not in self.package_dirs:
+                    raise Refused(f"{where} names the package `{d}`, which is no package directory (an entry of [workspace] "
+                                  "package_order or a directory of [packages], relative to the workspace)")
+                packages.append(p)
+        elif not self.package_order:
+            raise Refused(f"{where} binds no packages, and [workspace] package_order is empty, so it has none to default to")
+        try:
+            allow = [re.compile(a) for a in as_list(c.get("allow", []))]
+        except re.error as e:
+            raise Refused(f"{where} has an allow expression that is no regular expression ({e})") from None
+        return {"name": name, "scope": as_list(c.get("scope", [])), "packages": packages, "allow": allow}
 
 
 def as_list(v):
@@ -1469,9 +1511,73 @@ def path_rx(pattern):
     return re.compile(out + r"\Z")
 
 
+# a file name with the declaration extension, path-qualified or bare: `Foo.lean`, `ALT/Foo.lean`
+FILE_MENTION = re.compile(r"(?:[\w.-]+/)*\w[\w.-]*\.lean(?!\w)")
+
+
+def package_modules(cfg):
+    """{package directory: its modules}: the tracked `.lean` files under the package directories, each under
+    the deepest one holding it, a build's directories left out; None where git cannot list them."""
+    rel = {d: Path(os.path.relpath(d, cfg.root)).as_posix() for d in cfg.package_dirs}
+    g = git(cfg, "ls-files", "-z", "--", *rel.values())
+    if g.returncode != 0:
+        return None
+    prefix = {d: "" if r == "." else r + "/" for d, r in rel.items()}
+    out = {d: set() for d in cfg.package_dirs}
+    for f in g.stdout.split("\0"):
+        if not f.endswith(".lean") or ".lake" in f.split("/"):
+            continue
+        holders = [d for d in cfg.package_dirs if f.startswith(prefix[d])]
+        if holders:
+            out[max(holders, key=lambda d: len(prefix[d]))].add(f)
+    return out
+
+
+def path_suffixes(files):
+    """Every trailing run of path components of the files: `a/B/C.lean` gives `C.lean`, `B/C.lean`, `a/B/C.lean`."""
+    out = set()
+    for f in files:
+        parts = f.split("/")
+        out.update("/".join(parts[k:]) for k in range(len(parts)))
+    return out
+
+
+def files_class_hits(cfg, c, files, texts, modules):
+    """(hits, problems) of a file class over the files it reads: each file name a line mentions that is no
+    module of the class's packages, as a trailing run of a module's path, and that no allow expression
+    matches, as written or by its file name."""
+    hits, problems, known = [], [], {}
+    order = [(i, Path(os.path.relpath(d, cfg.root)).as_posix()) for i, d in enumerate(cfg.package_order)]
+    for f in files:
+        if c["packages"] is not None:
+            pkgs = tuple(c["packages"])
+        else:  # the file's own package and every package before it in the order
+            own = [(len(r), i) for i, r in order if r == "." or f.startswith(r + "/")]
+            if not own:
+                problems.append(f"the class `{c['name']}` binds no packages, and its scope reaches {f}, which is under no "
+                                "package directory of [workspace] package_order — bind `packages`")
+                continue
+            pkgs = tuple(cfg.package_order[:max(own)[1] + 1])
+        if pkgs not in known:
+            known[pkgs] = path_suffixes(m for d in pkgs for m in modules[d])
+        if ".lean" not in texts[f]:
+            continue
+        for lineno, line in enumerate(texts[f].splitlines(), 1):
+            for name in dict.fromkeys(FILE_MENTION.findall(line)):
+                if (re.sub(r"^(?:\.\.?/)+", "", name) in known[pkgs]
+                        or any(a.search(name) or a.search(name.rsplit("/", 1)[-1]) for a in c["allow"])):
+                    continue
+                hits.append(f"  {f}:{lineno}: [{c['name']}] `{name}` in: {line.strip()[:160]}")
+    for d in c["packages"] or ():
+        if not modules[d]:
+            problems.append(f"the class `{c['name']}` names the package `{Path(os.path.relpath(d, cfg.workspace)).as_posix()}`, "
+                            "which holds no tracked .lean file — the inventory it names has rotted")
+    return hits, problems
+
+
 def do_register(cfg):
-    if not cfg.register_classes:
-        print("COULD NOT CHECK: no pattern class is bound in formal.toml ([[register.class]] with a name and patterns)")
+    if not cfg.register_classes and not cfg.register_files:
+        print("COULD NOT CHECK: no class is bound in formal.toml ([[register.class]] with a name and patterns, or [[register.files]])")
         return 2
     g = git(cfg, "ls-files", "-z", "--", *cfg.ship)
     if g.returncode != 0:
@@ -1513,14 +1619,36 @@ def do_register(cfg):
                         cut = s.sub("", cut)
                 if m := rx.search(cut):
                     hits.append(f"  {f}:{lineno}: [{name}] `{m.group(0)}` in: {line.strip()[:160]}")
+    problems, modules = [], {}
+    if cfg.register_files:
+        modules = package_modules(cfg)
+        if modules is None:
+            print(f"COULD NOT CHECK: git ls-files failed at {cfg.root} under the workspace {cfg.workspace_name}")
+            return 2
+    for c in cfg.register_files:
+        # no sanctioned cut: the cut is the vocabulary's, and a file name is allowed by the class's own expressions
+        narrow = [path_rx(p) for p in c["scope"]]
+        files = [f for f in texts if not narrow or any(n.match(f) for n in narrow)]
+        counts.append(f"{c['name']} {len(files)}")
+        if not files:
+            rot.append(c["name"])
+            continue
+        h, p = files_class_hits(cfg, c, files, texts, modules)
+        hits += h
+        problems += p
     for name in rot:
         print(f"formal register: the class `{name}` reaches no shipped file — its scope has rotted")
+    for p in problems:
+        print(f"formal register: {p}")
     if hits:
         print(f"register leaks ({len(hits)}):")
         print("\n".join(hits))
-    print(f"formal register: {'FAIL' if hits or rot else 'OK'} — {len(scope)} shipped file(s) ({len(texts)} text) under {', '.join(cfg.ship)}; "
-          f"files per class: {', '.join(counts)}; {len(hits)} hit(s)")
-    return 1 if hits or rot else 0
+    held = ("; modules per package: " + ", ".join(f"{Path(os.path.relpath(d, cfg.workspace)).as_posix()} {len(ms)}"
+                                                  for d, ms in modules.items()) if modules else "")
+    bad = hits or rot or problems
+    print(f"formal register: {'FAIL' if bad else 'OK'} — {len(scope)} shipped file(s) ({len(texts)} text) under {', '.join(cfg.ship)}; "
+          f"files per class: {', '.join(counts)}{held}; {len(hits)} hit(s)")
+    return 1 if bad else 0
 
 
 # --- the named conditions --------------------------------------------------------------------
@@ -2274,6 +2402,51 @@ def package_scenarios(root, expect):
     expect("register: a usage line naming a path into the tree would", code == 1 and "DeclManifest.lean:" in out, out[-300:])
     gen.unlink()
     sh("rm", "-q", "--cached", "--", "ws/DeclManifest.lean")
+    # the file class, bound alone: a file a lower package names is a module of it, or of the packages bound
+    with_classes = (root / "formal.toml").read_text(encoding="utf-8")
+
+    def files_class(body):
+        (root / "formal.toml").write_text(toml.replace("sanctioned = []\n", "sanctioned = []\n[[register.files]]\n" + body), encoding="utf-8")
+        return Config(root)
+
+    lower = 'name = "lower names its own"\nscope = ["ws/lo/**/*.lean"]\npackages = ["lo"]\nallow = [\'^Ext\\.lean$\']\n'
+    cfg = files_class(lower)
+    lo_b = ws / "lo" / "Lo" / "B.lean"
+    keep = lo_b.read_text(encoding="utf-8")
+    lo_b.write_text(keep + "-- as in `Lo/B.lean`, B.lean, ../Lo.lean and ws/lo/Lo.lean\n", encoding="utf-8")
+    code, out = quiet(do_register, cfg)
+    expect("register: a file class bound alone runs, and a lower package naming its own modules is clean",
+           code == 0 and "lower names its own 2" in out and "modules per package: lo 2, . 2" in out, out[-300:])
+    for line, name, why in (("-- after `A.lean`", "A.lean", "a lower package naming an upper package's module by its file name"),
+                            ("-- see Hi/A.lean", "Hi/A.lean", "a lower package naming an upper package's module by its path"),
+                            ("-- see Floored.lean", "Floored.lean", "a lower package naming a file of no package"),
+                            ("-- see old/Lo/B.lean", "old/Lo/B.lean", "a qualified name no module's path ends in")):
+        lo_b.write_text(keep + line + "\n", encoding="utf-8")
+        code, out = quiet(do_register, cfg)
+        expect(f"register: {why} fails", code == 1 and f"ws/lo/Lo/B.lean:4: [lower names its own] `{name}` in:" in out, out[-300:])
+    lo_b.write_text(keep + "-- after Mathlib's Ext.lean, Mathlib/Order/Ext.lean\n", encoding="utf-8")
+    code, out = quiet(do_register, cfg)
+    expect("register: a file name the class allows, bare or path-qualified, is clean", code == 0, out[-300:])
+    code, out = quiet(do_register, files_class(lower.replace('scope = ["ws/lo/**/*.lean"]', 'scope = ["ws/gone/**"]')))
+    expect("register: a file class reaching no shipped file fails as rot", code == 1 and "`lower names its own` reaches no shipped file" in out, out[-300:])
+    lo_b.write_text(keep + "-- after `A.lean`\n", encoding="utf-8")
+    hi_a = ws / "Hi" / "A.lean"
+    hi_keep = hi_a.read_text(encoding="utf-8")
+    hi_a.write_text(hi_keep + "-- after `Lo/B.lean` and `A.lean`\n", encoding="utf-8")
+    code, out = quiet(do_register, files_class('name = "by the order"\nscope = ["ws/**/*.lean"]\n'))
+    expect("register: a file class binding no packages reads each file's own package and those before it",
+           code == 1 and "ws/lo/Lo/B.lean:4: [by the order] `A.lean`" in out and "Hi/A.lean:4" not in out, out[-300:])
+    hi_a.write_text(hi_keep, encoding="utf-8")
+    lo_b.write_text(keep, encoding="utf-8")
+    for body, why in ((lower.replace('packages = ["lo"]', 'packages = ["lo", "Lo"]'), "a packages entry that is no package directory"),
+                      (lower.replace('packages = ["lo"]', 'package = ["lo"]'), "a key the file class does not read"),
+                      (lower.replace('packages = ["lo"]', "packages = []"), "an empty packages list")):
+        try:
+            files_class(body)
+            expect(f"register: {why} is refused at load", False)
+        except Refused:
+            expect(f"register: {why} is refused at load", True)
+    (root / "formal.toml").write_text(with_classes, encoding="utf-8")
     (root / "formal.toml").write_text((root / "formal.toml").read_text(encoding="utf-8").replace('ship = ["ws"]', 'ship = ["nowhere"]'), encoding="utf-8")
     code, out = quiet(do_register, Config(root))
     expect("register: an empty scope fails as inventory rot", code == 1 and "scope is empty" in out, out[-300:])
@@ -2823,7 +2996,7 @@ def _main(argv=None):
     p = sub("probe", help="report the project and the machine against the prover side's setup; writes nothing"); p.add_argument("--json", action="store_true")
     sub("cite", help="every declaration name the documents cite resolves in the manifests")
     sub("anchors", help="every [Key] §N, [Key] Theorem N.M and [Key] Appendix X resolves in its document")
-    sub("register", help="what ships carries none of the bound pattern classes")
+    sub("register", help="what ships carries none of the bound pattern classes and names only the files its file classes allow")
     p = sub("hypotheses", help="no public theorem shipped at the base gains a named condition"); p.add_argument("--base", default="HEAD")
     p.add_argument("--baseline", help="a pinned baseline file instead of the base revision"); p.add_argument("--update", action="store_true")
     p = sub("witnesses", help="theorems with two or more named conditions and no _nonvacuous witness; a report"); p.add_argument("--base")
