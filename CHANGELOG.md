@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.5.0 — 2026-11-06
 
 The consumers' pieces after v0.4.3: a pins check held to the latest release for both plugins, the setup probe naming what an upgrade still asks, a document's anchors the project binds and its headings, a block on several things, a question framed from a document, the records a freeze's log is to name, a window on the due list, and a file class for the register.
