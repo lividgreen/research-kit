@@ -25,6 +25,11 @@ SCRIPTS = {"flow": SKILLS / "flow/scripts/flow.py", "library": SKILLS / "library
            "dashboard": SKILLS / "dashboard/scripts/dashboard.py", "formal": PLUGINS["formal"] / "skills/land/scripts/formal.py",
            "setup": SKILLS / "research-init/scripts/setup.py"}
 SHARED = ("_SENT", "FENCE_RUN", "fence_after", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
+# the pins' helpers, duplicated into the two setup probes (research's setup.py, formal's `formal probe`)
+PINS = ("KIT_REPO", "KIT_CHANGELOG", "KIT_LATEST", "skill_version", "hooks_pin", "install_record", "kit_installed", "kit_tag",
+        "kit_latest", "kit_pins")
+# the probes ask GitHub for the kit's latest release; nothing these tests run asks the network
+os.environ["RESEARCH_KIT_OFFLINE"] = "1"
 failures = []
 
 
@@ -57,6 +62,9 @@ def main():
         check(f"{n} identical in flow.py and library.py", n in a and n in b and a[n] == b[n])
     c = source_of(SCRIPTS["formal"], ("unknown_command",))
     check("unknown_command identical in formal.py", c.get("unknown_command") == a.get("unknown_command"))
+    s, f = source_of(SCRIPTS["setup"], PINS), source_of(SCRIPTS["formal"], PINS)
+    for n in PINS:
+        check(f"{n} identical in setup.py and formal.py", n in s and n in f and s[n] == f[n])
 
     print("manifests")
     market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())

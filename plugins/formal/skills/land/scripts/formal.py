@@ -21,7 +21,8 @@ must not carry, and the words a handoff must not carry.
                                            a landed statement for a cold reader, stripped
     formal cite                            every declaration name the documents cite resolves
     formal anchors                         every `[Key] §N` of the Lean files resolves in its document
-    formal register                        what ships carries none of the bound pattern classes
+    formal register                        what ships carries none of the bound pattern classes and
+                                           names only the files its file classes allow
     formal hypotheses [--base REV | --baseline FILE [--update]]
                                            no shipped public theorem gains a named condition
     formal witnesses [--base REV]          theorems owing a joint-satisfiability witness; a report
@@ -51,6 +52,8 @@ import sys
 import tempfile
 import tomllib
 import traceback
+import urllib.error
+import urllib.request
 from collections import OrderedDict, defaultdict, namedtuple
 from pathlib import Path
 
@@ -112,7 +115,8 @@ scan = ["{ws}/**/*.lean"]
 
 [register]
 # `formal register`: what ships (tracked files under these paths, minus `exclude`) carries none
-# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line.
+# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line,
+# and names no file its file classes do not allow.
 ship = ["{ws}"]
 exclude = ["{instructions}"]
 sanctioned = []
@@ -121,6 +125,15 @@ sanctioned = []
 # [[register.class]]
 # name = "internal vocabulary"
 # patterns = ['\\bworklog\\b', '\\bhandoff\\b']   # literal strings: a backslash is the regex's
+# A file class: every `X.lean` its `scope` names is a module (a tracked `.lean` file) of its
+# `packages`, directories as in package_order (omitted: each file's own package and those before
+# it), or a file of another project an `allow` expression matches as the mention is written
+# ('^Average\\.lean$' allows a bare `Average.lean`, not `ALT/Ergodic/Average.lean`).
+# [[register.files]]
+# name = "the lower package names only its own files"
+# scope = ["{ws}/lower/**/*.lean"]
+# packages = ["lower"]
+# allow = ['^Mathlib/', '^Average\\.lean$']
 
 [handoff]
 # The project's own directories (its documents, its scripts) a handoff may name: a path into one
@@ -185,6 +198,10 @@ class Config:
         self.ship_exclude = as_list(reg.get("exclude", [ws.get("instructions", f"{self.workspace_name}/AGENTS.md")]))
         self.sanctioned = as_list(reg.get("sanctioned", []))
         self.register_classes = list(reg.get("class", []))
+        # the package directories a file class may name: the package order's and the roots' own
+        self.package_dirs = list(dict.fromkeys([*self.package_order, *self.packages.values()]))
+        files = reg.get("files", [])
+        self.register_files = [self.files_class(c) for c in ([files] if isinstance(files, dict) else files)]
         h = raw.get("handoff", {})
         self.root_dirs = tuple(as_list(h.get("root_dirs", ["papers", "docs"])))
         self.banned = tuple(as_list(h.get("banned", [])))
@@ -192,6 +209,34 @@ class Config:
         self.id_prefixes = tuple(as_list(h.get("id_prefixes", ["idea", "question", "task", "finding"])))
         self.meta_names = tuple(as_list(h.get("meta_names", [])))
         self.key_patterns = tuple(as_list(h.get("key_patterns", [])))
+
+    def files_class(self, c):
+        """A `[[register.files]]` table: its name, its scope, its package directories (None: each file's own
+        package and those before it in the package order) and its allowlist, refused where it cannot be read."""
+        name = c.get("name", "unnamed files class") if isinstance(c, dict) else repr(c)
+        where = f"formal.toml's [[register.files]] `{name}`"
+        if not isinstance(c, dict):
+            raise Refused(f"{where} is not a table")
+        if unknown := sorted(set(c) - {"name", "scope", "packages", "allow"}):
+            raise Refused(f"{where} binds {', '.join(unknown)}, which it does not read (name, scope, packages, allow)")
+        packages = None
+        if "packages" in c:
+            if not as_list(c["packages"]):
+                raise Refused(f"{where} binds packages = [], which names no package; omit it for each file's own package and those before it")
+            packages = []
+            for d in as_list(c["packages"]):
+                p = Path(os.path.normpath(self.workspace / d))
+                if p not in self.package_dirs:
+                    raise Refused(f"{where} names the package `{d}`, which is no package directory (an entry of [workspace] "
+                                  "package_order or a directory of [packages], relative to the workspace)")
+                packages.append(p)
+        elif not self.package_order:
+            raise Refused(f"{where} binds no packages, and [workspace] package_order is empty, so it has none to default to")
+        try:
+            allow = [re.compile(a) for a in as_list(c.get("allow", []))]
+        except re.error as e:
+            raise Refused(f"{where} has an allow expression that is no regular expression ({e})") from None
+        return {"name": name, "scope": as_list(c.get("scope", [])), "packages": packages, "allow": allow}
 
 
 def as_list(v):
@@ -244,13 +289,17 @@ def rows_from_text(text, name="manifest"):
             raise ManifestError(f"{name}:{lineno} matches no known row kind ({', '.join(KINDS)}): {raw!r}")
 
 
+def manifest_text(cfg, m):
+    """A manifest's text, refused where the file is missing."""
+    if not m.is_file():
+        raise ManifestError(f"missing {m} — regenerate it in the workspace: {cfg.generate or 'the project binds the command in formal.toml'}")
+    return m.read_text(encoding="utf-8")
+
+
 def rows(cfg, path=None):
     """Every row of the bound manifests (or of one file)."""
-    files = [Path(path)] if path else cfg.manifests
-    for m in files:
-        if not m.is_file():
-            raise ManifestError(f"missing {m} — regenerate it in the workspace: {cfg.generate or 'the project binds the command in formal.toml'}")
-        yield from rows_from_text(m.read_text(encoding="utf-8"), m.name)
+    for m in [Path(path)] if path else cfg.manifests:
+        yield from rows_from_text(manifest_text(cfg, m), m.name)
 
 
 def rows_at(cfg, rev):
@@ -1469,9 +1518,88 @@ def path_rx(pattern):
     return re.compile(out + r"\Z")
 
 
+# a file name with the declaration extension, path-qualified or bare: `Foo.lean`, `ALT/Foo.lean`
+FILE_MENTION = re.compile(r"(?:[\w.-]+/)*\w[\w.-]*\.lean(?!\w)")
+
+
+def outside_modules(d, rel):
+    """The `.lean` files of a package directory outside the project root (a library required by path), each under
+    `rel`, its path from the root with the `../` dropped as a mention's is: those its repository tracks, or where
+    it is in none, those on disk, a build's directories left out either way."""
+    g = subprocess.run(["git", "-C", str(d), "ls-files", "-z", "--", "."], capture_output=True, encoding="utf-8", errors="replace")
+    files = (g.stdout.split("\0") if g.returncode == 0 else
+             [f.relative_to(d).as_posix() for f in d.rglob("*.lean") if f.is_file()] if d.is_dir() else [])
+    under = re.sub(r"^(?:\.\./)+", "", rel)
+    return {f"{under}/{f}" if under not in ("", "..") else f for f in files if f.endswith(".lean") and ".lake" not in f.split("/")}
+
+
+def package_modules(cfg):
+    """{package directory: its modules}: the tracked `.lean` files under the package directories, each under
+    the deepest one holding it, a build's directories left out; a directory outside the project root listed on
+    its own (`outside_modules`); None where git cannot list the project's."""
+    rel = {d: Path(os.path.relpath(d, cfg.root)).as_posix() for d in cfg.package_dirs}
+    inside = {d: r for d, r in rel.items() if r != ".." and not r.startswith("../")}
+    out = {d: set() if d in inside else outside_modules(d, r) for d, r in rel.items()}
+    if not inside:
+        return out
+    g = git(cfg, "ls-files", "-z", "--", *inside.values())
+    if g.returncode != 0:
+        return None
+    prefix = {d: "" if r == "." else r + "/" for d, r in inside.items()}
+    for f in g.stdout.split("\0"):
+        if not f.endswith(".lean") or ".lake" in f.split("/"):
+            continue
+        holders = [d for d in inside if f.startswith(prefix[d])]
+        if holders:
+            out[max(holders, key=lambda d: len(prefix[d]))].add(f)
+    return out
+
+
+def path_suffixes(files):
+    """Every trailing run of path components of the files: `a/B/C.lean` gives `C.lean`, `B/C.lean`, `a/B/C.lean`."""
+    out = set()
+    for f in files:
+        parts = f.split("/")
+        out.update("/".join(parts[k:]) for k in range(len(parts)))
+    return out
+
+
+def files_class_hits(cfg, c, files, texts, modules):
+    """(hits, problems) of a file class over the files it reads: each file name a line mentions that is no
+    module of the class's packages, as a trailing run of a module's path, and that no allow expression
+    matches as written: `^Average\\.lean$` allows a bare `Average.lean` and not `ALT/Ergodic/Average.lean`."""
+    hits, problems, known = [], [], {}
+    order = [(i, Path(os.path.relpath(d, cfg.root)).as_posix()) for i, d in enumerate(cfg.package_order)]
+    for f in files:
+        if c["packages"] is not None:
+            pkgs = tuple(c["packages"])
+        else:  # the file's own package and every package before it in the order
+            own = [(len(r), i) for i, r in order if r == "." or f.startswith(r + "/")]
+            if not own:
+                problems.append(f"the class `{c['name']}` binds no packages, and its scope reaches {f}, which is under no "
+                                "package directory of [workspace] package_order — bind `packages`")
+                continue
+            pkgs = tuple(cfg.package_order[:max(own)[1] + 1])
+        if pkgs not in known:
+            known[pkgs] = path_suffixes(m for d in pkgs for m in modules[d])
+        if ".lean" not in texts[f]:
+            continue
+        for lineno, line in enumerate(texts[f].splitlines(), 1):
+            for name in dict.fromkeys(FILE_MENTION.findall(line)):
+                if (re.sub(r"^(?:\.\.?/)+", "", name) in known[pkgs]
+                        or any(a.search(name) for a in c["allow"])):
+                    continue
+                hits.append(f"  {f}:{lineno}: [{c['name']}] `{name}` in: {line.strip()[:160]}")
+    for d in c["packages"] or ():
+        if not modules[d]:
+            problems.append(f"the class `{c['name']}` names the package `{Path(os.path.relpath(d, cfg.workspace)).as_posix()}`, "
+                            "which holds no tracked .lean file — the inventory it names has rotted")
+    return hits, problems
+
+
 def do_register(cfg):
-    if not cfg.register_classes:
-        print("COULD NOT CHECK: no pattern class is bound in formal.toml ([[register.class]] with a name and patterns)")
+    if not cfg.register_classes and not cfg.register_files:
+        print("COULD NOT CHECK: no class is bound in formal.toml ([[register.class]] with a name and patterns, or [[register.files]])")
         return 2
     g = git(cfg, "ls-files", "-z", "--", *cfg.ship)
     if g.returncode != 0:
@@ -1513,14 +1641,36 @@ def do_register(cfg):
                         cut = s.sub("", cut)
                 if m := rx.search(cut):
                     hits.append(f"  {f}:{lineno}: [{name}] `{m.group(0)}` in: {line.strip()[:160]}")
+    problems, modules = [], {}
+    if cfg.register_files:
+        modules = package_modules(cfg)
+        if modules is None:
+            print(f"COULD NOT CHECK: git ls-files failed at {cfg.root} under the workspace {cfg.workspace_name}")
+            return 2
+    for c in cfg.register_files:
+        # no sanctioned cut: the cut is the vocabulary's, and a file name is allowed by the class's own expressions
+        narrow = [path_rx(p) for p in c["scope"]]
+        files = [f for f in texts if not narrow or any(n.match(f) for n in narrow)]
+        counts.append(f"{c['name']} {len(files)}")
+        if not files:
+            rot.append(c["name"])
+            continue
+        h, p = files_class_hits(cfg, c, files, texts, modules)
+        hits += h
+        problems += p
     for name in rot:
         print(f"formal register: the class `{name}` reaches no shipped file — its scope has rotted")
+    for p in problems:
+        print(f"formal register: {p}")
     if hits:
         print(f"register leaks ({len(hits)}):")
         print("\n".join(hits))
-    print(f"formal register: {'FAIL' if hits or rot else 'OK'} — {len(scope)} shipped file(s) ({len(texts)} text) under {', '.join(cfg.ship)}; "
-          f"files per class: {', '.join(counts)}; {len(hits)} hit(s)")
-    return 1 if hits or rot else 0
+    held = ("; modules per package: " + ", ".join(f"{Path(os.path.relpath(d, cfg.workspace)).as_posix()} {len(ms)}"
+                                                  for d, ms in modules.items()) if modules else "")
+    bad = hits or rot or problems
+    print(f"formal register: {'FAIL' if bad else 'OK'} — {len(scope)} shipped file(s) ({len(texts)} text) under {', '.join(cfg.ship)}; "
+          f"files per class: {', '.join(counts)}{held}; {len(hits)} hit(s)")
+    return 1 if bad else 0
 
 
 # --- the named conditions --------------------------------------------------------------------
@@ -1671,16 +1821,18 @@ def do_check(cfg):
         if not (d / f"{root}.lean").is_file() and not (d / root).is_dir():
             problems.append(f"package root {root}: neither {root}.lean nor {root}/ under {d}")
     counts = defaultdict(int)
-    all_rows = []
+    read = {}  # {manifest: (its text, its rows)}, each read once for the counts, the structure and the own roots
     try:
-        for r in rows(cfg):
-            counts[r.kind] += 1
-            all_rows.append(r)
+        for m in cfg.manifests:
+            text = manifest_text(cfg, m)
+            read[m] = (text, list(rows_from_text(text, m.name)))
+            for r in read[m][1]:
+                counts[r.kind] += 1
     except ManifestError as e:
         problems.append(str(e))
-        all_rows = None
-    if all_rows is not None and cfg.packages:
-        problems += structure_problems(cfg, all_rows)
+        read = None
+    if read is not None and cfg.packages:
+        problems += structure_problems(cfg, read)
     for p in problems:
         print(f"formal check: {p}")
     kinds = ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "no rows"
@@ -1722,11 +1874,59 @@ def imports_of(path):
     return IMPORT_ANY.findall(strip_comments(path.read_text(encoding="utf-8", errors="replace")))
 
 
-def structure_problems(cfg, all_rows):
-    """The manifests' modules against the tree, each root's umbrella, and the import direction between packages."""
-    problems = []
+OWN_LINE = re.compile(r"^# own roots:(.*)$", re.M)
+
+
+def own_problems(cfg, tree, regen, read, imports=None):
+    """Each manifest's roots taken as own, its `# own roots:` line, against [packages]: a root [packages] does
+    not bind read as the project's own, and a bound root the package's modules import, directly or through
+    another, left out; a manifest without the line is an older generator's.  `read` is {manifest: (its text, its
+    rows)} as the check read them; `imports`, {module: its imports} for the modules read so far, is filled as
+    modules are read and shared with the other structure checks."""
+    problems, bound, older = [], set(cfg.packages), []
+    imports = {} if imports is None else imports
+    for m, (text, mrows) in read.items():
+        roots = {r.module.split(".")[0] for r in mrows if r.kind == "module"}
+        rel = Path(os.path.relpath(m, cfg.root)).as_posix()
+        hit = OWN_LINE.search(text)
+        if not hit:
+            older.append(rel)
+            continue
+        own = set(hit.group(1).replace(",", " ").split())
+        if foreign := sorted(own - bound):
+            problems.append(f"{rel} reads the Prop-valued definitions under {', '.join(foreign)} as named conditions, a root "
+                            f"[packages] does not bind (a library required by path from outside the project?): bind it in "
+                            f"[packages] if it is the project's, or pass the generate command an --own without it")
+        seen, todo, reached = set(), [mod for mod in tree if mod.split(".")[0] in roots], set()
+        while todo:
+            mod = todo.pop()
+            if mod in seen:
+                continue
+            seen.add(mod)
+            if mod not in imports:
+                imports[mod] = imports_of(tree[mod])
+            for imp in imports[mod]:
+                reached.add(imp.split(".")[0])
+                if imp in tree:
+                    todo.append(imp)
+        if left := sorted((reached & bound) - roots - own):
+            problems.append(f"{rel} leaves {', '.join(left)} out of the roots its named conditions are read under, though its "
+                            f"package imports {'them' if len(left) > 1 else 'it'}: a condition defined there is not counted "
+                            f"(a package required by git sits under .lake/packages/, which the default leaves out; an explicit "
+                            f"--own misses it): add it to the generate command's --own")
+    if older:
+        problems.insert(0, f"{', '.join(older)} {'does' if len(older) == 1 else 'do'} not say which roots {'its' if len(older) == 1 else 'their'} "
+                           f"named conditions were read under (the `# own roots:` line the generator writes since v0.5.0): copy "
+                           f"the land skill's scripts/DeclManifest.lean over the workspace's and regenerate: {regen}")
+    return problems
+
+
+def structure_problems(cfg, read):
+    """The manifests' modules against the tree, each root's umbrella, the roots each manifest read as own, and the
+    import direction between packages; `read` is {manifest: (its text, its rows)}."""
+    problems, imports = [], {}  # each module's imports read once, for the own-roots walk and the package order
     tree = tree_modules(cfg)
-    listed = {r.module for r in all_rows if r.kind == "module"}
+    listed = {r.module for _, mrows in read.values() for r in mrows if r.kind == "module"}
     bound = set(cfg.packages)
     missing = sorted(set(tree) - listed)
     extra = sorted(m for m in listed if m.split(".")[0] in bound and m not in tree)
@@ -1737,6 +1937,7 @@ def structure_problems(cfg, all_rows):
                         f"{', '.join(extra) or '-'}) — regenerate them in the workspace: {regen}")
     if unbound:
         problems.append(f"the manifests count modules under roots [packages] does not bind: {', '.join(unbound)}")
+    problems += own_problems(cfg, tree, regen, read, imports)
     if cfg.umbrellas:
         for root, d in cfg.packages.items():
             umbrella = d / f"{root}.lean"
@@ -1765,7 +1966,9 @@ def structure_problems(cfg, all_rows):
             low = rank.get(mod.split(".")[0])
             if low is None:
                 continue
-            for imp in imports_of(f):
+            if mod not in imports:
+                imports[mod] = imports_of(f)
+            for imp in imports[mod]:
                 high = rank.get(imp.split(".")[0])
                 if high is not None and high > low:
                     problems.append(f"{f.relative_to(cfg.root).as_posix()} imports {imp}, against the package order {order}")
@@ -1909,6 +2112,7 @@ def KB (y : ℕ) : ℕ := y
 end Lib.C
 """
 FIXTURE_MANIFEST = """# a test manifest
+# own roots: Lib
 module Lib 0
 module Lib.A 3
 module Lib.B 2
@@ -2162,6 +2366,31 @@ def structure_scenarios(root, expect):
     umbrella.write_text(full, encoding="utf-8")
     manifest.write_text(FIXTURE_MANIFEST, encoding="utf-8")
     toml.write_text(saved, encoding="utf-8")
+    manifest.write_text(FIXTURE_MANIFEST.replace("# own roots: Lib\n", ""), encoding="utf-8")
+    code, out = quiet(do_check, Config(root))
+    expect("check: a manifest that does not say the roots it read as own is an older generator's, to copy and regenerate",
+           code == 1 and "decls.txt does not say which roots" in out and "copy the land skill's scripts/DeclManifest.lean" in out, out[-400:])
+    manifest.write_text(FIXTURE_MANIFEST.replace("# own roots: Lib", "# own roots: Lib,Mathlib"), encoding="utf-8")
+    code, out = quiet(do_check, Config(root))
+    expect("check: a root [packages] does not bind, read as own, is a problem",
+           code == 1 and "definitions under Mathlib as named conditions, a root [packages] does not bind" in out, out[-400:])
+    (root / "ws" / "up").mkdir()
+    (root / "ws" / "up" / "Up.lean").write_text("def u : Prop := True\n", encoding="utf-8")
+    (root / "ws" / "Lib" / "E.lean").write_text("import Lib.F\n", encoding="utf-8")
+    (root / "ws" / "Lib" / "F.lean").write_text("import Up\n", encoding="utf-8")
+    umbrella.write_text(full + "import Lib.E\nimport Lib.F\n", encoding="utf-8")
+    toml.write_text(saved.replace('Lib = "."', 'Lib = "."\nUp = "up"').replace("package_order = []", 'package_order = ["up", "."]'), encoding="utf-8")
+    for own, left in (("Lib", True), ("Lib,Up", False)):
+        manifest.write_text(FIXTURE_MANIFEST.replace("# own roots: Lib", f"# own roots: {own}") + "module Lib.E 0\nmodule Lib.F 0\n", encoding="utf-8")
+        code, out = quiet(do_check, Config(root))
+        expect(f"check: a bound root the package imports through another module {'left out of' if left else 'among'} the roots read as own "
+               f"{'is' if left else 'is not'} a problem", ("decls.txt leaves Up out of the roots" in out) == left, out[-400:])
+    for p in (root / "ws" / "Lib" / "E.lean", root / "ws" / "Lib" / "F.lean", root / "ws" / "up" / "Up.lean"):
+        p.unlink()
+    (root / "ws" / "up").rmdir()
+    umbrella.write_text(full, encoding="utf-8")
+    manifest.write_text(FIXTURE_MANIFEST, encoding="utf-8")
+    toml.write_text(saved, encoding="utf-8")
 
 
 def package_scenarios(root, expect):
@@ -2274,6 +2503,84 @@ def package_scenarios(root, expect):
     expect("register: a usage line naming a path into the tree would", code == 1 and "DeclManifest.lean:" in out, out[-300:])
     gen.unlink()
     sh("rm", "-q", "--cached", "--", "ws/DeclManifest.lean")
+    # the file class, bound alone: a file a lower package names is a module of it, or of the packages bound
+    with_classes = (root / "formal.toml").read_text(encoding="utf-8")
+
+    def files_class(body):
+        (root / "formal.toml").write_text(toml.replace("sanctioned = []\n", "sanctioned = []\n[[register.files]]\n" + body), encoding="utf-8")
+        return Config(root)
+
+    lower = 'name = "lower names its own"\nscope = ["ws/lo/**/*.lean"]\npackages = ["lo"]\nallow = [\'^Mathlib/\', \'^Ext\\.lean$\']\n'
+    cfg = files_class(lower)
+    lo_b = ws / "lo" / "Lo" / "B.lean"
+    keep = lo_b.read_text(encoding="utf-8")
+    lo_b.write_text(keep + "-- as in `Lo/B.lean`, B.lean, ../Lo.lean and ws/lo/Lo.lean\n", encoding="utf-8")
+    code, out = quiet(do_register, cfg)
+    expect("register: a file class bound alone runs, and a lower package naming its own modules is clean",
+           code == 0 and "lower names its own 2" in out and "modules per package: lo 2, . 2" in out, out[-300:])
+    for line, name, why in (("-- after `A.lean`", "A.lean", "a lower package naming an upper package's module by its file name"),
+                            ("-- see Hi/A.lean", "Hi/A.lean", "a lower package naming an upper package's module by its path"),
+                            ("-- see Floored.lean", "Floored.lean", "a lower package naming a file of no package"),
+                            ("-- see old/Lo/B.lean", "old/Lo/B.lean", "a qualified name no module's path ends in")):
+        lo_b.write_text(keep + line + "\n", encoding="utf-8")
+        code, out = quiet(do_register, cfg)
+        expect(f"register: {why} fails", code == 1 and f"ws/lo/Lo/B.lean:4: [lower names its own] `{name}` in:" in out, out[-300:])
+    lo_b.write_text(keep + "-- after Mathlib's Ext.lean, Mathlib/Order/Ext.lean\n", encoding="utf-8")
+    code, out = quiet(do_register, cfg)
+    expect("register: a file name the class allows, bare or path-qualified, is clean", code == 0, out[-300:])
+    lo_b.write_text(keep + "-- after Ext.lean, as in Other/Ext.lean\n", encoding="utf-8")
+    code, out = quiet(do_register, cfg)
+    expect("register: a bare-name allow entry lets no path-qualified mention of the same name through",
+           code == 1 and "ws/lo/Lo/B.lean:4: [lower names its own] `Other/Ext.lean` in:" in out and "`Ext.lean` in:" not in out, out[-300:])
+    code, out = quiet(do_register, files_class(lower.replace('scope = ["ws/lo/**/*.lean"]', 'scope = ["ws/gone/**"]')))
+    expect("register: a file class reaching no shipped file fails as rot", code == 1 and "`lower names its own` reaches no shipped file" in out, out[-300:])
+    lo_b.write_text(keep + "-- after `A.lean`\n", encoding="utf-8")
+    hi_a = ws / "Hi" / "A.lean"
+    hi_keep = hi_a.read_text(encoding="utf-8")
+    hi_a.write_text(hi_keep + "-- after `Lo/B.lean` and `A.lean`\n", encoding="utf-8")
+    code, out = quiet(do_register, files_class('name = "by the order"\nscope = ["ws/**/*.lean"]\n'))
+    expect("register: a file class binding no packages reads each file's own package and those before it",
+           code == 1 and "ws/lo/Lo/B.lean:4: [by the order] `A.lean`" in out and "Hi/A.lean:4" not in out, out[-300:])
+    hi_a.write_text(hi_keep, encoding="utf-8")
+    # a library required by path from outside the repository: its modules listed in its own repository, or on disk
+    with tempfile.TemporaryDirectory() as ext_tmp:
+        ext = Path(ext_tmp) / "base"
+        (ext / "Base").mkdir(parents=True)
+        (ext / "Base" / "Core.lean").write_text("def core := 0\n", encoding="utf-8")
+        (ext / ".lake" / "build").mkdir(parents=True)
+        (ext / ".lake" / "build" / "Built.lean").write_text("", encoding="utf-8")
+        up = Path(os.path.relpath(ext, ws)).as_posix()
+        outside = ('name = "lower names the library"\nscope = ["ws/lo/**/*.lean"]\n'
+                   f'packages = ["lo", "{up}"]\n')
+
+        def ext_class():
+            (root / "formal.toml").write_text(toml.replace('Lo = "lo"', f'Lo = "lo"\nBase = "{up}"').replace(
+                "sanctioned = []\n", "sanctioned = []\n[[register.files]]\n" + outside), encoding="utf-8")
+            return Config(root)
+
+        for line, ok, why in (("-- after Base/Core.lean and Core.lean", True, "a module of a package outside the repository, on disk, is clean"),
+                              ("-- after ../../base/Base/Core.lean", True, "a module of a package outside the repository named by its `../` path is clean"),
+                              ("-- after Built.lean", False, "a build's file of a package outside the repository is no module")):
+            lo_b.write_text(keep + line + "\n", encoding="utf-8")
+            code, out = quiet(do_register, ext_class())
+            expect(f"register: {why}", (code == 0) == ok and "COULD NOT CHECK" not in out, out[-300:])
+        if subprocess.run(["git", "-C", str(ext), "init", "-q"], capture_output=True).returncode == 0:
+            subprocess.run(["git", "-C", str(ext), "add", "--", "Base/Core.lean"], capture_output=True)
+            (ext / "Base" / "Scratch.lean").write_text("", encoding="utf-8")
+            lo_b.write_text(keep + "-- after Base/Core.lean, not Scratch.lean\n", encoding="utf-8")
+            code, out = quiet(do_register, ext_class())
+            expect("register: a package outside the repository in a repository of its own is listed by what that one tracks",
+                   code == 1 and "`Scratch.lean` in:" in out and "`Base/Core.lean` in:" not in out, out[-300:])
+    lo_b.write_text(keep, encoding="utf-8")
+    for body, why in ((lower.replace('packages = ["lo"]', 'packages = ["lo", "Lo"]'), "a packages entry that is no package directory"),
+                      (lower.replace('packages = ["lo"]', 'package = ["lo"]'), "a key the file class does not read"),
+                      (lower.replace('packages = ["lo"]', "packages = []"), "an empty packages list")):
+        try:
+            files_class(body)
+            expect(f"register: {why} is refused at load", False)
+        except Refused:
+            expect(f"register: {why} is refused at load", True)
+    (root / "formal.toml").write_text(with_classes, encoding="utf-8")
     (root / "formal.toml").write_text((root / "formal.toml").read_text(encoding="utf-8").replace('ship = ["ws"]', 'ship = ["nowhere"]'), encoding="utf-8")
     code, out = quiet(do_register, Config(root))
     expect("register: an empty scope fails as inventory rot", code == 1 and "scope is empty" in out, out[-300:])
@@ -2310,10 +2617,28 @@ def init_scenarios(root, expect):
     cfg = Config(root)
     expect("init: with several packages each takes the manifest flow.toml binds under its name",
            cfg.manifests == [root / "build" / "proj.decls", root / "build" / "inner.decls"]
-           and "--roots Inner --own Proj,Inner --out ../build/inner.decls" in cfg.generate, f"{cfg.manifests} {cfg.generate}")
+           and "--roots Inner --out ../build/inner.decls" in cfg.generate and "--own" not in cfg.generate, f"{cfg.manifests} {cfg.generate}")
 
 
 def selftest():
+    """The cases below, the latest release never asked of the network, here or in a probe they run, and Claude
+    Code's install record read under CLAUDE_CONFIG_DIR, an empty directory unless a case writes one: the
+    machine's own is never read here."""
+    saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIR", "RESEARCH_KIT_OFFLINE")}
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["CLAUDE_CONFIG_DIR"] = str(Path(tmp) / "claude")
+        os.environ["RESEARCH_KIT_OFFLINE"] = "1"
+        try:
+            return selftest_cases()
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
+def selftest_cases():
     bad = []
 
     def expect(name, cond, detail=""):
@@ -2504,8 +2829,8 @@ def selftest():
         expect("probe reads a package under the workspace and one it requires by path as packages of it, not workspaces",
                set(ws) == {"ws", "other"} and set(pk) == {".", "inner", "../lib/deep/base"} and pk["inner"]["roots"] == ["Inner"], str(pk))
         gen = [p for p in rep["proposals"] if p["item"] == "manifest of ws"][0]["commands"]
-        expect("probe proposes the generator once, in the workspace, one command per package with every root as --own",
-               len(gen) == 4 and all("--own ALT,Guards," in c for c in gen[1:]) and "--roots Inner --own" in gen[3]
+        expect("probe proposes the generator once, in the workspace, one command per package, the default --own left to it",
+               len(gen) == 4 and not any("--own" in c for c in gen) and "--roots Inner --out" in gen[3]
                and "--out ../scripts/inner-decls.txt" in gen[3], str(gen))
         (root / "ws" / "DeclManifest.lean").write_text("-- an older release's generator\n", encoding="utf-8")
         rep = probe(root)
@@ -2532,6 +2857,41 @@ def selftest():
                {r: d.relative_to(root).as_posix() for r, d in cfg.packages.items()} == {"ALT": "ws", "Guards": "ws", "Inner": "ws/inner", "Base": "lib/deep/base"}
                and len(cfg.manifests) == 3 and cfg.package_order[-1] == root / "ws",
                f"{cfg.packages} {cfg.package_order}")
+        # the pins, against an install record under CLAUDE_CONFIG_DIR: the machine's own is never read here
+        saved = os.environ.get("CLAUDE_CONFIG_DIR")
+        os.environ["CLAUDE_CONFIG_DIR"] = str(root / "claude")
+        try:
+            ver = skill_version(Path(__file__).resolve().parent.parent / "SKILL.md")
+            pins_of = lambda rep_: next(it for it in rep_["project"] if it["item"] == "pins at one tag")
+            rep = probe(root)
+            expect("probe reads the pins, and says the install record is absent where it is", pins_of(rep)["ok"] and "is absent or unreadable" in pins_of(rep)["detail"])
+            (root / ".pre-commit-config.yaml").write_text(f"repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v{ver}\n  hooks:\n  - id: formal-check\n", encoding="utf-8")
+            rec = root / "claude" / "plugins" / "installed_plugins.json"
+            rec.parent.mkdir(parents=True)
+            installed = lambda v: rec.write_text(json.dumps({"version": 2, "plugins": {"formal@research-kit": [
+                {"scope": "project", "projectPath": str(root), "installPath": str(root / "cache" / v), "version": v}]}}), encoding="utf-8")
+            installed("0.0.1")
+            rep = probe(root)
+            expect("probe names an installed plugin off the hooks' rev, with the steps that move it as a proposal",
+                   not pins_of(rep)["ok"] and "formal@research-kit differs from" in pins_of(rep)["detail"]
+                   and any(p["item"] == "pins" and "claude plugin update formal@research-kit --scope project" in p["commands"]
+                           and p["commands"][0].startswith("read the Upgrading paragraph of each release after v0.0.1") for p in rep["proposals"])
+                   and "MISSING  pins at one tag" in render_probe(rep), pins_of(rep)["detail"])
+            installed(ver)
+            rep = probe(root)
+            expect("the pins at one tag make no proposal", pins_of(rep)["ok"] and not any(p["item"] == "pins" for p in rep["proposals"]), pins_of(rep)["detail"])
+            expect("the probe says the latest release could not be read with RESEARCH_KIT_OFFLINE set, and reads no more",
+                   pins_of(rep)["detail"].startswith("the latest release could not be read (RESEARCH_KIT_OFFLINE is set)")
+                   and render_probe(rep).splitlines()[-1].endswith("the probe read the root, PATH and wrote nothing"), pins_of(rep)["detail"])
+            r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
+            expect("pins at one tag behind the latest release move to it",
+                   not r["ok"] and r["target"] == "v99.0.0" and "claude plugin update formal@research-kit --scope project" in r["commands"]
+                   and f"after v{ver} up to v99.0.0" in str(r["releases"]), r["detail"])
+        finally:
+            if saved is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = saved
     with tempfile.TemporaryDirectory() as tmp:
         init_scenarios(Path(tmp), expect)
     print(f"formal selftest: {'OK' if not bad else str(len(bad)) + ' FAILED: ' + '; '.join(bad)}")
@@ -2617,18 +2977,201 @@ def flow_manifests(root, packages):
 
 
 def manifest_commands(root, ws, packages, names=None):
-    """(out files from the root, generate commands run in the workspace): one per package, every root of
-    the workspace passed as `--own` where it has several, so a condition defined in another package is
-    still a named one; the files are `names` (one per package, as flow.toml binds them) where given."""
-    own = ",".join(r for p in packages for r in p["roots"])
+    """(out files from the root, generate commands run in the workspace): one per package, with no `--own`,
+    the generator's default reading a condition defined in another package of the workspace as a named one
+    and writing the roots it took, which `formal check` holds against [packages]; the files are `names`
+    (one per package, as flow.toml binds them) where given."""
     files, cmds = [], []
     for i, p in enumerate(packages):
         rel = names[i] if names else "scripts/" + ("decls.txt" if len(packages) == 1 else f"{p['package'] or Path(p['dir']).name}-decls.txt")
         out = Path(os.path.relpath(root / rel, ws)).as_posix()
         files.append(rel)
-        cmds.append(f"lake env lean --run DeclManifest.lean --roots {','.join(p['roots']) or '<Root>'} "
-                    + (f"--own {own} " if len(packages) > 1 else "") + f"--out {out}")
+        cmds.append(f"lake env lean --run DeclManifest.lean --roots {','.join(p['roots']) or '<Root>'} --out {out}")
     return files, cmds
+
+
+# --- the pins: duplicated byte-identical in research's setup.py and formal's formal.py (tests/run.py holds
+# them so) -------------------------------------------------------------------------------------------------
+
+KIT_REPO = "lividgreen/research-kit"
+KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
+KIT_LATEST = "https://api.github.com/repos/lividgreen/research-kit/releases/latest"
+
+
+def skill_version(skill_md):
+    """The `metadata.version` of a SKILL.md's frontmatter: its plugin's version, whose release tag is `v` + it."""
+    try:
+        fm = Path(skill_md).read_text(encoding="utf-8").split("---")[1]
+    except (OSError, IndexError):
+        return None
+    m = re.search(r'^\s+version: "([^"]+)"', fm, re.M)
+    return m.group(1) if m else None
+
+
+def hooks_pin(text):
+    """The kit's entry of a .pre-commit-config.yaml: its repo and its rev, read from the list item that names
+    research-kit wherever its keys stand and with comments allowed; a rev frozen to a commit by
+    `autoupdate --freeze` is read as the tag its `# frozen:` comment names.  (None, None) where none names it."""
+    lines = text.split("\n")
+    indent = lambda l: len(l) - len(l.lstrip())
+    for i, l in enumerate(lines):
+        m = re.match(r"\s*(?:-\s+)?repo:\s*['\"]?([^\s'\"#]+)", l)
+        if not m or "research-kit" not in m.group(1):
+            continue
+        s = i  # the item's dash: on this line, or the nearest above it less indented than the key
+        while s > 0 and not (re.match(r"\s*-\s", lines[s]) and (s == i or indent(lines[s]) < indent(l))):
+            s -= 1
+        d, e = indent(lines[s]), s + 1
+        while e < len(lines) and not (lines[e].strip() and not lines[e].lstrip().startswith("#") and indent(lines[e]) <= d):
+            e += 1
+        for item in lines[s:e]:
+            r = re.match(r"\s*(?:-\s+)?rev:\s*['\"]?([^\s'\"#]+)['\"]?\s*(?:#\s*frozen:\s*(\S+))?", item)
+            if r:
+                return m.group(1), r.group(2) or r.group(1)
+        return m.group(1), None
+    return None, None
+
+
+def install_record():
+    """Claude Code's install record, `~/.claude/plugins/installed_plugins.json`; `CLAUDE_CONFIG_DIR` moves `~/.claude`."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "installed_plugins.json"
+
+
+def kit_installed(root, record):
+    """The plugins of the research-kit marketplace Claude Code installed for the project, name -> entry (its
+    `version`, `scope` and `installPath`), from the install record (`plugins` -> name -> entries): the entry of
+    scope local, else project, whose `projectPath` is the root, else the user one.  None where the record is
+    absent or unreadable."""
+    try:
+        raw = json.loads(Path(record).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    plugins = raw.get("plugins") if isinstance(raw, dict) else None
+    if not isinstance(plugins, dict):
+        return None
+    root, out = Path(root).resolve(), {}
+    for name, entries in sorted(plugins.items()):
+        if not name.endswith("@research-kit"):
+            continue
+        entries = [e for e in (entries if isinstance(entries, list) else [entries]) if isinstance(e, dict)]
+        for scope in ("local", "project", "user"):
+            hit = [e for e in entries if e.get("scope") == scope
+                   and (scope == "user" or bool(e.get("projectPath")) and Path(str(e["projectPath"])).resolve() == root)]
+            if hit:
+                out[name] = hit[0]
+                break
+    return out
+
+
+def kit_tag(tag):
+    """A release tag as a tuple to order by (`v0.4.3` -> (0, 4, 3)); None for anything else, a commit or a branch."""
+    m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", str(tag or ""))
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def kit_latest():
+    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s at most): (tag, None), or
+    (None, why) where it could not be read — offline, a refusal, an answer naming no release tag, or
+    `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
+    if os.environ.get("RESEARCH_KIT_OFFLINE", "") not in ("", "0"):
+        return None, "RESEARCH_KIT_OFFLINE is set"
+    req = urllib.request.Request(KIT_LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "research-kit-probe"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            tag = json.loads(r.read().decode("utf-8")).get("tag_name")
+    except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
+        why = e.reason if type(e) is urllib.error.URLError else e
+        return None, str(why) or type(e).__name__
+    return (tag, None) if kit_tag(tag) else (None, f"the latest release names no release tag ({tag!r})")
+
+
+def kit_pins(root, version, record=None, latest=None):
+    """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
+    settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
+    install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
+    a script outside the kit), held to the kit's latest release (`latest`, a callable answering (tag, why),
+    defaults to `kit_latest`), or, where that could not be read, to the newest of them: whether every pin is at
+    that tag and, where one is not, the steps that move every pin to it and the releases whose upgrading
+    paragraphs lie between.  It writes nothing."""
+    root = Path(root).resolve()
+    record = Path(record) if record else install_record()
+    newest, unread = (latest or kit_latest)()
+    said, tags = [f"the latest release is {newest}" if newest else
+                  f"the latest release could not be read ({unread}), so the pins are compared among themselves"], {}
+    try:
+        pc = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pc = ""
+    repo, rev = hooks_pin(pc)
+    if repo and not re.match(r"(?:https?|ssh|git)://|[\w.-]+@", repo):
+        said.append(f"the hooks run from the local repository {repo}, whose rev is not compared")
+    elif rev:
+        said.append(f"the hooks pin rev {rev}")
+        tags["the hooks' rev"] = rev
+    try:
+        st = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = None
+    st = st if isinstance(st, dict) else {}
+    markets = st.get("extraKnownMarketplaces") if isinstance(st.get("extraKnownMarketplaces"), dict) else {}
+    src = markets["research-kit"].get("source") if isinstance(markets.get("research-kit"), dict) else None
+    unpinned = False
+    if isinstance(src, dict):
+        ref = src.get("ref") or (str(src.get("url") or "").partition("#")[2] or None)
+        if src.get("source") in ("directory", "file"):
+            said.append(f"the marketplace in .claude/settings.json is a local {src['source']}, which no ref pins")
+        elif ref:
+            said.append(f"the marketplace in .claude/settings.json pins ref {ref}")
+            tags["the marketplace's ref"] = str(ref)
+        else:
+            said.append("the marketplace in .claude/settings.json pins no ref and follows the default branch")
+            unpinned = True
+    if not repo and not isinstance(src, dict):
+        said.append("nothing in the project pins the kit yet")
+    enabled = st.get("enabledPlugins") if isinstance(st.get("enabledPlugins"), dict) else {}
+    inst, me, runs_installed = kit_installed(root, record), Path(__file__).resolve(), False
+    if inst is None:
+        said.append(f"Claude Code's install record {record} is absent or unreadable, so no installed plugin is compared (another agent, or no install)")
+    else:
+        for name, e in inst.items():
+            mine = bool(e.get("installPath")) and me.is_relative_to(Path(str(e["installPath"])).resolve())
+            runs_installed = runs_installed or mine
+            said.append(f"{name} is installed at v{e.get('version')} ({e.get('scope')} scope)" + (", which this runs from" if mine else ""))
+            tags[name] = f"v{e.get('version')}"
+        if not inst:
+            said.append(f"no plugin of research-kit is installed for this project in {record}")
+    missing = sorted(n for n, on in enabled.items() if on is True and n.endswith("@research-kit") and inst is not None and n not in inst)
+    said += [f"{n} is enabled in .claude/settings.json and not installed for this project" for n in missing]
+    if version and not runs_installed:
+        said.insert(1, f"the plugin this runs from is v{version}")
+        tags["the plugin this runs from"] = f"v{version}"
+    ordered = all(kit_tag(t) for t in tags.values())
+    target = newest or ((max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None)
+    T = target or "<tag>"
+    off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned else []) + [f"{n} (not installed)" for n in missing]
+    steps, releases = [], None
+    if off:
+        if unpinned or tags.get("the marketplace's ref", T) != T:
+            steps.append(f"edit the `ref` of `extraKnownMarketplaces.research-kit` to {T} in .claude/settings.json, "
+                         "and in ~/.claude/settings.json where another project on the machine pinned it there")
+        lag = [n for n in (inst or {}) if tags.get(n) != T]
+        if steps or lag or missing:
+            steps.append(f"claude plugin marketplace add '{KIT_REPO}#{T}' --scope project")
+        steps += [f"claude plugin update {n} --scope {inst[n].get('scope') or 'project'}" for n in lag]
+        steps += [f"claude plugin install {n} --scope project" for n in missing]
+        if tags.get("the hooks' rev", T) != T:
+            steps.append(f"set the hooks' `rev` to {T} in .pre-commit-config.yaml, in the commit that moves the settings file")
+        if tags.get("the plugin this runs from", T) != T:
+            steps.append(f"move the plugin this runs from to {T}: its agent's marketplace pin, or by hand for a clone or a copy")
+        steps.append("restart the session, then read the pins again")
+        oldest = min((t for t in tags.values() if kit_tag(t)), key=kit_tag, default=None)
+        if oldest and kit_tag(T) and kit_tag(oldest) < kit_tag(T):
+            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {KIT_CHANGELOG}"
+    named = off[0] if len(off) == 1 else ", ".join(off[:-1]) + " and " + off[-1] if off else ""
+    which = ", the latest release" if newest else ", the newest of them" if ordered and len(tags) > 1 else ""
+    detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}{which}: move every pin to it" if off else "")
+    return {"item": "pins at one tag", "need": "recommended", "ok": not off, "detail": detail, "target": target,
+            "latest": newest, "latest_unread": unread, "commands": steps, "releases": releases}
 
 
 def probe(root):
@@ -2713,7 +3256,12 @@ def probe(root):
                  "detail": "named in .pre-commit-config.yaml" if hook else ("not in .pre-commit-config.yaml" if pc.is_file() else "no .pre-commit-config.yaml") + "; `formal check` runs before a commit"})
     proj.append({"item": "documents", "need": "present" if (root / "papers").is_dir() else "absent", "ok": True,
                  "detail": "papers/ exists, the default `[documents] scan`" if (root / "papers").is_dir() else "no papers/ directory; `[documents] scan` names the documents' globs"})
+    # the hooks' rev, the marketplace's ref and the installed research-kit plugins, against this plugin's version
+    pins = kit_pins(root, skill_version(Path(__file__).resolve().parent.parent / "SKILL.md"))
+    proj.append(pins)
     proposals = []
+    if not pins["ok"]:
+        proposals.append({"item": "pins", "need": "recommended", "commands": ([pins["releases"]] if pins["releases"] else []) + pins["commands"]})
     if not shutil.which("lake") or not shutil.which("lean"):
         proposals.append({"item": "lean and lake", "need": "required", "commands": ["elan, from https://github.com/leanprover/elan, then `elan toolchain install $(cat lean-toolchain)` in the workspace"]})
     if not lsp:
@@ -2768,7 +3316,8 @@ def render_probe(rep):
             lines.append(f"    {c}")
     missing = [it["item"] for it in rep["environment"] + rep["project"] if not it["ok"] and it["need"] == "required"]
     lines += ["", f"formal probe: {len(rep['workspaces'])} workspace(s); " + (f"{len(missing)} required item(s) missing: {', '.join(missing)}" if missing else "every required item is present")
-              + f"; {len(rep['proposals'])} proposal(s); the probe read the root and PATH and wrote nothing"]
+              + f"; {len(rep['proposals'])} proposal(s); the probe read the root, PATH"
+              + (" and GitHub's latest release" if any(it.get("latest") for it in rep["project"]) else "") + " and wrote nothing"]
     return "\n".join(lines)
 
 
@@ -2823,7 +3372,7 @@ def _main(argv=None):
     p = sub("probe", help="report the project and the machine against the prover side's setup; writes nothing"); p.add_argument("--json", action="store_true")
     sub("cite", help="every declaration name the documents cite resolves in the manifests")
     sub("anchors", help="every [Key] §N, [Key] Theorem N.M and [Key] Appendix X resolves in its document")
-    sub("register", help="what ships carries none of the bound pattern classes")
+    sub("register", help="what ships carries none of the bound pattern classes and names only the files its file classes allow")
     p = sub("hypotheses", help="no public theorem shipped at the base gains a named condition"); p.add_argument("--base", default="HEAD")
     p.add_argument("--baseline", help="a pinned baseline file instead of the base revision"); p.add_argument("--update", action="store_true")
     p = sub("witnesses", help="theorems with two or more named conditions and no _nonvacuous witness; a report"); p.add_argument("--base")

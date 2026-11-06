@@ -18,7 +18,9 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 
 ## What it does
 
-1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator (`DeclManifest.lean` present, absent, or stale where it differs from the skill's copy, with the copy as a proposal), the project's bindings, the proposals and a coverage line, and writes nothing.
+1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator (`DeclManifest.lean` present, absent, or stale where it differs from the skill's copy, with the copy as a proposal), the project's bindings, the pins, the proposals and a coverage line, and writes nothing.
+   The pins are the hooks' `rev`, the marketplace's `ref` in `.claude/settings.json`, the version of each research-kit plugin Claude Code installed for the project and the `formal` plugin's own version, held to the kit's latest release, which the probe asks GitHub for, as [The research setup](../research/research-init.md#the-pins-and-the-upgrade-steps) says; where one is off, the proposal `pins` names the releases from the oldest pin up to the latest whose **Upgrading** paragraphs to read and the steps that move every pin to it.
+   Where the latest release cannot be read, offline or refused, the item says so and compares the pins among themselves, against the newest of them.
    A lakefile under a workspace's directory, or one it requires by path, is a package of that workspace and never a workspace of its own: the generator goes into the workspace once and runs there for every package.
 2. Plans in one message and asks once: which workspace to bind where the probe found several, which proposals to install, and the slots of the instructions the probe cannot fill (the commands that re-verify a module, the build time, where the audit modules live).
 3. Installs what was chosen and probes again.
@@ -90,7 +92,8 @@ scan = ["lean/**/*.lean"]
 
 [register]
 # `formal register`: what ships (tracked files under these paths, minus `exclude`) carries none
-# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line.
+# of the pattern classes below, matched after the `sanctioned` expressions are cut from a line,
+# and names no file its file classes do not allow.
 ship = ["lean"]
 exclude = ["lean/AGENTS.md"]
 sanctioned = []
@@ -99,6 +102,15 @@ sanctioned = []
 # [[register.class]]
 # name = "internal vocabulary"
 # patterns = ['\bworklog\b', '\bhandoff\b']   # literal strings: a backslash is the regex's
+# A file class: every `X.lean` its `scope` names is a module (a tracked `.lean` file) of its
+# `packages`, directories as in package_order (omitted: each file's own package and those before
+# it), or a file of another project an `allow` expression matches as the mention is written
+# ('^Average\.lean$' allows a bare `Average.lean`, not `ALT/Ergodic/Average.lean`).
+# [[register.files]]
+# name = "the lower package names only its own files"
+# scope = ["lean/lower/**/*.lean"]
+# packages = ["lower"]
+# allow = ['^Mathlib/', '^Average\.lean$']
 
 [handoff]
 # The project's own directories (its documents, its scripts) a handoff may name: a path into one
@@ -116,7 +128,15 @@ meta_names = ["WORKLOG.md"]
 key_patterns = ['lib:[a-z0-9][a-z0-9-]*']
 ```
 
+`[register]` binds two kinds of class.
+A pattern class (`[[register.class]]`) is a set of regular expressions that no line of a shipped file in its `scope` may match.
+A file class (`[[register.files]]`) holds a package to the files a public reader can follow: every file name with the `.lean` extension that a shipped file of its `scope` mentions, bare (`Foo.lean`) or with a path (`Lib/Foo.lean`), is a module of one of its `packages` or matches one of its `allow` expressions.
+A module of a package is a tracked `.lean` file under its directory and not under a package directory inside it, the build's `.lake` left out; a bare name is matched by the file name, a name with a path as the end of the module's path from the project root, a leading `./` or `../` dropped.
+`packages` lists package directories relative to the workspace, as `package_order` does, and an entry that is no directory of `package_order` or `[packages]` is refused when `formal.toml` is read; omitted, each file's own package and every package before it in `package_order` count.
+`allow` takes regular expressions for the files of other projects (an upstream library, a vendored port named as attribution), each tried against the mention as written and nothing else: `^Average\.lean$` allows a bare `Average.lean` and not `ALT/Ergodic/Average.lean`, so a path-qualified mention of another project's file needs an expression of its own, as `^Mathlib/`.
+Either kind of class whose scope reaches no shipped file fails as rot, and so does a file class naming a package that holds no tracked `.lean` file.
+
 ## Words
 
 - **formal-init** — the skill that sets the prover side up: it probes, proposes, writes what is absent and nothing that exists, and reports; `/formal:formal-init`, after the `research` plugin's setup.
-- **probe** — the report `formal probe` prints: the workspaces with their roots and toolchains, the tools and what the setup is missing; it writes and installs nothing.
+- **probe** — the report `formal probe` prints: the workspaces with their roots and toolchains, the tools, the pins and what the setup is missing; it writes and installs nothing.
