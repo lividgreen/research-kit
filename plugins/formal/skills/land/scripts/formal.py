@@ -289,13 +289,17 @@ def rows_from_text(text, name="manifest"):
             raise ManifestError(f"{name}:{lineno} matches no known row kind ({', '.join(KINDS)}): {raw!r}")
 
 
+def manifest_text(cfg, m):
+    """A manifest's text, refused where the file is missing."""
+    if not m.is_file():
+        raise ManifestError(f"missing {m} — regenerate it in the workspace: {cfg.generate or 'the project binds the command in formal.toml'}")
+    return m.read_text(encoding="utf-8")
+
+
 def rows(cfg, path=None):
     """Every row of the bound manifests (or of one file)."""
-    files = [Path(path)] if path else cfg.manifests
-    for m in files:
-        if not m.is_file():
-            raise ManifestError(f"missing {m} — regenerate it in the workspace: {cfg.generate or 'the project binds the command in formal.toml'}")
-        yield from rows_from_text(m.read_text(encoding="utf-8"), m.name)
+    for m in [Path(path)] if path else cfg.manifests:
+        yield from rows_from_text(manifest_text(cfg, m), m.name)
 
 
 def rows_at(cfg, rev):
@@ -1518,19 +1522,34 @@ def path_rx(pattern):
 FILE_MENTION = re.compile(r"(?:[\w.-]+/)*\w[\w.-]*\.lean(?!\w)")
 
 
+def outside_modules(d, rel):
+    """The `.lean` files of a package directory outside the project root (a library required by path), each under
+    `rel`, its path from the root with the `../` dropped as a mention's is: those its repository tracks, or where
+    it is in none, those on disk, a build's directories left out either way."""
+    g = subprocess.run(["git", "-C", str(d), "ls-files", "-z", "--", "."], capture_output=True, encoding="utf-8", errors="replace")
+    files = (g.stdout.split("\0") if g.returncode == 0 else
+             [f.relative_to(d).as_posix() for f in d.rglob("*.lean") if f.is_file()] if d.is_dir() else [])
+    under = re.sub(r"^(?:\.\./)+", "", rel)
+    return {f"{under}/{f}" if under not in ("", "..") else f for f in files if f.endswith(".lean") and ".lake" not in f.split("/")}
+
+
 def package_modules(cfg):
     """{package directory: its modules}: the tracked `.lean` files under the package directories, each under
-    the deepest one holding it, a build's directories left out; None where git cannot list them."""
+    the deepest one holding it, a build's directories left out; a directory outside the project root listed on
+    its own (`outside_modules`); None where git cannot list the project's."""
     rel = {d: Path(os.path.relpath(d, cfg.root)).as_posix() for d in cfg.package_dirs}
-    g = git(cfg, "ls-files", "-z", "--", *rel.values())
+    inside = {d: r for d, r in rel.items() if r != ".." and not r.startswith("../")}
+    out = {d: set() if d in inside else outside_modules(d, r) for d, r in rel.items()}
+    if not inside:
+        return out
+    g = git(cfg, "ls-files", "-z", "--", *inside.values())
     if g.returncode != 0:
         return None
-    prefix = {d: "" if r == "." else r + "/" for d, r in rel.items()}
-    out = {d: set() for d in cfg.package_dirs}
+    prefix = {d: "" if r == "." else r + "/" for d, r in inside.items()}
     for f in g.stdout.split("\0"):
         if not f.endswith(".lean") or ".lake" in f.split("/"):
             continue
-        holders = [d for d in cfg.package_dirs if f.startswith(prefix[d])]
+        holders = [d for d in inside if f.startswith(prefix[d])]
         if holders:
             out[max(holders, key=lambda d: len(prefix[d]))].add(f)
     return out
@@ -1802,16 +1821,18 @@ def do_check(cfg):
         if not (d / f"{root}.lean").is_file() and not (d / root).is_dir():
             problems.append(f"package root {root}: neither {root}.lean nor {root}/ under {d}")
     counts = defaultdict(int)
-    all_rows = []
+    read = {}  # {manifest: (its text, its rows)}, each read once for the counts, the structure and the own roots
     try:
-        for r in rows(cfg):
-            counts[r.kind] += 1
-            all_rows.append(r)
+        for m in cfg.manifests:
+            text = manifest_text(cfg, m)
+            read[m] = (text, list(rows_from_text(text, m.name)))
+            for r in read[m][1]:
+                counts[r.kind] += 1
     except ManifestError as e:
         problems.append(str(e))
-        all_rows = None
-    if all_rows is not None and cfg.packages:
-        problems += structure_problems(cfg, all_rows)
+        read = None
+    if read is not None and cfg.packages:
+        problems += structure_problems(cfg, read)
     for p in problems:
         print(f"formal check: {p}")
     kinds = ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "no rows"
@@ -1856,19 +1877,16 @@ def imports_of(path):
 OWN_LINE = re.compile(r"^# own roots:(.*)$", re.M)
 
 
-def own_problems(cfg, tree, regen, imports=None):
+def own_problems(cfg, tree, regen, read, imports=None):
     """Each manifest's roots taken as own, its `# own roots:` line, against [packages]: a root [packages] does
     not bind read as the project's own, and a bound root the package's modules import, directly or through
-    another, left out; a manifest without the line is an older generator's.  `imports`, {module: its imports}
-    for the modules read so far, is filled as modules are read and shared with the other structure checks."""
+    another, left out; a manifest without the line is an older generator's.  `read` is {manifest: (its text, its
+    rows)} as the check read them; `imports`, {module: its imports} for the modules read so far, is filled as
+    modules are read and shared with the other structure checks."""
     problems, bound, older = [], set(cfg.packages), []
     imports = {} if imports is None else imports
-    for m in cfg.manifests:
-        try:
-            text = m.read_text(encoding="utf-8")
-            roots = {r.module.split(".")[0] for r in rows_from_text(text, m.name) if r.kind == "module"}
-        except (OSError, ManifestError):
-            continue  # an absent or unparseable manifest is the rows' to report
+    for m, (text, mrows) in read.items():
+        roots = {r.module.split(".")[0] for r in mrows if r.kind == "module"}
         rel = Path(os.path.relpath(m, cfg.root)).as_posix()
         hit = OWN_LINE.search(text)
         if not hit:
@@ -1903,12 +1921,12 @@ def own_problems(cfg, tree, regen, imports=None):
     return problems
 
 
-def structure_problems(cfg, all_rows):
+def structure_problems(cfg, read):
     """The manifests' modules against the tree, each root's umbrella, the roots each manifest read as own, and the
-    import direction between packages."""
+    import direction between packages; `read` is {manifest: (its text, its rows)}."""
     problems, imports = [], {}  # each module's imports read once, for the own-roots walk and the package order
     tree = tree_modules(cfg)
-    listed = {r.module for r in all_rows if r.kind == "module"}
+    listed = {r.module for _, mrows in read.values() for r in mrows if r.kind == "module"}
     bound = set(cfg.packages)
     missing = sorted(set(tree) - listed)
     extra = sorted(m for m in listed if m.split(".")[0] in bound and m not in tree)
@@ -1919,7 +1937,7 @@ def structure_problems(cfg, all_rows):
                         f"{', '.join(extra) or '-'}) — regenerate them in the workspace: {regen}")
     if unbound:
         problems.append(f"the manifests count modules under roots [packages] does not bind: {', '.join(unbound)}")
-    problems += own_problems(cfg, tree, regen, imports)
+    problems += own_problems(cfg, tree, regen, read, imports)
     if cfg.umbrellas:
         for root, d in cfg.packages.items():
             umbrella = d / f"{root}.lean"
@@ -2524,6 +2542,35 @@ def package_scenarios(root, expect):
     expect("register: a file class binding no packages reads each file's own package and those before it",
            code == 1 and "ws/lo/Lo/B.lean:4: [by the order] `A.lean`" in out and "Hi/A.lean:4" not in out, out[-300:])
     hi_a.write_text(hi_keep, encoding="utf-8")
+    # a library required by path from outside the repository: its modules listed in its own repository, or on disk
+    with tempfile.TemporaryDirectory() as ext_tmp:
+        ext = Path(ext_tmp) / "base"
+        (ext / "Base").mkdir(parents=True)
+        (ext / "Base" / "Core.lean").write_text("def core := 0\n", encoding="utf-8")
+        (ext / ".lake" / "build").mkdir(parents=True)
+        (ext / ".lake" / "build" / "Built.lean").write_text("", encoding="utf-8")
+        up = Path(os.path.relpath(ext, ws)).as_posix()
+        outside = ('name = "lower names the library"\nscope = ["ws/lo/**/*.lean"]\n'
+                   f'packages = ["lo", "{up}"]\n')
+
+        def ext_class():
+            (root / "formal.toml").write_text(toml.replace('Lo = "lo"', f'Lo = "lo"\nBase = "{up}"').replace(
+                "sanctioned = []\n", "sanctioned = []\n[[register.files]]\n" + outside), encoding="utf-8")
+            return Config(root)
+
+        for line, ok, why in (("-- after Base/Core.lean and Core.lean", True, "a module of a package outside the repository, on disk, is clean"),
+                              ("-- after ../../base/Base/Core.lean", True, "a module of a package outside the repository named by its `../` path is clean"),
+                              ("-- after Built.lean", False, "a build's file of a package outside the repository is no module")):
+            lo_b.write_text(keep + line + "\n", encoding="utf-8")
+            code, out = quiet(do_register, ext_class())
+            expect(f"register: {why}", (code == 0) == ok and "COULD NOT CHECK" not in out, out[-300:])
+        if subprocess.run(["git", "-C", str(ext), "init", "-q"], capture_output=True).returncode == 0:
+            subprocess.run(["git", "-C", str(ext), "add", "--", "Base/Core.lean"], capture_output=True)
+            (ext / "Base" / "Scratch.lean").write_text("", encoding="utf-8")
+            lo_b.write_text(keep + "-- after Base/Core.lean, not Scratch.lean\n", encoding="utf-8")
+            code, out = quiet(do_register, ext_class())
+            expect("register: a package outside the repository in a repository of its own is listed by what that one tracks",
+                   code == 1 and "`Scratch.lean` in:" in out and "`Base/Core.lean` in:" not in out, out[-300:])
     lo_b.write_text(keep, encoding="utf-8")
     for body, why in ((lower.replace('packages = ["lo"]', 'packages = ["lo", "Lo"]'), "a packages entry that is no package directory"),
                       (lower.replace('packages = ["lo"]', 'package = ["lo"]'), "a key the file class does not read"),
@@ -2574,16 +2621,21 @@ def init_scenarios(root, expect):
 
 
 def selftest():
-    """The cases below, the latest release never asked of the network, here or in a probe they run."""
-    saved = os.environ.get("RESEARCH_KIT_OFFLINE")
-    os.environ["RESEARCH_KIT_OFFLINE"] = "1"
-    try:
-        return selftest_cases()
-    finally:
-        if saved is None:
-            os.environ.pop("RESEARCH_KIT_OFFLINE", None)
-        else:
-            os.environ["RESEARCH_KIT_OFFLINE"] = saved
+    """The cases below, the latest release never asked of the network, here or in a probe they run, and Claude
+    Code's install record read under CLAUDE_CONFIG_DIR, an empty directory unless a case writes one: the
+    machine's own is never read here."""
+    saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIR", "RESEARCH_KIT_OFFLINE")}
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["CLAUDE_CONFIG_DIR"] = str(Path(tmp) / "claude")
+        os.environ["RESEARCH_KIT_OFFLINE"] = "1"
+        try:
+            return selftest_cases()
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 def selftest_cases():

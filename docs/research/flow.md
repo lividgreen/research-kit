@@ -61,7 +61,7 @@ The log is bound by `[paths] log` and is not a record: its entries are level-2 h
 
 Directions are records, not a file: `flow directions` renders the open ones as the owner's list, `- **Name** (date, id) — the words`, from their summaries and bodies; a question's `direction` names one by its id.
 
-`flow state` prints, every line with its file and line, the inbox, the index's `Due` (within `[index] due_within` days where that is bound, with a line counting the later ones the index lists), `Next (ranked)` and `Hand` sections, a line for each due date or block date that has passed, and the log's top entry; the index is what a session reads next.
+`flow state` prints, every line with its file and line, the inbox, the index's `Due` (within `[index] due_within` days where that is bound, with a line counting the later ones the index lists), `Next (ranked)` and `Hand` sections, a line for each due date or block date that has passed, naming what a block on several still waits on where it holds on the rest, and the log's top entry; the index is what a session reads next.
 `flow artifacts` lists every repository path the records refer to — a probe, a result, a document, by an evidence item, a body link or a `source` that is a path of the tree — with the records naming each and `MISSING` where it is not in the tree: the artifacts index, generated from the records as `INDEX.md` is, with no register to keep consistent.
 
 ## `flow.toml`
@@ -155,7 +155,7 @@ Each check ends with coverage lines saying what it looked at and what it did not
 | V2 | a reference field names an id that does not exist (a question's `direction` holding a name of the directions file among them), or a record of the wrong type |
 | V3 | a field is missing or unknown, a word of an older model among them (`flow doctor` says what it reads now), or a state, a question's kind, size, owner, origin or rank is not a legal value |
 | V5 | a ready task has unmet `requires` |
-| V6 | a finding has no evidence, an evidence item has no form or a form `[evidence] forms` does not list, does not resolve by its form's shape (a document's anchor among them: a row, a numbered statement or a heading), or appears twice |
+| V6 | a finding has no evidence, an evidence item has no form or a form `[evidence] forms` does not list, does not resolve by its form's shape (a document's anchor among them: a row, a numbered statement or a heading; a path outside the tree, absolute or climbing above the root by `..`, never resolves), or appears twice |
 | V8 | a cycle through `derived_from`, `depends_on` or a question's `parent` |
 | V9 | an active task has no owner, a ready task carries an owner or a drawn date, an idea in a hand is not open or has no drawn date, an idea in no hand has one, or an owner holds more records than its hand limit |
 | V11 | the index is missing or stale — run `flow index`; or in another version's form, its records unchanged — run `flow index` once after an upgrade |
@@ -171,7 +171,7 @@ Each check ends with coverage lines saying what it looked at and what it did not
 | V21 | a record is not in its type's directory (a finding under a shard directory of an older model among them), a closed task is not in the archive, or an open one is |
 | V22 | an open question's `direction` names a direction that is not open, or its `serves` a goal that is not open |
 | V23 | a record cites a library key the library does not hold, or an extract its card does not carry; or the library did not answer |
-| V24 | a live record's body links a repository path that is not in the tree (a Markdown link's target, root-relative; a URL, a bare anchor and a path in backticks are prose) |
+| V24 | a live record's body links a repository path that is not in the tree, or one outside it, absolute or climbing above the root by `..` (a Markdown link's target, root-relative; a URL, a bare anchor and a path in backticks are prose) |
 
 The codes are names, not a sequence: V4, V7 and V10 are unassigned.
 Warnings do not fail the check: an open question that tasks came from, all of them closed, which needs refine or answer; a record blocked on a task or a question that has closed, or on a condition whose date has passed, to unblock or re-aim; a task whose due date has passed; a closed record whose body links a path that is gone; and evidence reported unchecked because no manifest, register or library is bound for its form, or because its form is the project's own and its target no path.
