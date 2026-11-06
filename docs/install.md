@@ -206,7 +206,9 @@ A pinned marketplace updates to its tag and no further; the project moves it and
 Where the release changes the records' model, that commit carries the migration too, since `flow-check` at the new tag fails every commit that touches a record until the records are in the new form, and the plugin already runs the new version; a project that must commit between the two runs that commit with `SKIP=flow-check` (prek and pre-commit read it) and says so in the log entry.
 `flow task`, `flow state` and `flow show` run on an unmigrated tree at the new version, so the migration task is minted first; `flow doctor --fix` then writes the mechanical part of the migration and lists the rest ([The flow](research/flow.md#flow-doctor)).
 Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move together by hand.
-The setup probe, run from the installed plugin, says whether the hooks' `rev`, the marketplace's `ref` in the project's `.claude/settings.json`, the version of each plugin Claude Code installed for the project and the plugin's own version name one tag, and where they do not, names each pin that is off with the steps below and the releases between whose **Upgrading** paragraphs to read; `formal probe` says the same of the `formal` plugin ([The research setup](research/research-init.md#the-pins-and-the-upgrade-steps)).
+The setup probe, run from the installed plugin, asks GitHub for the kit's latest release and says whether the hooks' `rev`, the marketplace's `ref` in the project's `.claude/settings.json`, the version of each plugin Claude Code installed for the project and the plugin's own version are all at it.
+Where one is not, it names each pin that is off with the steps below, which move every pin to the latest release, and the releases from the oldest pin up to it whose **Upgrading** paragraphs to read.
+Where the latest release cannot be read, offline or refused, the probe says so and compares the pins among themselves, against the newest of them; `formal probe` says the same of the `formal` plugin ([The research setup](research/research-init.md#the-pins-and-the-upgrade-steps)).
 
 In Claude Code the marketplace is one per machine, known by its name to every project on it, and a project moves its pin in five steps:
 
@@ -217,7 +219,7 @@ In Claude Code the marketplace is one per machine, known by its name to every pr
 3. `claude plugin update research@research-kit --scope project`, and the same for `formal@research-kit`, moves the project's plugins to the tag; every other project on the machine keeps the version it installed until it runs the update itself.
    It ends with `Restart to apply changes`, which is literal: until the restart the session runs the old skills' text against the new hooks, the drift the pin exists to prevent; a session that must mint a record before its restart runs the new version's script by its cache path, as the skills say to anyway, and the records it writes pass the new check.
 4. Set the hooks' `rev` to the tag, in the same commit as the settings file.
-5. Run the setup probe, which says whether the pins name one tag and what of the migration is left (`flow doctor`'s count and a stale index), and restart the session before the next transition.
+5. Run the setup probe, which says whether the pins are at the latest release and what of the migration is left (`flow doctor`'s count and a stale index), and restart the session before the next transition.
 
 Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the tag the machine knows.
 Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
@@ -232,9 +234,14 @@ Such a session runs the checks as the hooks do, from the root: `prek run flow-ch
 ### Outside the agent
 
 A Makefile target or a CI job runs the checks through the hooks, `prek run --all-files` or `pre-commit run --all-files`, which pin the tag and need no path to the kit.
-A script that calls a skill's script for anything else runs it from the installed plugin, whose path moves with every version.
-Claude Code keeps it under `~/.claude/plugins/cache/research-kit/research/<version>/` (`CLAUDE_CODE_PLUGIN_CACHE_DIR` moves that root) and records each install, with its scope, project and `installPath`, in `~/.claude/plugins/installed_plugins.json` (`CLAUDE_CONFIG_DIR` moves `~/.claude`); the `research@research-kit` entry of scope `local`, else `project`, for the repository, else the `user` one, names the path.
-Such a script checks that the entry's `version` is the tag the hooks pin before it runs anything.
-The setup writes one on your yes, `setup runner`, as `scripts/kit.py`: `python3 scripts/kit.py run flow state` runs the installed skill's script and refuses while the pins disagree, and `python3 scripts/kit.py check` prints them ([The research setup](research/research-init.md#the-runner-script)); the file is the project's, and it installs nothing.
+For anything else, a skill's script runs by its path from the project root where the skills are installed into the project directory: `npx skills add` puts them in `.agents/skills/`, and Claude Code reads a project's `.claude/skills/`.
+
+```sh
+python3 .agents/skills/flow/scripts/flow.py check
+python3 .claude/skills/flow/scripts/flow.py check
+```
+
+The other scripts lie under their skills the same way: `library/scripts/library.py`, `dashboard/scripts/dashboard.py`, and the `formal` plugin's `land/scripts/formal.py`.
+Under a plugin install a script sits in the agent's plugin cache instead, Claude Code's `~/.claude/plugins/cache/research-kit/<plugin>/<version>/skills/…` (`CLAUDE_CODE_PLUGIN_CACHE_DIR` moves that root), a path that changes with each version; so a project that runs the scripts outside the agent installs the skills into the project directory.
 
 research-kit installs no command and is not published to PyPI: the agent runs the scripts from their skills, and the pre-commit hooks build their own environment from this repository at the pinned tag; the `research-kit` project on PyPI is an unrelated one.

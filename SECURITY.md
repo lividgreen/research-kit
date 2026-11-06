@@ -16,6 +16,7 @@ The latest release tag; a fix is not backported to an older one.
   The code a project's bindings files name — the reflow module, the library's command, the command for a PDF's text, and the manifest's generate command a prover session runs — runs as the project's pre-commit hooks do.
   So a bindings file is trusted as a hook is, and is read before a check runs in a repository you did not write; [What runs](docs/network.md#what-runs) lists every program the kit runs.
 - The library's online commands call only the hosts [What goes online](docs/network.md) lists, run on demand and never from a check, and send a contact address or an API key only where one is set in the environment.
+- The two setup probes ask GitHub's API for the kit's latest release and send nothing of the project.
 - The dashboard is read-only and binds the loopback by default, where it answers only requests addressed to it.
 
 A way to make the kit run a command or reach a host that this page and those it links do not name, to write outside the project, or to make the dashboard serve a request it should refuse is in scope.

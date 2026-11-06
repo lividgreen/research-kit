@@ -3,16 +3,14 @@
 the kit's setup needs that is missing.
 
   setup probe [--root DIR] [--json]   the report the skill's procedure reads
-  setup runner [--root DIR] [--out PATH] [--force]
-                                      write the project's runner (default scripts/kit.py), which runs a
-                                      skill's script by its installed path and refuses while the pins disagree
   setup --selftest
 
 The probe writes nothing and installs nothing; it reports, the agent proposes, the person
-decides.  The runner is written only where the person said yes.  Standard library only.
+decides.  It asks GitHub for the kit's latest release, which the pins are held to, and compares
+the pins among themselves where it cannot (offline, or RESEARCH_KIT_OFFLINE set).  Standard
+library only.
 """
 import argparse
-import ast
 import json
 import os
 import re
@@ -22,6 +20,8 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -259,10 +259,11 @@ def proposals(env, hook_runner, installers, managed=None):
 
 
 # --- the pins: duplicated byte-identical in research's setup.py and formal's formal.py (tests/run.py holds
-# them so), and copied into the runner `setup runner` writes -------------------------------------------------
+# them so) -------------------------------------------------------------------------------------------------
 
 KIT_REPO = "lividgreen/research-kit"
 KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
+KIT_LATEST = "https://api.github.com/repos/lividgreen/research-kit/releases/latest"
 
 
 def skill_version(skill_md):
@@ -336,15 +337,35 @@ def kit_tag(tag):
     return tuple(int(g) for g in m.groups()) if m else None
 
 
-def kit_pins(root, version, record=None):
+def kit_latest():
+    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s at most): (tag, None), or
+    (None, why) where it could not be read — offline, a refusal, an answer naming no release tag, or
+    `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
+    if os.environ.get("RESEARCH_KIT_OFFLINE", "") not in ("", "0"):
+        return None, "RESEARCH_KIT_OFFLINE is set"
+    req = urllib.request.Request(KIT_LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "research-kit-probe"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            tag = json.loads(r.read().decode("utf-8")).get("tag_name")
+    except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
+        why = e.reason if type(e) is urllib.error.URLError else e
+        return None, str(why) or type(e).__name__
+    return (tag, None) if kit_tag(tag) else (None, f"the latest release names no release tag ({tag!r})")
+
+
+def kit_pins(root, version, record=None, latest=None):
     """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
     settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
     install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
-    a script outside the kit): whether they name one tag and, where they do not, the steps that move every pin
-    to the newest of them and the releases whose upgrading paragraphs lie between.  It writes nothing."""
+    a script outside the kit), held to the kit's latest release (`latest`, a callable answering (tag, why),
+    defaults to `kit_latest`), or, where that could not be read, to the newest of them: whether every pin is at
+    that tag and, where one is not, the steps that move every pin to it and the releases whose upgrading
+    paragraphs lie between.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
-    said, tags = [], {}
+    newest, unread = (latest or kit_latest)()
+    said, tags = [f"the latest release is {newest}" if newest else
+                  f"the latest release could not be read ({unread}), so the pins are compared among themselves"], {}
     try:
         pc = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -390,10 +411,10 @@ def kit_pins(root, version, record=None):
     missing = sorted(n for n, on in enabled.items() if on is True and n.endswith("@research-kit") and inst is not None and n not in inst)
     said += [f"{n} is enabled in .claude/settings.json and not installed for this project" for n in missing]
     if version and not runs_installed:
-        said.insert(0, f"the plugin this runs from is v{version}")
+        said.insert(1, f"the plugin this runs from is v{version}")
         tags["the plugin this runs from"] = f"v{version}"
     ordered = all(kit_tag(t) for t in tags.values())
-    target = (max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None
+    target = newest or ((max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None)
     T = target or "<tag>"
     off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned else []) + [f"{n} (not installed)" for n in missing]
     steps, releases = [], None
@@ -411,14 +432,14 @@ def kit_pins(root, version, record=None):
         if tags.get("the plugin this runs from", T) != T:
             steps.append(f"move the plugin this runs from to {T}: its agent's marketplace pin, or by hand for a clone or a copy")
         steps.append("restart the session, then read the pins again")
-        seen = sorted({t for t in tags.values() if kit_tag(t)}, key=kit_tag)
-        if len(seen) > 1:
-            releases = f"read the Upgrading paragraph of each release after {seen[0]} up to {seen[-1]}, in {KIT_CHANGELOG}"
+        oldest = min((t for t in tags.values() if kit_tag(t)), key=kit_tag, default=None)
+        if oldest and kit_tag(T) and kit_tag(oldest) < kit_tag(T):
+            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {KIT_CHANGELOG}"
     named = off[0] if len(off) == 1 else ", ".join(off[:-1]) + " and " + off[-1] if off else ""
-    detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}"
-                                + (", the newest of them" if ordered and len(tags) > 1 else "") + ": move the pins together" if off else "")
+    which = ", the latest release" if newest else ", the newest of them" if ordered and len(tags) > 1 else ""
+    detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}{which}: move every pin to it" if off else "")
     return {"item": "pins at one tag", "need": "recommended", "ok": not off, "detail": detail, "target": target,
-            "commands": steps, "releases": releases}
+            "latest": newest, "latest_unread": unread, "commands": steps, "releases": releases}
 
 
 def flow_answer(flow, root, *argv):
@@ -443,9 +464,11 @@ def upgrade(root, pins, flow=FLOW):
     model wrote, which the flow skill's `flow doctor` beside this skill names; a stale index, which `flow index
     --check` names.  The two flow commands write nothing; a step is `pending`, `ok`, `none` (no flow.toml) or
     `not run` (it could not be checked)."""
+    latest = ", the latest release" if pins["latest"] else ""
+    unread = "" if pins["latest"] else "; the latest release could not be read, so this is the newest the pins name"
     steps = [{"item": "pins", "state": "ok" if pins["ok"] else "pending",
-              "detail": f"at one tag, {pins['target']}" if pins["ok"] and pins["target"] else "nothing pins the kit yet" if pins["ok"] else
-              f"every pin moves to {pins['target'] or '<tag>'}, in the order of the steps below",
+              "detail": f"at one tag, {pins['target']}{latest or unread}" if pins["ok"] and pins["target"] else "nothing pins the kit yet" if pins["ok"] else
+              f"every pin moves to {pins['target'] or '<tag>'}{latest}, in the order of the steps below",
               "commands": ([pins["releases"]] if pins["releases"] else []) + pins["commands"]}]
     if not (root / "flow.toml").is_file():
         return steps + [{"item": "records", "state": "none", "detail": "no flow.toml; `flow init` writes the current model", "commands": []}]
@@ -493,112 +516,6 @@ def mark(it):
     return "MISSING" if not it["ok"] else "--     " if it["need"] in ("absent", "none") else "ok     "
 
 
-RUNNER = '''#!/usr/bin/env python3
-"""kit — run a research-kit skill's script from the plugin Claude Code installed for this project.
-
-Written by research-kit's `setup runner` at @@TAG@@; the project's file from then on, to keep or edit.
-research-kit installs no command: its scripts live in the `research` and `formal` plugins' skills
-and run by their installed path, which moves with every version.  This reads that path from Claude
-Code's install record (`~/.claude/plugins/installed_plugins.json`, `CLAUDE_CONFIG_DIR` moving
-`~/.claude`) and refuses while the pins disagree: the hooks' `rev` in .pre-commit-config.yaml, the
-marketplace's `ref` in .claude/settings.json, the version of each research-kit plugin installed for
-this project.  It installs nothing and writes nothing.
-
-  kit.py run SKILL [ARGS...]   run the skill's script with ARGS: flow, library, dashboard, setup, formal
-  kit.py path SKILL            print the script's path
-  kit.py check                 print the pins, and the steps that move them where they disagree (exit 1)
-
-A refusal exits 2; `run` exits with the script's own code.
-"""
-import json
-import os
-import re
-import subprocess
-import sys
-from pathlib import Path
-
-ROOT = (Path(__file__).resolve().parent / "@@UP@@").resolve()
-SCRIPTS = {"flow": ("research@research-kit", "flow/scripts/flow.py"),
-           "library": ("research@research-kit", "library/scripts/library.py"),
-           "dashboard": ("research@research-kit", "dashboard/scripts/dashboard.py"),
-           "setup": ("research@research-kit", "research-init/scripts/setup.py"),
-           "formal": ("formal@research-kit", "land/scripts/formal.py")}
-
-
-@@HELPERS@@
-
-
-def script(skill):
-    """(the installed path of a skill's script, None), or (None, the refusal)."""
-    if skill not in SCRIPTS:
-        return None, f"no skill {skill!r}; one of {', '.join(SCRIPTS)}"
-    pins = kit_pins(ROOT, None)
-    if not pins["ok"]:
-        return None, "the pins disagree: " + pins["detail"] + "".join(f"\\n  {c}" for c in pins["commands"])
-    inst = kit_installed(ROOT, install_record())
-    if inst is None:
-        return None, f"no install record at {install_record()}; this runner finds the scripts where Claude Code installed them"
-    plugin, rel = SCRIPTS[skill]
-    if plugin not in inst:
-        return None, f"{plugin} is not installed for this project: claude plugin install {plugin} --scope project"
-    path = Path(str(inst[plugin].get("installPath"))) / "skills" / rel
-    return (path, None) if path.is_file() else (None, f"{path} is missing from the installed {plugin}")
-
-
-def main(argv):
-    if len(argv) < 2 or argv[1] in ("-h", "--help"):
-        print(__doc__.strip())
-        return 0
-    if argv[1:] == ["check"]:
-        pins = kit_pins(ROOT, None)
-        print(("pins at one tag: " if pins["ok"] else "PINS DISAGREE: ") + pins["detail"])
-        for c in ([pins["releases"]] if pins["releases"] else []) + pins["commands"]:
-            print(f"  {c}")
-        return 0 if pins["ok"] else 1
-    if (argv[1] == "path" and len(argv) == 3) or (argv[1] == "run" and len(argv) >= 3):
-        path, why = script(argv[2])
-        if why:
-            print(f"kit: {why}", file=sys.stderr)
-            return 2
-        if argv[1] == "path":
-            print(path)
-            return 0
-        return subprocess.run([sys.executable, str(path), *argv[3:]]).returncode
-    print("kit: usage: kit.py run SKILL [ARGS...] | path SKILL | check", file=sys.stderr)
-    return 2
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv))
-'''
-RUNNER_HELPERS = ("KIT_REPO", "KIT_CHANGELOG", "hooks_pin", "install_record", "kit_installed", "kit_tag", "kit_pins")
-
-
-def runner_text(up):
-    """The runner's text: RUNNER with the pins' helpers copied from this file, the root `up` from the runner's directory."""
-    src = Path(__file__).read_text(encoding="utf-8")
-    named = lambda n: n.name if isinstance(n, ast.FunctionDef) else n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else None
-    helpers = [ast.get_source_segment(src, n) for n in ast.parse(src).body if named(n) in RUNNER_HELPERS]
-    consts = "\n".join(h for h in helpers if not h.startswith("def "))
-    funcs = "\n\n\n".join(h for h in helpers if h.startswith("def "))
-    return RUNNER.replace("@@TAG@@", f"v{kit_version()}").replace("@@UP@@", up).replace("@@HELPERS@@", consts + "\n\n\n" + funcs)
-
-
-def write_runner(root, out, force):
-    """`setup runner`: the runner written at `out` under the root; an existing file refused without --force."""
-    out = (root / out).resolve() if not Path(out).is_absolute() else Path(out).resolve()
-    if not out.is_relative_to(root):
-        return 2, f"setup: {out} is outside the project root {root}; the runner is the project's file"
-    if out.exists() and not force:
-        return 1, f"setup: {out.relative_to(root)} exists; `--force` rewrites it"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(runner_text(Path(os.path.relpath(root, out.parent)).as_posix()), encoding="utf-8")
-    out.chmod(out.stat().st_mode | 0o111)
-    rel = out.relative_to(root).as_posix()
-    return 0, (f"wrote {rel}: `python3 {rel} check` prints the pins, `python3 {rel} run flow state` runs a skill's script by its installed path, "
-               "refusing while the pins disagree; it installs nothing and is the project's file")
-
-
 UPGRADE_MARK = {"pending": "PENDING", "ok": "ok     ", "none": "--     ", "not run": "NOT RUN"}
 
 
@@ -630,7 +547,7 @@ def render(rep):
     pending = [s["item"] for s in up["steps"] if s["state"] == "pending"]
     lines += ["", "setup probe: " + (f"{len(missing_req)} required item(s) missing: {', '.join(missing_req)}" if missing_req else "every required item is present")
               + f"; {len(rep['proposals'])} proposal(s); " + (f"{len(pending)} upgrade step(s) pending: {', '.join(pending)}" if pending else "no upgrade step pending")
-              + "; the probe read the root and PATH and wrote nothing"]
+              + "; the probe read the root, PATH" + (" and GitHub's latest release" if any(it.get("latest") for it in rep["project"]) else "") + " and wrote nothing"]
     return "\n".join(lines)
 
 
@@ -700,6 +617,80 @@ def installed_scenarios(tmp, v, expect):
     expect("an unreadable install record is said so and compares no plugin", "absent or unreadable" in kit_pins(p, v, rec)["detail"])
 
 
+def latest_scenarios(tmp, v, expect):
+    """The pins held to the latest release, the request answered by stand-ins: never the network."""
+    p = tmp / "latest"
+    p.mkdir()
+    kit_hooks(p, f"v{v}")
+    kit_settings(p, f"v{v}")
+    rec = tmp / "latest_plugins.json"
+    rec.write_text(json.dumps({"version": 2, "plugins": {"research@research-kit": [
+        {"scope": "project", "projectPath": str(p), "installPath": str(tmp / "cache" / v), "version": v}]}}), encoding="utf-8")
+    r = kit_pins(p, v, rec, latest=lambda: ("v99.0.0", None))
+    expect("a latest release newer than every pin moves every pin to it, with the releases between to read",
+           not r["ok"] and r["target"] == "v99.0.0" and r["latest"] == "v99.0.0" and r["detail"].startswith("the latest release is v99.0.0;")
+           and "from v99.0.0, the latest release: move every pin to it" in r["detail"]
+           and [c.split(" ")[0] for c in r["commands"]] == ["edit", "claude", "claude", "set", "move", "restart"]
+           and f"claude plugin marketplace add '{KIT_REPO}#v99.0.0' --scope project" in r["commands"]
+           and f"after v{v} up to v99.0.0" in str(r["releases"]), f"{r['detail']} {r['commands']} {r['releases']}")
+    s = {x["item"]: x for x in upgrade(p, r)}
+    expect("the upgrade's pins step names the latest release", s["pins"]["state"] == "pending" and "moves to v99.0.0, the latest release" in s["pins"]["detail"])
+    r = kit_pins(p, v, rec, latest=lambda: (f"v{v}", None))
+    expect("pins agreeing at the latest release are ok", r["ok"] and r["target"] == f"v{v}" and r["detail"].startswith(f"the latest release is v{v};"), r["detail"])
+    expect("the upgrade's pins step says the pins are at the latest release", upgrade(p, r)[0]["detail"] == f"at one tag, v{v}, the latest release")
+    kit_hooks(p, "v0.0.1")
+    r = kit_pins(p, v, rec, latest=lambda: (None, "no network"))
+    expect("where the latest release could not be read the pins are compared among themselves, against the newest of them, and it is said so",
+           not r["ok"] and r["target"] == f"v{v}" and r["latest"] is None and r["latest_unread"] == "no network"
+           and r["detail"].startswith("the latest release could not be read (no network), so the pins are compared among themselves;")
+           and f"the hooks' rev differs from v{v}, the newest of them" in r["detail"], r["detail"])
+    kit_hooks(p, f"v{v}")
+    expect("pins at one tag where the latest release could not be read say so in the upgrade step",
+           "could not be read" in upgrade(p, kit_pins(p, v, rec, latest=lambda: (None, "no network")))[0]["detail"])
+    # kit_latest itself, its request answered by stand-ins for urlopen
+    saved_env, saved_open = os.environ.pop("RESEARCH_KIT_OFFLINE", None), urllib.request.urlopen
+    asked = []
+
+    class Answer:
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self.body
+
+    def answering(body=None, error=None):
+        def fake(req, timeout=None):
+            asked.append((req.full_url, req.get_header("User-agent"), timeout))
+            if error:
+                raise error
+            return Answer(body)
+        return fake
+    try:
+        urllib.request.urlopen = answering(b'{"tag_name": "v1.2.3", "name": "v1.2.3"}')
+        expect("the latest release is read from GitHub's API, its tag_name, with a generic User-Agent and a short timeout",
+               kit_latest() == ("v1.2.3", None) and asked == [(KIT_LATEST, "research-kit-probe", 5)], str(asked))
+        urllib.request.urlopen = answering(error=urllib.error.URLError("[Errno -3] Temporary failure in name resolution"))
+        expect("no network is said by its reason", kit_latest() == (None, "[Errno -3] Temporary failure in name resolution"))
+        urllib.request.urlopen = answering(error=urllib.error.HTTPError(KIT_LATEST, 403, "rate limit exceeded", {}, None))
+        expect("an HTTP refusal is said with its code", kit_latest()[1] == "HTTP Error 403: rate limit exceeded")
+        urllib.request.urlopen = answering(b'{"message": "Not Found"}')
+        expect("an answer naming no release tag is no latest release", kit_latest() == (None, "the latest release names no release tag (None)"))
+        urllib.request.urlopen = answering(b"<html>")
+        expect("an answer that is no JSON is no latest release", kit_latest()[0] is None)
+        os.environ["RESEARCH_KIT_OFFLINE"] = "1"
+        asked.clear()
+        expect("RESEARCH_KIT_OFFLINE skips the request", kit_latest() == (None, "RESEARCH_KIT_OFFLINE is set") and asked == [])
+    finally:
+        urllib.request.urlopen = saved_open
+        os.environ["RESEARCH_KIT_OFFLINE"] = saved_env or "1"
+
+
 def upgrade_scenarios(tmp, v, expect):
     """The upgrade section over a tree the sibling flow script wrote: nothing pending, then an older model's field and
     binding, a stale index, an unreadable flow.toml, a flow script that is not there; the probe writes nothing."""
@@ -743,66 +734,6 @@ def upgrade_scenarios(tmp, v, expect):
            and "NOT RUN" in render(probe(u)), s["records"]["detail"])
 
 
-def runner_scenarios(tmp, v, expect):
-    """`setup runner` end to end: the runner written, then run against a fake install record and fake plugin trees."""
-    p = tmp / "consumer"
-    p.mkdir()
-    kit_hooks(p, f"v{v}")
-    kit_settings(p, f"v{v}", ("research@research-kit", "formal@research-kit"))
-    cache = tmp / "plugin-cache"
-    fake = 'import json, os, sys\nprint(json.dumps({"script": __file__, "argv": sys.argv[1:], "cwd": os.getcwd()}))\nsys.exit(3 if "fail" in sys.argv else 0)\n'
-    for plugin, rel in (("research", "flow/scripts/flow.py"), ("research", "research-init/scripts/setup.py"), ("formal", "land/scripts/formal.py")):
-        f = cache / plugin / v / "skills" / rel
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(fake, encoding="utf-8")
-    rec = install_record()
-
-    def record(formal=v):
-        rec.parent.mkdir(parents=True, exist_ok=True)
-        rec.write_text(json.dumps({"version": 2, "plugins": {
-            "research@research-kit": [{"scope": "project", "projectPath": str(p), "installPath": str(cache / "research" / v), "version": v}],
-            "formal@research-kit": [{"scope": "project", "projectPath": str(p), "installPath": str(cache / "formal" / formal), "version": formal}]}}),
-            encoding="utf-8")
-    record()
-    kit = p / "scripts" / "kit.py"
-    code, said = write_runner(p, "scripts/kit.py", False)
-    expect("the runner is written at scripts/kit.py, executable, and the line says how it runs",
-           code == 0 and kit.is_file() and os.access(kit, os.X_OK) and said.startswith("wrote scripts/kit.py: `python3 scripts/kit.py check`"), said)
-    expect("an existing runner is refused without --force and rewritten with it",
-           write_runner(p, "scripts/kit.py", False)[0] == 1 and write_runner(p, "scripts/kit.py", True)[0] == 0)
-    expect("a runner path outside the project root is refused", write_runner(p, str(tmp / "kit.py"), False)[0] == 2 and not (tmp / "kit.py").exists())
-    text = kit.read_text(encoding="utf-8")
-    src = Path(__file__).read_text(encoding="utf-8")
-    segs = [ast.get_source_segment(src, n) for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name in RUNNER_HELPERS]
-    expect("the runner carries the pins' helpers as this script has them, at this release", all(s in text for s in segs) and f"at v{v};" in text)
-    run = lambda k, *a: subprocess.run([sys.executable, str(k), *a], capture_output=True, text=True, cwd=tmp)
-    r = run(kit, "check")
-    expect("the runner's check passes pins at one tag and exits 0", r.returncode == 0 and r.stdout.startswith("pins at one tag: "), r.stdout + r.stderr)
-    r = run(kit, "run", "flow", "state", "--json")
-    out = json.loads(r.stdout) if r.returncode == 0 and r.stdout.startswith("{") else {}
-    expect("run runs the installed skill's script with the arguments, in the caller's directory",
-           out.get("script") == str(cache / "research" / v / "skills" / "flow" / "scripts" / "flow.py") and out.get("argv") == ["state", "--json"]
-           and Path(out.get("cwd", "")).resolve() == tmp.resolve(), r.stdout + r.stderr)
-    expect("run exits with the script's own code", run(kit, "run", "setup", "fail").returncode == 3)
-    r = run(kit, "path", "formal")
-    expect("path prints the installed script's path", r.returncode == 0 and r.stdout.strip() == str(cache / "formal" / v / "skills" / "land" / "scripts" / "formal.py"))
-    r = run(kit, "run", "lean")
-    expect("an unknown skill is refused, exit 2, with the skills named", r.returncode == 2 and "one of flow, library, dashboard, setup, formal" in r.stderr)
-    deep = p / "tools" / "kit" / "run.py"
-    expect("a runner written deeper finds the root from where it stands", write_runner(p, "tools/kit/run.py", False)[0] == 0 and run(deep, "check").returncode == 0)
-    record(formal="0.0.1")
-    r = run(kit, "check")
-    expect("check names an installed plugin off the pins with the update that moves it, and exits 1",
-           r.returncode == 1 and r.stdout.startswith("PINS DISAGREE: ") and "claude plugin update formal@research-kit --scope project" in r.stdout, r.stdout)
-    r = run(kit, "run", "flow", "check")
-    expect("run refuses while the pins disagree, exit 2, with the steps", r.returncode == 2 and "the pins disagree" in r.stderr and "claude plugin update formal@" in r.stderr)
-    rec.unlink()
-    r = run(kit, "path", "flow")
-    expect("with no install record run and path are refused and say why", r.returncode == 2 and "no install record at" in r.stderr)
-    r = subprocess.run([sys.executable, __file__, "runner", "--root", str(p)], capture_output=True, text=True)
-    expect("`setup runner` refuses an existing file from the command line, exit 1", r.returncode == 1 and "--force" in r.stderr)
-
-
 def selftest():
     bad = []
 
@@ -811,10 +742,12 @@ def selftest():
         if not cond:
             bad.append(name)
 
-    saved_config = os.environ.get("CLAUDE_CONFIG_DIR")
+    saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIR", "RESEARCH_KIT_OFFLINE")}
     with tempfile.TemporaryDirectory() as tmp:
-        # Claude Code's install record is read under CLAUDE_CONFIG_DIR: the machine's own is never read here
+        # Claude Code's install record is read under CLAUDE_CONFIG_DIR: the machine's own is never read here;
+        # and the latest release is never asked of the network, here or in a script this runs
         os.environ["CLAUDE_CONFIG_DIR"] = str(Path(tmp) / "claude")
+        os.environ["RESEARCH_KIT_OFFLINE"] = "1"
         root = Path(tmp) / "proj"
         (root / "papers").mkdir(parents=True)
         (root / "notes").mkdir()
@@ -931,11 +864,12 @@ def selftest():
         expect("probe --json carries the upgrade steps", r.returncode == 0 and [s["item"] for s in json.loads(r.stdout)["upgrade"]["steps"]] == ["pins", "records"])
         installed_scenarios(Path(tmp), v, expect)
         upgrade_scenarios(Path(tmp), v, expect)
-        runner_scenarios(Path(tmp), v, expect)
-    if saved_config is None:
-        os.environ.pop("CLAUDE_CONFIG_DIR", None)
-    else:
-        os.environ["CLAUDE_CONFIG_DIR"] = saved_config
+        latest_scenarios(Path(tmp), v, expect)
+    for k, was in saved.items():
+        if was is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = was
     print(f"setup selftest: {'OK' if not bad else str(len(bad)) + ' FAILED: ' + '; '.join(bad)}")
     return 1 if bad else 0
 
@@ -947,24 +881,16 @@ def main(argv=None):
     p = sp.add_parser("probe", help="report the project and the machine against the kit's setup")
     p.add_argument("--root", help="the project root (default: the current directory)")
     p.add_argument("--json", action="store_true")
-    p = sp.add_parser("runner", help="write the project's runner, which runs a skill's script by its installed path and checks the pins")
-    p.add_argument("--root", help="the project root (default: the current directory)")
-    p.add_argument("--out", default="scripts/kit.py", help="the runner's path under the root (default: scripts/kit.py)")
-    p.add_argument("--force", action="store_true", help="rewrite an existing file")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
-    if a.cmd not in ("probe", "runner"):
+    if a.cmd != "probe":
         ap.print_help()
         return 0
     root = Path(a.root).resolve() if a.root else Path(os.getcwd()).resolve()
     if not root.is_dir():
         print(f"setup: {root} is not a directory", file=sys.stderr)
         return 2
-    if a.cmd == "runner":
-        code, said = write_runner(root, a.out, a.force)
-        print(said, file=sys.stderr if code else sys.stdout)
-        return code
     rep = probe(root)
     sys.stdout.reconfigure(errors="backslashreplace")  # a file name that is not UTF-8 is shown, not a crash
     print(json.dumps(rep, indent=1) if a.json else render(rep))

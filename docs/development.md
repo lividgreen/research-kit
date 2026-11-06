@@ -31,7 +31,7 @@ CONTRIBUTING.md, SECURITY.md      what a change carries; how a vulnerability is 
 ```
 
 Each script is one file on purpose: a per-skill install carries the skill directory and nothing beside it.
-The helpers the scripts share (the sentence splitter and the code-fence rule it reads by, and the two setup probes' reading of the pins, which `setup runner` also copies into the runner script it writes) are duplicated and held byte-identical by the tests.
+The helpers the scripts share (the sentence splitter and the code-fence rule it reads by, and the two setup probes' reading of the pins) are duplicated and held byte-identical by the tests.
 The package build carries the four command scripts, `flow`, `library`, `dashboard` and `formal`, from their skill directories into one package (`pyproject.toml`'s force-include), so the scripts stay where the skills are.
 
 A change is welcome as an issue or a pull request; [CONTRIBUTING.md](../CONTRIBUTING.md) says what a pull request carries, and [SECURITY.md](../SECURITY.md) how a vulnerability is reported privately.
@@ -54,6 +54,7 @@ runs each script's `--selftest` (one planted defect per rule; `formal`'s over a 
 - [The flow](research/flow.md), [The library](research/library.md) and [The formal setup](formal/formal-init.md) show the bindings files as each `init` writes them, the first two name every code their checks can report, and [Flow cards](research/flow-cards.md) and [Library cards](research/library-cards.md) list the fields as the tools write them.
 
 It also runs `markdownlint` over the repository's Markdown with `.markdownlint.jsonc` where it is on PATH, and `claude plugin validate --strict` where the Claude CLI is on PATH.
+Nothing the tests run asks the network: they set `RESEARCH_KIT_OFFLINE=1`, which keeps the two setup probes from asking GitHub for the latest release, and the probes' selftests answer that request with stand-ins.
 The flow's selftest writes records under its built-in markdownlint configuration where `markdownlint` is on PATH, and fails without it in CI (`CI` set), where the workflows install it.
 The workflow in `.github/workflows/tests.yml` runs the same on every push and pull request, on Python 3.11, 3.13, 3.14 and 3.15, the oldest the scripts accept and the three newest releases, then builds the wheel the hooks install and runs each of its four console scripts.
 A checkout's hooks are tried in a project with `prek try-repo /path/to/research-kit flow-check --all-files` (or `pre-commit try-repo`); the package is the hooks' alone, and its console scripts import the skills' scripts the wheel build carries into it, so an editable install does not work.

@@ -22,51 +22,38 @@ The probe labels the machine's items with one of these three words and the proje
 
 The project's item `pins at one tag` compares the places a project pins the kit: the hooks' `rev` in `.pre-commit-config.yaml`, the marketplace's `ref` in `.claude/settings.json`, and the version of each plugin of the research-kit marketplace that Claude Code installed for the project, beside the version of the plugin the probe runs from.
 The installed versions come from Claude Code's install record, `~/.claude/plugins/installed_plugins.json` (`CLAUDE_CONFIG_DIR` moves `~/.claude`), where the project's own entry, of scope local or project, stands over a user one.
-The item names each pin that differs from the newest of them, and a plugin the project's settings enable that is not installed; where the install record is absent, under another agent or with nothing installed, it says so and compares the hooks and the marketplace alone.
+The probe asks GitHub for the kit's latest release, and the item names each pin that differs from it and a plugin the project's settings enable that is not installed; where the install record is absent, under another agent or with nothing installed, it says so and compares the hooks and the marketplace alone.
+Where the latest release cannot be read, offline, refused or with `RESEARCH_KIT_OFFLINE=1` set, the item says so and why, and compares the pins among themselves, against the newest of them.
 
 The report's `upgrade` section, in the text and under `--json`, names the steps a move to another release still asks, each with its command, in the order an upgrade takes them:
 
 | Step | What the probe reads | What it names |
 | --- | --- | --- |
-| `pins` | the item above | the releases between the pins whose **Upgrading** paragraphs to read in the [changelog](https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md), then the five steps of [Install](../install.md#the-plugins-at-the-hooks-tag): the `ref` edited, the marketplace added at the tag, each plugin behind updated, the hooks' `rev` set, the restart |
+| `pins` | the item above | the releases from the oldest pin up to the latest whose **Upgrading** paragraphs to read in the [changelog](https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md), then the five steps of [Install](../install.md#the-plugins-at-the-hooks-tag): the `ref` edited, the marketplace added at the tag, each plugin off it updated, the hooks' `rev` set, the restart |
 | `records` | `flow doctor` of the `flow` skill beside this one | the mechanical edits `flow doctor --fix` writes, counted by class, and the things for the hand `flow doctor` lists ([The flow](flow.md#flow-doctor)) |
 | `index` | `flow index --check` | a stale index, which `flow index` rewrites |
 
 The probe runs the two flow commands, which write nothing, and the probe still writes nothing; a step marked `PENDING` is to take, `NOT RUN` could not be checked and says why (no flow script beside the skill, a `flow.toml` the flow cannot read), and `--` has no `flow.toml` to read.
-The pins move to the newest tag among them, so a project whose plugin moved ahead of its hooks is shown the upgrade; one that holds the older tag points the marketplace back at it and updates the plugins instead.
-
-## The runner script
-
-`setup runner` writes a runner script into the project, `scripts/kit.py` unless `--out PATH` names another path under the root, and refuses an existing file unless `--force` is given; the setup writes it only on your yes.
-The script is the project's own from then on, carries the pins' reading from the release that wrote it, and installs nothing:
-
-```text
-python3 scripts/kit.py run SKILL ARGS…   run a skill's script with ARGS: flow, library, dashboard, setup, formal
-python3 scripts/kit.py path SKILL        print the script's path
-python3 scripts/kit.py check             print the pins and the steps that move them; exit 1 where they disagree
-```
-
-`run` and `path` find the script at the `installPath` Claude Code recorded for the project's plugin, and refuse with exit 2 while the pins disagree or where no install record exists; `run` exits with the script's own code.
-It serves a Makefile target or a script on a machine where Claude Code installed the plugins, for anything the hooks do not run; [Install](../install.md#outside-the-agent) says what such a script checks.
+The pins move to the latest release, so a project whose pins agree on an older tag is shown the upgrade all the same; where the latest release cannot be read, they move to the newest tag among them.
 
 ## What it does
 
 1. Probes, and reads the whole report: the environment, the project with its pins, the kit's version and layout, the proposals, the upgrade steps, the coverage line.
-2. Plans in one message and asks once: which proposals to install, the log's name where none exists (`WORKLOG.md` unless you say otherwise), which evidence forms the project accepts, of the five the flow ships and your own words, whether copies the project keeps by hand may be redistributed with the repository (`library init --kept`, no unless you say so), whether to write the runner script, no unless you say so, and whether to take a pending upgrade step now.
+2. Plans in one message and asks once: which proposals to install, the log's name where none exists (`WORKLOG.md` unless you say otherwise), which evidence forms the project accepts, of the five the flow ships and your own words, whether copies the project keeps by hand may be redistributed with the repository (`library init --kept`, no unless you say so), and whether to take a pending upgrade step now.
 3. Installs what was chosen, with the proposal's command as shown, and probes again.
 4. Writes the bindings where they are absent: `flow init --log LOG`, then `library init --scan RECORDS --scan LOG --documents GLOB…` with the globs the probe found with a References section; an `init` refuses over an existing file, and `--force` is used only when you ask for a rewrite; `[evidence] forms` in `flow.toml` is edited to the forms you picked.
 5. Appends a section `## Research records` to the instructions file, holding the paragraphs both inits printed in the project's words: where the records are and that they are read through the tool, that a state changes only through a transition, that the check runs before a commit, that the ranked list is the schedule, where the log is, what each evidence form means for the project; a file that has the section is left as it is.
 6. Adds the kit's block to `.pre-commit-config.yaml` — `repo: https://github.com/lividgreen/research-kit`, `rev:` the tag the probe prints, the hooks `flow-check` and `library-check` — installs the runner's hook and runs it once over all files; [Install](../install.md) has the block and the pins.
 7. Runs `flow check`, `library check` and `flow state`, and fixes or names any problem.
-8. Writes the runner script where you said yes.
-9. Reports what was written, installed and declined, each declined item with the command to do it later, the upgrade steps left pending, the first move, and `/formal:formal-init` as the next step where the probe found a Lean workspace.
+8. Reports what was written, installed and declined, each declined item with the command to do it later, the upgrade steps left pending, the first move, and `/formal:formal-init` as the next step where the probe found a Lean workspace.
 
 A project that already keeps its research elsewhere — notes, a roadmap, a to-do list, a bibliography — is set up the same way first; its material is then brought into the records and the cards as a step of its own, by the skill's [`references/migration.md`](../../plugins/research/skills/research-init/references/migration.md): survey and propose before writing, classify by the kinds' own tests, carry the open work and every finding, the old measurements among them, and point at the settled, go through the commands wherever one exists, remove nothing, and end with the checks.
+
+The agent runs each skill's script by its installed path; a Makefile target or a script outside the agent runs one by its path from the project root where the skills are installed into the project, as `python3 .agents/skills/flow/scripts/flow.py check` ([Install](../install.md#outside-the-agent)).
 
 ## Words
 
 - **research-init** — the skill that sets a project up: it probes, proposes, writes what is absent and nothing that exists, and reports; `/research:research-init`.
 - **probe** — the report `setup probe` prints: the environment, the project, the kit's version, the proposals, the upgrade steps and a coverage line; it writes and installs nothing.
-- **pins** — the places a project pins the kit: the hooks' `rev`, the marketplace's `ref` and the version of each installed plugin; at one tag, the skills' text and scripts are the checks' release.
-- **runner script** — `scripts/kit.py`, which `setup runner` writes on your yes: it runs a skill's script by its installed path and refuses while the pins disagree.
+- **pins** — the places a project pins the kit: the hooks' `rev`, the marketplace's `ref` and the version of each installed plugin; at the latest release, the skills' text and scripts are the checks' release and the newest.
 - **required, recommended, optional** — the probe's three words for what the machine has: a required item is one the setup needs, a recommended one is proposed, an optional one serves what the project does; the project's own items read `present`, `absent`, `found` or `none`.
