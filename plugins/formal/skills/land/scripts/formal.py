@@ -1853,8 +1853,57 @@ def imports_of(path):
     return IMPORT_ANY.findall(strip_comments(path.read_text(encoding="utf-8", errors="replace")))
 
 
+OWN_LINE = re.compile(r"^# own roots:(.*)$", re.M)
+
+
+def own_problems(cfg, tree, regen):
+    """Each manifest's roots taken as own, its `# own roots:` line, against [packages]: a root [packages] does
+    not bind read as the project's own, and a bound root the package's modules import, directly or through
+    another, left out; a manifest without the line is an older generator's."""
+    problems, bound, imports, older = [], set(cfg.packages), {}, []
+    for m in cfg.manifests:
+        try:
+            text = m.read_text(encoding="utf-8")
+            roots = {r.module.split(".")[0] for r in rows_from_text(text, m.name) if r.kind == "module"}
+        except (OSError, ManifestError):
+            continue  # an absent or unparseable manifest is the rows' to report
+        rel = Path(os.path.relpath(m, cfg.root)).as_posix()
+        hit = OWN_LINE.search(text)
+        if not hit:
+            older.append(rel)
+            continue
+        own = set(hit.group(1).replace(",", " ").split())
+        if foreign := sorted(own - bound):
+            problems.append(f"{rel} reads the Prop-valued definitions under {', '.join(foreign)} as named conditions, a root "
+                            f"[packages] does not bind (a library required by path from outside the project?): bind it in "
+                            f"[packages] if it is the project's, or pass the generate command an --own without it")
+        seen, todo, reached = set(), [mod for mod in tree if mod.split(".")[0] in roots], set()
+        while todo:
+            mod = todo.pop()
+            if mod in seen:
+                continue
+            seen.add(mod)
+            if mod not in imports:
+                imports[mod] = imports_of(tree[mod])
+            for imp in imports[mod]:
+                reached.add(imp.split(".")[0])
+                if imp in tree:
+                    todo.append(imp)
+        if left := sorted((reached & bound) - roots - own):
+            problems.append(f"{rel} leaves {', '.join(left)} out of the roots its named conditions are read under, though its "
+                            f"package imports {'them' if len(left) > 1 else 'it'}: a condition defined there is not counted "
+                            f"(a package required by git sits under .lake/packages/, which the default leaves out; an explicit "
+                            f"--own misses it): add it to the generate command's --own")
+    if older:
+        problems.insert(0, f"{', '.join(older)} {'does' if len(older) == 1 else 'do'} not say which roots {'its' if len(older) == 1 else 'their'} "
+                           f"named conditions were read under (the `# own roots:` line the generator writes since v0.5.0): copy "
+                           f"the land skill's scripts/DeclManifest.lean over the workspace's and regenerate: {regen}")
+    return problems
+
+
 def structure_problems(cfg, all_rows):
-    """The manifests' modules against the tree, each root's umbrella, and the import direction between packages."""
+    """The manifests' modules against the tree, each root's umbrella, the roots each manifest read as own, and the
+    import direction between packages."""
     problems = []
     tree = tree_modules(cfg)
     listed = {r.module for r in all_rows if r.kind == "module"}
@@ -1868,6 +1917,7 @@ def structure_problems(cfg, all_rows):
                         f"{', '.join(extra) or '-'}) — regenerate them in the workspace: {regen}")
     if unbound:
         problems.append(f"the manifests count modules under roots [packages] does not bind: {', '.join(unbound)}")
+    problems += own_problems(cfg, tree, regen)
     if cfg.umbrellas:
         for root, d in cfg.packages.items():
             umbrella = d / f"{root}.lean"
@@ -2040,6 +2090,7 @@ def KB (y : ℕ) : ℕ := y
 end Lib.C
 """
 FIXTURE_MANIFEST = """# a test manifest
+# own roots: Lib
 module Lib 0
 module Lib.A 3
 module Lib.B 2
@@ -2293,6 +2344,31 @@ def structure_scenarios(root, expect):
     umbrella.write_text(full, encoding="utf-8")
     manifest.write_text(FIXTURE_MANIFEST, encoding="utf-8")
     toml.write_text(saved, encoding="utf-8")
+    manifest.write_text(FIXTURE_MANIFEST.replace("# own roots: Lib\n", ""), encoding="utf-8")
+    code, out = quiet(do_check, Config(root))
+    expect("check: a manifest that does not say the roots it read as own is an older generator's, to copy and regenerate",
+           code == 1 and "decls.txt does not say which roots" in out and "copy the land skill's scripts/DeclManifest.lean" in out, out[-400:])
+    manifest.write_text(FIXTURE_MANIFEST.replace("# own roots: Lib", "# own roots: Lib,Mathlib"), encoding="utf-8")
+    code, out = quiet(do_check, Config(root))
+    expect("check: a root [packages] does not bind, read as own, is a problem",
+           code == 1 and "definitions under Mathlib as named conditions, a root [packages] does not bind" in out, out[-400:])
+    (root / "ws" / "up").mkdir()
+    (root / "ws" / "up" / "Up.lean").write_text("def u : Prop := True\n", encoding="utf-8")
+    (root / "ws" / "Lib" / "E.lean").write_text("import Lib.F\n", encoding="utf-8")
+    (root / "ws" / "Lib" / "F.lean").write_text("import Up\n", encoding="utf-8")
+    umbrella.write_text(full + "import Lib.E\nimport Lib.F\n", encoding="utf-8")
+    toml.write_text(saved.replace('Lib = "."', 'Lib = "."\nUp = "up"').replace("package_order = []", 'package_order = ["up", "."]'), encoding="utf-8")
+    for own, left in (("Lib", True), ("Lib,Up", False)):
+        manifest.write_text(FIXTURE_MANIFEST.replace("# own roots: Lib", f"# own roots: {own}") + "module Lib.E 0\nmodule Lib.F 0\n", encoding="utf-8")
+        code, out = quiet(do_check, Config(root))
+        expect(f"check: a bound root the package imports through another module {'left out of' if left else 'among'} the roots read as own "
+               f"{'is' if left else 'is not'} a problem", ("decls.txt leaves Up out of the roots" in out) == left, out[-400:])
+    for p in (root / "ws" / "Lib" / "E.lean", root / "ws" / "Lib" / "F.lean", root / "ws" / "up" / "Up.lean"):
+        p.unlink()
+    (root / "ws" / "up").rmdir()
+    umbrella.write_text(full, encoding="utf-8")
+    manifest.write_text(FIXTURE_MANIFEST, encoding="utf-8")
+    toml.write_text(saved, encoding="utf-8")
 
 
 def package_scenarios(root, expect):
@@ -2490,7 +2566,7 @@ def init_scenarios(root, expect):
     cfg = Config(root)
     expect("init: with several packages each takes the manifest flow.toml binds under its name",
            cfg.manifests == [root / "build" / "proj.decls", root / "build" / "inner.decls"]
-           and "--roots Inner --own Proj,Inner --out ../build/inner.decls" in cfg.generate, f"{cfg.manifests} {cfg.generate}")
+           and "--roots Inner --out ../build/inner.decls" in cfg.generate and "--own" not in cfg.generate, f"{cfg.manifests} {cfg.generate}")
 
 
 def selftest():
@@ -2697,8 +2773,8 @@ def selftest_cases():
         expect("probe reads a package under the workspace and one it requires by path as packages of it, not workspaces",
                set(ws) == {"ws", "other"} and set(pk) == {".", "inner", "../lib/deep/base"} and pk["inner"]["roots"] == ["Inner"], str(pk))
         gen = [p for p in rep["proposals"] if p["item"] == "manifest of ws"][0]["commands"]
-        expect("probe proposes the generator once, in the workspace, one command per package with every root as --own",
-               len(gen) == 4 and all("--own ALT,Guards," in c for c in gen[1:]) and "--roots Inner --own" in gen[3]
+        expect("probe proposes the generator once, in the workspace, one command per package, the default --own left to it",
+               len(gen) == 4 and not any("--own" in c for c in gen) and "--roots Inner --out" in gen[3]
                and "--out ../scripts/inner-decls.txt" in gen[3], str(gen))
         (root / "ws" / "DeclManifest.lean").write_text("-- an older release's generator\n", encoding="utf-8")
         rep = probe(root)
@@ -2845,17 +2921,16 @@ def flow_manifests(root, packages):
 
 
 def manifest_commands(root, ws, packages, names=None):
-    """(out files from the root, generate commands run in the workspace): one per package, every root of
-    the workspace passed as `--own` where it has several, so a condition defined in another package is
-    still a named one; the files are `names` (one per package, as flow.toml binds them) where given."""
-    own = ",".join(r for p in packages for r in p["roots"])
+    """(out files from the root, generate commands run in the workspace): one per package, with no `--own`,
+    the generator's default reading a condition defined in another package of the workspace as a named one
+    and writing the roots it took, which `formal check` holds against [packages]; the files are `names`
+    (one per package, as flow.toml binds them) where given."""
     files, cmds = [], []
     for i, p in enumerate(packages):
         rel = names[i] if names else "scripts/" + ("decls.txt" if len(packages) == 1 else f"{p['package'] or Path(p['dir']).name}-decls.txt")
         out = Path(os.path.relpath(root / rel, ws)).as_posix()
         files.append(rel)
-        cmds.append(f"lake env lean --run DeclManifest.lean --roots {','.join(p['roots']) or '<Root>'} "
-                    + (f"--own {own} " if len(packages) > 1 else "") + f"--out {out}")
+        cmds.append(f"lake env lean --run DeclManifest.lean --roots {','.join(p['roots']) or '<Root>'} --out {out}")
     return files, cmds
 
 
