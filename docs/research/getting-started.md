@@ -41,7 +41,6 @@ summary: prove the lemma
 derived_from:
 - question-0001
 requires: []
-serves: null
 size: null
 owner: null
 drawn: null

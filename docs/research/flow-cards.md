@@ -74,7 +74,7 @@ The closed records carry a map of `date` and `reason` in `closed`: a removed ide
 | `criterion` | what would answer it, or show it wrong or impossible | minted (`--criterion`, the second word of `--subq` and `--question`); `flow set` |
 | `checked` | the ISO date the question was last looked at | minted; `rank`, `unpark`, `unblock`, `checked` |
 | `parked` | `null`, or a map of `date`, `reason` and `revival` while set aside by decision | `park`, `unpark`; cleared by every closing |
-| `blocked` | `null`, or a map of `date`, `on` (a task, a question or a condition in words, a date among them; a list of them where it waits on several) and `reason` while it waits | `block`, `unblock`; cleared by every closing |
+| `blocked` | `null`, or a map of `date`, `on` (a task, a question or a condition in words, a date among them; as a list, one item for each thing it waits on) and `reason` while it waits | `block`, `unblock`; cleared by every closing |
 | `rank` | its place on the ranked list, or `null` | `rank`; cleared by every closing |
 | `why_now` | why it is ranked, one clause | `rank --why`; cleared by every closing |
 | `first_move` | its first step, or "none yet" | `rank --first-move`; cleared by every closing |
@@ -85,14 +85,13 @@ The closed records carry a map of `date` and `reason` in `closed`: a removed ide
 
 ### A task
 
-`id`, `type`, `state`, `summary`, `derived_from`, `requires`, `serves`, `size`, `owner`, `drawn`, `dod`, `due`, `after`, `rank`, `why_now`, `first_move`, `rider`, `parked`, `blocked`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `summary`, `derived_from`, `requires`, `size`, `owner`, `drawn`, `dod`, `due`, `after`, `rank`, `why_now`, `first_move`, `rider`, `parked`, `blocked`, `closed`, `origin`, `source`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `ready`, `active`, `done`, `aborted` or `removed` | minted; `draw`, `return`, `make`, `abort`, `remove` |
 | `derived_from` | what it came from: the question a refine minted it from, the records of `--from` for `task` (a question there open), or the task whose make minted it; empty for a task that stands alone | minted |
 | `requires` | findings it needs before it is drawn | minted (`refine --requires`) |
-| `serves` | the id of the open goal it serves directly, or `null`; a task that came from a question serves through it, and a closed task keeps its as history | minted (`task --serves`); `rank --serves`; `flow set`; cleared on a ready or active task by `giveup` |
 | `size` | one of `[question] sizes`, an estimate for ordering | minted (`--size`); `flow set` |
 | `owner` | the owner whose hand holds it while active | `draw`; cleared by `return`, `make` and `abort` |
 | `drawn` | the ISO date it was drawn | `draw`; cleared by `return`, kept on a closed task as the day its work began |
@@ -194,7 +193,7 @@ Every closing is refused while a task that came from the question, naming it in 
 A question may be parked and blocked at once, and is closed in either position.
 That a question was refined is read from the tasks that came from it, not from a state: an open question that tasks came from, all of them closed, is listed as needing refine or answer.
 A question already answered refuses `--answers`: one finding answers a question, and a later one names it with `--from Q`.
-`rank`, `checked` and `flow set` act on an open question without changing its state; a goal given up clears `serves` on the open questions and the ready and active tasks serving it, and a direction dropped clears `direction` on the open questions leaning toward it, each printed as released.
+`rank`, `checked` and `flow set` act on an open question without changing its state; a goal given up clears `serves` on the open questions serving it, and a direction dropped clears `direction` on the open questions leaning toward it, each printed as released.
 
 ### A task's
 
@@ -226,7 +225,7 @@ It has no state transition after: it is never removed, since a finding found fal
 | --- | --- | --- | --- |
 | — | `open` | `goal --criterion`, on the owner's word; `--from` for the direction it was produced along or the idea it came from | `criterion`, `horizon`, `derived_from`, `tags`, a body where `--body` gives one |
 | `open` | `reached` | `reach --reason`, what shows it | `closed` with its date and reason |
-| `open` | `given_up` | `giveup --reason`, which clears `serves` on the open questions and the ready and active tasks serving it, their ranks kept, and prints them as released | `closed` with its date and reason |
+| `open` | `given_up` | `giveup --reason`, which clears `serves` on the open questions serving it, their ranks kept, and prints them as released | `closed` with its date and reason |
 
 ### A direction's
 
@@ -240,7 +239,7 @@ A goal produced along a direction (`goal --from D`) leaves the direction open; n
 ### The ranked list
 
 `rank` places an open question or a ready or active task at a place on the list, parked or blocked ones included, which keep their rank while they wait; everything else is refused.
-`flow rank ID N --why … --first-move …` gives one record a free rank, `--insert` takes a held rank and moves the records below it down by one, `flow rank --set ID…` fixes the whole order at once and clears every rank it does not name, and `flow rank ID --clear` clears one; `--direction D` writes a question's direction with its rank, and `--serves G` the goal a question or a task serves.
+`flow rank ID N --why … --first-move …` gives one record a free rank, `--insert` takes a held rank and moves the records below it down by one, `flow rank --set ID…` fixes the whole order at once and clears every rank it does not name, and `flow rank ID --clear` clears one; `--direction D` and `--serves G` write a question's direction and goal with its rank.
 A question given a rank by `rank ID N` or `rank --set` has its `checked` date refreshed; a clear, or a shift by `--insert`, leaves it.
 Every transition that clears a rank — `make`, `abort`, `remove`, `wrong`, `impossible`, `finding --answers`, a clear — renumbers the records that keep theirs and prints each as `re-ranked ID N → M`, so the list stays `1..n` without a hand on it.
 A due date never moves a rank: the open tasks that have one are listed under `Due`, soonest first, apart from the ranked list.

@@ -35,7 +35,7 @@ A task is work that is big, or that must outlive the turn: a later session or th
 Work that passes neither is done in the turn and named in the log entry, and an operation on a card is never a task.
 An operation that finds a big piece of work recommends a task and does not do it: `task --from` mints it with a summary and a definition of done saying what was being attempted; an idea is sorted into cards and never waits on one (returned with what is left, consumed when nothing is), while a question is what waits on its tasks.
 Independent pieces of work are not bundled into one task, and a task whose done cannot be stated in one definition of done is split; `size` is an estimate for ordering.
-A task may carry a due date (`--due YYYY-MM-DD`, `flow set T due DATE|none`), which never moves a rank: the index lists the open tasks that have one under `Due`, soonest first, `flow state` prints that list first and names a date that has passed, and `flow check` warns on one, never fails; a not-before date is no field but a block on a condition in words carrying the date (`flow block T --on "2026-12-01" --reason "…"`), which `flow state` names once it has passed.
+A task may carry a due date (`--due YYYY-MM-DD`, `flow set T due DATE|none`), which never moves a rank: the index lists the open tasks that have one under `Due`, soonest first, `flow state` prints that list first, within `[index] due_within` days where `flow.toml` binds it (the index keeps the whole list, since it never reads the day), and names a date that has passed, and `flow check` warns on one, never fails; a not-before date is no field but a block on a condition in words carrying the date (`flow block T --on "2026-12-01" --reason "…"`), which `flow state` names once it has passed.
 A task may carry a post-done instruction (`--after "…"`, `flow set T after "…"|none`), free text written at the open and printed by `make` and `abort` at the close for the agent to follow; a repeat is the agent minting the follow-up with `make --task`, no interval in the script.
 Tags are free words and no vocabulary is validated: `research` and `upkeep` are the usual ones, written at the mint (`--tag`) and changed after it with `flow tag ID +T -U`, a project's own words beside them; `flow tags` reports every tag in use with the records carrying it and the records carrying none, and a project's rule that rode on a kind rides on a tag, unchecked.
 
@@ -51,7 +51,7 @@ A drawn task that must wait is returned first, with a note, and then parked or b
 | Transition | Consumes and produces | Command |
 | --- | --- | --- |
 | capture | external → idea | `flow capture "…" --source S`; `--from ID` for an idea worked out of another record, `--tag T`, `--body FILE` |
-| task | external → task | `flow task "…" --tag upkeep`; `--from ID` for what it came from, a question, an idea or a task (a question named there is open), `--size`, `--dod`, `--due YYYY-MM-DD`, `--after "…"`, `--serves G` for the open goal it serves, `--source`, `--tag`, `--body FILE` |
+| task | external → task | `flow task "…" --tag upkeep`; `--from ID` for what it came from, a question, an idea or a task (a question named there is open), `--size`, `--dod`, `--due YYYY-MM-DD`, `--after "…"`, `--source`, `--tag`, `--body FILE` |
 | draw | ready task → active, or open idea → in the hand, under the owner's hand limit; refused while the task is parked or blocked | `flow draw task-0001 --owner agent` |
 | return | active task → ready, or an idea out of the hand | `flow return task-0001 --note "…"` |
 | make | active task → done and archived; follow-up tasks, questions and ideas; the task's `after` printed | `flow make task-0001 --resolution FILE --task "…" --idea "…"`; `--question SUMMARY CRITERION` mints a question, `--tag T` tags the tasks minted |
@@ -59,9 +59,9 @@ A drawn task that must wait is returned first, with a note, and then parked or b
 | consume | open idea → consumed into every card that names it in `derived_from`, one or many of any kind, listed in `consumed_by` | `flow consume idea-0001` |
 | remove | open idea, open question or ready task → removed with a dated reason; an active task is aborted instead | `flow remove idea-0001 --reason "…"` |
 | park, unpark | an open question or a ready task gains or loses a parking block: the date, the reason, and revival triggers where known (`--revival` is optional); the rank stays | `flow park task-0001 --reason "…" --revival "…"`; `flow unpark task-0001 --note "…"` |
-| block, unblock | an open question or a ready task gains or loses a block: the date, what it waits on (a task, a question, or a condition in words; `--on` repeated for several, each a record the index follows) and the reason; the rank stays | `flow block task-0001 --on question-0002 --on "the 2026-12 release" --reason "…"`; `flow unblock task-0001 --note "…"` |
-| rank | the ranked next list: one record's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1 --why "…" --first-move "…"`; `--direction D` on a question and `--serves G` on a question or a task; `--insert` to take a held rank and move the rest down; `flow rank --set ID…`; `flow rank task-0001 --clear` |
-| set | one hand-editable field: summary, size, dod, due, after, serves, rider on or off (true or false); `--note "…"` appends why to the body under the date | `flow set task-0001 size small`, `flow set task-0001 due 2026-12-01`, `flow set task-0001 serves goal-0001` |
+| block, unblock | an open question or a ready task gains or loses a block: the date, what it waits on (a task, a question, or a condition in words; `--on` repeated for several, kept as a list, each record among them followed by the index) and the reason; the rank stays | `flow block task-0001 --on question-0002 --on "the 2026-12 release" --reason "…"`; `flow unblock task-0001 --note "…"` |
+| rank | the ranked next list: one record's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1 --why "…" --first-move "…"`; `--direction D` and `--serves G` on a question; `--insert` to take a held rank and move the rest down; `flow rank --set ID…`; `flow rank task-0001 --clear` |
+| set | one hand-editable field: summary, size, dod, due, after, rider on or off (true or false); `--note "…"` appends why to the body under the date | `flow set task-0001 size small`, `flow set task-0001 due 2026-12-01` |
 | tag | a record's tags after its mint: `+T` adds one, `-T` removes one, the rest kept | `flow tag task-0001 +upkeep -research` |
 | note | a file's text appended to a record's body under today's date, through the record's write; no field changes | `flow note task-0001 --body FILE` |
 
@@ -108,7 +108,7 @@ A session's start is the `whatsnext` skill: it reads the inbox, proposes what to
 Transitions go through `flow`.
 Never edit `id`, `type`, `state`, `derived_from`, `consumed_by`, `owner`, `drawn`, `direction`, `serves`, `rank`, `parked`, `blocked`, `closed`, `origin` or `created` by hand.
 The one record written by hand is one imported from before the flow: its whole file, with `origin: legacy`, which exempts it from the criterion rule until its first round; no transition writes that value.
-Edit a body freely, by hand or with `flow note ID --body FILE`, which appends the file's text under today's date and needs no file name, and a `summary`, `size`, `dod`, `due`, `after` or `rider`, a question's `criterion` or `serves`, a task's `serves`, a goal's `criterion` or `horizon`, or a finding's `depends_on` with `flow set`, which refuses a field the record's type does not carry and a value the field does not take; a body is one sentence per line, and a write that adds a markdownlint violation is reverted where markdownlint is on PATH (with the project's configuration where `flow.toml` binds one or the root keeps one, else a built-in one under which a record's `summary:` is its title).
+Edit a body freely, by hand or with `flow note ID --body FILE`, which appends the file's text under today's date and needs no file name, and a `summary`, `size`, `dod`, `due`, `after` or `rider`, a question's `criterion` or `serves`, a goal's `criterion` or `horizon`, or a finding's `depends_on` with `flow set`, which refuses a field the record's type does not carry and a value the field does not take; a body is one sentence per line, and a write that adds a markdownlint violation is reverted where markdownlint is on PATH (with the project's configuration where `flow.toml` binds one or the root keeps one, else a built-in one under which a record's `summary:` is its title).
 A body refers to a repository path, a document, a probe, a dataset, by a Markdown link whose target is the path from the project root (`[the theorem](<papers/alpha.md#Theorem 2.1>)`, the angle brackets where the target holds a space); a URL, a bare `#anchor` and a path in backticks are prose, so the check never fails on a guess.
 The front matter is the subset of YAML the script writes: plain scalars, single-quoted strings (a quote doubled inside), double-quoted strings with escapes, `null`, `true`/`false`, integers, block lists (`- item`) and one-level maps; a hand edit stays inside that subset, and `flow check` reads every record back.
 A record points at where its subject is STATED and never restates it, because the statement moves and a copy does not.
@@ -226,7 +226,7 @@ Findings live in one directory, and the document a finding belongs to is a refer
 | impossible | an open question → impossible, by the finding that shows it, minted first | `flow impossible question-0001 --by finding-0002` |
 | remove | an open question → removed with a dated reason | `flow remove question-0001 --reason "…"` |
 | checked | refresh a question's last-checked date | `flow checked question-0001 …` |
-| set | `criterion` and `serves` on a question, `serves` on a task, `criterion` and `horizon` on a goal (what it read kept in the body), `depends_on` on a finding (a cycle is refused) | `flow set question-0001 criterion "…"`, `flow set question-0001 serves goal-0001`, `flow set goal-0001 criterion "…" --note "the owner: …"` |
+| set | `criterion` and `serves` on a question, `criterion` and `horizon` on a goal (what it read kept in the body), `depends_on` on a finding (a cycle is refused) | `flow set question-0001 criterion "…"`, `flow set question-0001 serves goal-0001`, `flow set goal-0001 criterion "…" --note "the owner: …"` |
 
 On the usual path a task is made first and its finding minted after it: `flow make T`, then `flow finding … --from T --answers Q`.
 One finding answers a question, so `--answers` on a question already answered is refused; a later finding names it with `--from Q`.
@@ -243,10 +243,9 @@ A direction is the way the research moves, not a boundary or a gate: the owner's
 A goal implies its own direction, towards itself, so no direction record stands behind one; a direction needs no goal, and may produce goals along the way (`flow goal … --from D`), staying open.
 Both are records minted and closed on the owner's word alone: `flow goal SUMMARY --criterion "…" [--horizon "…"] [--from D|IDEA]`, `flow reach G --reason "…"` (what shows it reached), `flow giveup G --reason "…"`; `flow direction NAME --body FILE`, `flow drop D --reason "…"`; a session proposes them in the log entry and mints none unasked.
 A question names the direction it leans toward in `direction` and the goal it serves in `serves`, each an open record's id (`frame --direction D --serves G`, `rank --direction D --serves G`, `flow set Q serves G|none`), and may carry both.
-A task names the goal it serves in its own `serves` where it serves one directly, an upkeep chore or a deliverable no question stands behind (`flow task … --serves G`, `rank --serves G`, `flow set T serves G|none`); a task that came from a question serves through it and carries none.
 A goal's `criterion` and `horizon` are the owner's words: `flow set G criterion "…"` leaves what it read in the body, dated, and `--note "…"` the owner's words for the change.
-A goal given up releases its open questions and its ready and active tasks, which serve nothing and keep their ranks for `whatsnext` to re-rank; a direction dropped clears its open questions' `direction`; a closed question keeps what it served and leaned toward as history.
-`flow directions` renders the open directions as the owner's list; the index lists the open goals under `Goals`, each with the open questions and the ready and active tasks serving it, and the open directions under `Directions`, and `whatsnext` reads its case off them: no goal and no direction, directions and no goal, a goal.
+A goal given up releases its open questions, which serve nothing and keep their ranks for `whatsnext` to re-rank; a direction dropped clears its open questions' `direction`; a closed question keeps what it served and leaned toward as history.
+`flow directions` renders the open directions as the owner's list; the index lists the open goals under `Goals`, each with the open questions serving it, and the open directions under `Directions`, and `whatsnext` reads its case off them: no goal and no direction, directions and no goal, a goal.
 
 ### Invariants the validator adds
 
@@ -255,7 +254,7 @@ A goal given up releases its open questions and its ready and active tasks, whic
 - Every open question has a last-checked date; a current question has a criterion, and a question imported from before the flow gains one at its first round.
 - An answered or impossible question names the one finding that settles it in `answered_by`, one value, never a task, one imported from before the flow excepted where it names none; no other question names one.
 - A consumed idea lists in `consumed_by` the cards it was folded into, each naming it in `derived_from`.
-- An open question's `direction` names an open direction and its `serves` an open goal, and so does a ready or active task's `serves`.
+- An open question's `direction` names an open direction and its `serves` an open goal.
 - A reached or given-up goal, and a closed direction, carry their dated reason in `closed`.
 - No cycles in `depends_on`.
 

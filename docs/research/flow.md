@@ -18,7 +18,7 @@ A generated index keeps a ranked list of open work with a reason for each rank a
 | Transitions | Command |
 | --- | --- |
 | an idea from a source, or worked out of another record | `flow capture "…" --source S`, `flow capture "…" --from idea-0001` |
-| a standalone task, or one that came from a question, an idea or a task | `flow task "…" --tag upkeep`, `flow task "…" --from question-0001 --tag research`; `--due YYYY-MM-DD`, `--after "…"`, `--serves G` |
+| a standalone task, or one that came from a question, an idea or a task | `flow task "…" --tag upkeep`, `flow task "…" --from question-0001 --tag research`; `--due YYYY-MM-DD`, `--after "…"` |
 | ideas, one finding or a document into a question with its criterion | `flow frame idea-0001 --summary "…" --criterion "…"`, `flow frame --source PATH --summary "…" --criterion "…"`; `--direction D`, `--serves G` |
 | a question into tasks, sub-questions and ideas | `flow refine question-0001 --task "…" --subq "…" "…" --idea "…" --tag research` |
 | a task or an idea into a hand, and back out | `flow draw task-0001 --owner agent`, `flow return task-0001 --note "…"` |
@@ -30,7 +30,7 @@ A generated index keeps a ranked list of open work with a reason for each rank a
 | an idea consumed into every card that came from it | `flow consume idea-0001` |
 | drop an open idea, an open question or a ready task | `flow remove ID --reason "…"` |
 | set aside by decision, wait on something | `flow park ID --reason "…" --revival "…"`, `flow unpark ID --note "…"`, `flow block ID --on question-0002 --on "the release" --reason "…"`, `flow unblock ID --note "…"` |
-| the ranked next list | `flow rank task-0001 1 --why "…" --first-move "…"`, `--insert`, `flow rank --set ID…`, `flow rank task-0001 --clear`; `--direction D` on a question, `--serves G` on a question or a task |
+| the ranked next list | `flow rank task-0001 1 --why "…" --first-move "…"`, `--insert`, `flow rank --set ID…`, `flow rank task-0001 --clear`; `--direction D`, `--serves G` on a question |
 | refresh a question's checked date | `flow checked question-0001` |
 | one hand-editable field | `flow set task-0001 size small`, `flow set task-0001 due 2026-12-01`, `flow set question-0001 criterion "…"`, `flow set question-0001 serves goal-0001`, `flow set task-0001 rider on`, `flow set goal-0001 criterion "…" --note "…"` |
 | a record's tags after its mint | `flow tag task-0001 +upkeep -research` |
@@ -50,7 +50,7 @@ The records live under the directory `flow.toml` binds (`records/` by default), 
 Three files stand beside them.
 
 `INDEX.md` is written by `flow index`, and refreshed by every transition, never by hand; `flow check` fails when it differs from a fresh render.
-Its sections, in order: the counts by kind and state, a finding's by the forms its evidence carries; `Due`, where an open task has a due date, soonest first; `Next (ranked)`, each item with its direction and the goal it serves, why now, first move and a `waits:` line for each parking or block it carries, then the riders for the next hand-over; `Hand`, one subsection per owner with the active tasks, each with its tags, its drawn date and the ids it came from, and the ideas drawn into it; `Goals`, where a goal is open, each with what reached means, its horizon and the open questions and ready and active tasks serving it; `Directions`, the open ones with their dates; `Ready`, the ready tasks by size, with their tags, the ids each came from, the goal it serves and its waits; `Open questions`, those neither parked nor blocked, by their checked date; `Parked or blocked questions`; `Needs refine or answer`, the open questions that tasks came from and whose every such task is closed; `Recent findings`, each with its forms; `Settled, do not re-open`, the wrong and impossible questions and those tagged `do-not-reopen`; and `Heap`, the open ideas in no hand, the oldest listed.
+Its sections, in order: the counts by kind and state, a finding's by the forms its evidence carries; `Due`, where an open task has a due date, soonest first; `Next (ranked)`, each item with its direction and the goal it serves, why now, first move and a `waits:` line for each parking or block it carries, then the riders for the next hand-over; `Hand`, one subsection per owner with the active tasks, each with its tags, its drawn date and the ids it came from, and the ideas drawn into it; `Goals`, where a goal is open, each with what reached means, its horizon and the open questions serving it; `Directions`, the open ones with their dates; `Ready`, the ready tasks by size, with their tags, the ids each came from and its waits; `Open questions`, those neither parked nor blocked, by their checked date; `Parked or blocked questions`; `Needs refine or answer`, the open questions that tasks came from and whose every such task is closed; `Recent findings`, each with its forms; `Settled, do not re-open`, the wrong and impossible questions and those tagged `do-not-reopen`; and `Heap`, the open ideas in no hand, the oldest listed.
 A removed record is in no list and no count; `flow find --state removed` lists it, and `flow find --id ID` opens it.
 The index never reads the day, so it is the same render until a record changes: a due date or a block's date that has passed is named by `flow state` and warned of by `flow check`, not marked in the index.
 
@@ -61,7 +61,7 @@ The log is bound by `[paths] log` and is not a record: its entries are level-2 h
 
 Directions are records, not a file: `flow directions` renders the open ones as the owner's list, `- **Name** (date, id) — the words`, from their summaries and bodies; a question's `direction` names one by its id.
 
-`flow state` prints, every line with its file and line, the inbox, the index's `Due`, `Next (ranked)` and `Hand` sections, a line for each due date or block date that has passed, and the log's top entry; the index is what a session reads next.
+`flow state` prints, every line with its file and line, the inbox, the index's `Due` (within `[index] due_within` days where that is bound, with a line counting the later ones the index lists), `Next (ranked)` and `Hand` sections, a line for each due date or block date that has passed, and the log's top entry; the index is what a session reads next.
 `flow artifacts` lists every repository path the records refer to — a probe, a result, a document, by an evidence item, a body link or a `source` that is a path of the tree — with the records naming each and `MISSING` where it is not in the tree: the artifacts index, generated from the records as `INDEX.md` is, with no register to keep consistent.
 
 ## `flow.toml`
@@ -135,6 +135,7 @@ forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 [index]
 recent_findings = 10
 oldest_ideas = 5
+# due_within = 14   # `flow state` lists the tasks due within this many days, and every passed date; unset, all
 ```
 
 ## The check
@@ -168,7 +169,7 @@ Each check ends with coverage lines saying what it looked at and what it did not
 | V19 | a body is not one sentence per line |
 | V20 | a date — `created`, `checked`, `drawn`, or that of a `parked`, `blocked` or `closed` — is not an ISO date or is in the future, a task's `due` is not an ISO date (it may lie ahead), or a closed task still carries an owner (its `drawn` date stays, the day its work began) |
 | V21 | a record is not in its type's directory (a finding under a shard directory of an older model among them), a closed task is not in the archive, or an open one is |
-| V22 | an open question's `direction` names a direction that is not open, or its `serves` a goal that is not open, or a ready or active task's `serves` does |
+| V22 | an open question's `direction` names a direction that is not open, or its `serves` a goal that is not open |
 | V23 | a record cites a library key the library does not hold, or an extract its card does not carry; or the library did not answer |
 | V24 | a live record's body links a repository path that is not in the tree (a Markdown link's target, root-relative; a URL, a bare anchor and a path in backticks are prose) |
 

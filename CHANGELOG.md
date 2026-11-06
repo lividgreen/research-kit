@@ -4,32 +4,32 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
-The consumers' pieces after v0.4.3: a pins check and a runner script for both plugins, the setup probe naming what an upgrade still asks, a task serving a goal, a document's anchors the project binds and its headings, a block on several things, a question framed from a document, the records a freeze's log is to name, and a file class for the register.
+The consumers' pieces after v0.4.3: a pins check for both plugins against the latest release, the setup probe naming what an upgrade still asks, a document's anchors the project binds and its headings, a block on several things, a question framed from a document, the records a freeze's log is to name, a window on the due list, and a file class for the register.
 
 **Upgrading**, from v0.4.3 or earlier:
 
 1. Move the three pins, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart; `research-init`'s probe now names each pin that is off with its command, and the releases between whose **Upgrading** paragraphs to read.
-2. A task gains `serves`: run `flow doctor --fix`, which writes `serves: null` into every task, then `flow check`. The `flow-check` hook at the new tag fails every record-touching commit until it is done, so the bump and this edit land in one commit, as in v0.4.1.
+2. A block's `on` is a list now: run `flow doctor --fix`, which writes each block's one value as a one-item list, then `flow check`. The `flow-check` hook at the new tag fails every record-touching commit while a block of the old shape stands, so the bump and this edit land in one commit, as in v0.4.1; a project with no block has nothing to fix.
 3. Nothing else in the records changes; `[evidence] statement_words` and `row_id` default to the words and the id pattern the check read before.
 
 The flow:
 
-- A task names the goal it serves in `serves`, as a question does, where it serves one directly (an upkeep chore, a deliverable no question stands behind): `flow task … --serves G`, `flow rank T N … --serves G`, `flow set T serves G|none`. The index lists it under the goal and in `Ready`, a goal given up releases it with the questions, and V22 holds a ready or active task's goal to an open one.
 - A document's anchor in evidence may be a heading, by the anchor GitHub gives it (`stated:docs/adr/0003.md#decision`, `statistical:reports/rates.md#measured-rates-2026-10`, a repeated heading numbered `-1`, `-2`), beside a row and a numbered statement; `statistical` and `reference` items naming a Markdown document with an anchor are checked as a `stated` one is, and a refusal names the nearest heading's anchor.
 - `[evidence] statement_words` binds the words a numbered statement takes (the nine the check read, unset; "Law", "Confirmation", or a symbol such as `§` taking its number with no space) and `[evidence] row_id` the pattern a table row's id matches (two or three capitals, a hyphen, then letters and digits, unset; `[A-Z][0-9]+` for rounds named `A2`, `M3`); `flow init` writes both commented, and a word with a space or a pattern matching an empty anchor is refused when `flow.toml` is read.
-- `flow block ID --on X --on Y --reason R` waits on several things at once, the records among them followed by the index's wait, `flow show`'s back-references and `flow find --refers`; one `--on` writes one value as before, several a list, and the check warns when every one of them has closed or passed.
+- `flow block ID --on X --on Y --reason R` waits on several things at once, the records among them followed by the index's wait, `flow show`'s back-references and `flow find --refers`; a block's `on` is always a list, one item for one thing, V15 failing one value with `flow doctor --fix` writing it as a list, and the check warns when every one of them has closed or passed.
 - `flow frame --source PATH --summary … --criterion …` frames a question from a document of the tree, an ADR or a report, with no idea captured first; a record's `source` that is a path of the tree is read by `flow artifacts` and `flow find --refers`.
 - `flow touched` lists the records changed since the commit of the log's newest committed entry, each with its summary, type and state, the ones `flow state --check` holds today's entry to name: `--unnamed` only those no entry names yet, `--ids` the ids on one line, `--since REV` since another commit; the check's failure line names it.
 - `flow set G criterion "…"` and `flow set G horizon "…"` on a goal leave what the field read in the body under the date, and `--note "…"` on any `set` appends the words given, the owner's for a goal.
-- The records' front matter takes a list under a map's key, the shape a block on several writes, which PyYAML reads as the same list.
+- `[index] due_within = N` narrows `flow state`'s due list to the tasks due within N days and every passed date, with a line counting the later ones; the index keeps the whole list, since it never reads the day, and `flow init` writes the binding commented.
+- The records' front matter takes a list under a map's key, the shape a block's `on` writes, which PyYAML reads as the same list.
 
 The `research` plugin:
 
 - The setup probe's `pins at one tag` reads every plugin of the research-kit marketplace that Claude Code installed for the project, from its install record `~/.claude/plugins/installed_plugins.json` (`CLAUDE_CONFIG_DIR` moving `~/.claude`; the project's own entry, local or project scope, over a user one), against the hooks' `rev` and the marketplace's `ref`. It names each one off the newest tag, and a plugin the settings enable and the record lacks, with the commands that move it; where the record is absent it says so and compares the rest.
 - The setup probe's new `upgrade` section, in the text and under `--json`, names the steps a move to another release still asks, each with its command: the pins' steps with the releases between whose **Upgrading** paragraphs to read (by tag and the changelog's URL); what `flow doctor` of the flow skill beside it finds, as N mechanical edits for `flow doctor --fix` and M things for the hand; a stale index for `flow index`. It runs the two flow commands read-only and still writes nothing.
 - `setup runner [--root DIR] [--out PATH] [--force]` writes the project's runner script, `scripts/kit.py` by default and only on the person's yes: `kit.py run SKILL ARGS…` runs a skill's script by its installed path, `kit.py path SKILL` prints it, and `kit.py check` prints the pins and exits 1 where they disagree; `run` and `path` refuse while they do. It installs nothing and is the project's file once written.
-- The migration guide says what a project of measurements brings — a report's heading or a row id the project binds as a finding's evidence, the roadmap as the registry beside the records, a tag per workstream, an ADR's open point framed `--source` it — and gives a worked survey and the mapping message the person approves.
-- `/research:freeze` names `flow touched --unnamed` for the ids the log's entry is to name, and `/research:whatsnext` ranks the tasks serving a goal under it with the questions.
+- The migration guide says what a project of measurements brings — a report's heading or a row id the project binds as a finding's evidence, the roadmap as the registry beside the records, how its workstreams are pointed at asked of the person, an ADR's open point framed `--source` it — and gives a worked survey and the mapping message the person approves.
+- `/research:freeze` names `flow touched --unnamed` for the ids the log's entry is to name.
 
 The `formal` plugin:
 
