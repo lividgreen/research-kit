@@ -960,6 +960,13 @@ def heading_anchors(text):
     return out
 
 
+def _cached(cache, key, make):
+    """The cache's value under `key`, made once: `setdefault` would read or scan on every call."""
+    if key not in cache:
+        cache[key] = make()
+    return cache[key]
+
+
 def _resolve_document(cfg, target, cache, form="stated"):
     """A row, a numbered statement or a heading of a document of the project: the file, then the anchor in it."""
     m = EV_ANCHORED.match(target)
@@ -970,7 +977,7 @@ def _resolve_document(cfg, target, cache, form="stated"):
     f = cfg.root / doc
     if not f.is_file():
         return f"{doc} is not a file"
-    text = cache.setdefault(f, f.read_text(encoding="utf-8"))
+    text = _cached(cache, f, lambda: f.read_text(encoding="utf-8"))
     if cfg.ev_row.match(target):
         return None if re.search(r"^\| *%s *\|" % re.escape(anchor), text, re.M) else f"row {anchor} is not in {doc}"
     s = cfg.ev_stmt.match(target)
@@ -979,7 +986,7 @@ def _resolve_document(cfg, target, cache, form="stated"):
         if not re.search(r"(^|\*\*|#+ )%s\b" % re.escape(said), text, re.M):
             return f"{said} is not in {doc}"
         return None
-    anchors = cache.setdefault((f, "#"), heading_anchors(text))
+    anchors = _cached(cache, (f, "#"), lambda: heading_anchors(text))
     if anchor in anchors:
         return None
     near = difflib.get_close_matches(anchor.lower(), anchors, n=1, cutoff=0.6)
@@ -992,7 +999,7 @@ def _resolve_probe(cfg, target, cache):
         return f"{target} is not a file"
     if not cfg.probes or not (cfg.root / cfg.probes).is_file():
         return "unchecked: no probes register bound ([evidence] probes)"
-    text = cache.setdefault(cfg.root / cfg.probes, (cfg.root / cfg.probes).read_text(encoding="utf-8"))
+    text = _cached(cache, cfg.root / cfg.probes, lambda: (cfg.root / cfg.probes).read_text(encoding="utf-8"))
     name = Path(target).name
     listed = {mm.group(1) for line in text.splitlines() if line.startswith("|")
               for mm in [re.fullmatch(r"`([^`]+\.py)`", line.split("|")[1].strip())] if mm}
@@ -2323,8 +2330,8 @@ def cmd_artifacts(cfg, recs, a, today):
                 paths[p].append({"id": r.id, "via": "evidence"})
         for p in sorted(set(body_links(r.body))):
             paths[p].append({"id": r.id, "via": "body"})
-        p = source_path(r)
-        if p and (cfg.root / p).exists() and r.id not in [x["id"] for x in paths[p]]:  # a source in words is no path
+        p = source_path(r)  # a source in words is no path; one that is a path is listed whether or not it is still in the tree
+        if p and r.id not in [x["id"] for x in paths[p]]:
             paths[p].append({"id": r.id, "via": "source"})
     return [{"path": p, "exists": (cfg.root / p).exists(), "records": paths[p]} for p in sorted(paths)]
 
@@ -2561,19 +2568,38 @@ def close_check(cfg, recs, today):
     return fails, checked, undecided
 
 
+def entries_since(cfg, base):
+    """The log's entries from the top down to the newest one the log held at a commit, that one included, as the
+    text an entry since the commit names a record in; every entry where the log was not there, none where there
+    is no log."""
+    if not (cfg.log and cfg.log.is_file()):
+        return []
+    ls = cfg.log.read_text(encoding="utf-8").split("\n")
+    held = set((git(cfg, "show", f"{base}:./{rel(cfg, cfg.log)}") or "").split("\n"))
+    named = []
+    for s, e, d in log_entries(ls):
+        named.append("\n".join(ls[s:e]))
+        if ls[s] in held:
+            break
+    return named
+
+
 def cmd_touched(cfg, recs, a, today):
     """The records changed since a commit, for the log's entry to name: by default since the commit of the log's
-    newest committed entry, the base `flow state --check` reads; `--unnamed`, those no entry since then names."""
-    why, ls, entries, named, base, base_date = freeze_base(cfg)
+    newest committed entry, the base `flow state --check` reads, named by an entry from the top down to that one;
+    `--since REV` since another commit, named by an entry from the top down to the newest the log held at REV;
+    `--unnamed`, those no such entry names."""
     if a.since:
         if git(cfg, "rev-parse", "--is-inside-work-tree") is None:
             raise NotRun(f"git is absent, or {cfg.root} is not in a work tree")
         base = (git(cfg, "rev-parse", "--verify", "--quiet", a.since + "^{commit}") or "").strip()
         if not base:
             raise Refused(f"--since {a.since}: no such commit")
-        base_date = None
-    elif why is not None:
-        raise NotRun(f"the base is the commit of the log's newest committed entry, and {why}; `--since REV` names another")
+        named, base_date = entries_since(cfg, base), None
+    else:
+        why, ls, entries, named, base, base_date = freeze_base(cfg)
+        if why is not None:
+            raise NotRun(f"the base is the commit of the log's newest committed entry, and {why}; `--since REV` names another")
     _, ids = changed_since(cfg, base)
     text = "\n".join(named)
     out = []
@@ -2587,7 +2613,7 @@ def cmd_touched(cfg, recs, a, today):
     return out, said
 
 
-# --- the log: an entry written at its top# --- the log: an entry written at its top, the old ones archived by month ------------
+# --- the log: an entry written at its top, the old ones archived by month ------------
 #
 # Dated entries, newest first, each a `## YYYY-MM-DD — headline` opening with a `**State.**`
 # paragraph.  `flow log add` writes one at the top, reflowed and linted as a record is;
@@ -2974,6 +3000,8 @@ def doctor(cfg, today):
     def deleter(fm, k):
         return lambda: fm.pop(k, None)
 
+    docs = {}  # the documents read while anchors are resolved
+
     for r in sorted(recs.values(), key=lambda r: r.id or ""):
         t, path, fm = r.type, rel(cfg, r.path), r.fm
         if t not in SCHEMA:
@@ -3059,7 +3087,14 @@ def doctor(cfg, today):
         if t == "finding":
             for n, e in enumerate(r["evidence"] or []):
                 e = str(e)
-                if split_evidence(e) is None:
+                s_e = split_evidence(e)
+                if s_e and s_e[0] in ("statistical", "reference") and EV_ANCHORED.match(s_e[1]) \
+                        and (cfg.root / EV_ANCHORED.match(s_e[1]).group(1)).is_file():
+                    why = _resolve_document(cfg, s_e[1], docs, s_e[0])
+                    if why:  # an anchor the check held to the file's existence alone before v0.5.0
+                        add(f"evidence {e}", f"{why}: a document's anchor under {s_e[0]} is checked as a stated item's is now; "
+                            f"cite the row, the numbered statement or the heading's anchor, or the path alone")
+                if s_e is None:
                     prefix = ("formal" if cfg.ev_decl.match(e) or cfg.ev_declfile.match(e) else "statistical" if EV_PROBE.match(e)
                               else "stated" if cfg.ev_row.match(e) or cfg.ev_stmt.match(e) else None)
 
@@ -3553,6 +3588,13 @@ def selftest():
         expect("a question framed from a document, no idea captured first, names it as its source, listed by artifacts and --refers",
                recs[qs]["source"] == "papers/alpha.md" and recs[qs]["derived_from"] == [] and qs in ids(["find", "--refers", "papers/alpha.md"])
                and {"id": qs, "via": "source"} in next(x for x in run(["artifacts"])["artifacts"] if x["path"] == "papers/alpha.md")["records"])
+        (cfg.root / "papers" / "draft.md").write_text("# Draft\n", encoding="utf-8")
+        qd = run(["frame", "--source", "papers/draft.md", "--summary", "Is the draft's claim right?", "--criterion", "a check"])["created"][0]
+        (cfg.root / "papers" / "draft.md").unlink()
+        gone = next((x for x in run(["artifacts"])["artifacts"] if x["path"] == "papers/draft.md"), None)
+        expect("a source that is a path, gone from the tree, stays in the artifacts index as MISSING, as a body link does",
+               gone is not None and not gone["exists"] and {"id": qd, "via": "source"} in gone["records"])
+        run(["remove", qd, "--reason", "framed for the test"])
         run(["frame", "--source", "papers/none.md", "--summary", "S", "--criterion", "k"], ok=False)  # no such file
         run(["frame", "--source", "a talk with the owner", "--summary", "S", "--criterion", "k"], ok=False)  # words, no path
         run(["frame", "--summary", "S", "--criterion", "k"], ok=False)  # nothing it came from
@@ -4202,6 +4244,20 @@ def selftest():
             expect("touched lists a record an entry names as named, and --unnamed leaves it out",
                    go(["touched"])["touched"][0]["named"] and go(["touched", "--unnamed"])["touched"] == []
                    and [x["id"] for x in go(["touched", "--since", "HEAD"])["touched"]] == ["idea-0001"])
+            # --since REV: named by an entry from the top down to the newest the log held at REV, not only down to the newest committed one
+            head0, log0 = (git(cfg, "rev-parse", "HEAD") or "").strip(), cfg.log.read_text(encoding="utf-8")
+            for argv in (["add", "-A"], ["commit", "-q", "--no-verify", "-m", "the idea and the entry naming it"]):
+                subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
+            entry.write_text("## 2026-10-27 — nothing new\n\n**State.** No record changed.\n", encoding="utf-8")
+            go(["log", "add", str(entry)])
+            for argv in (["add", "-A"], ["commit", "-q", "--no-verify", "-m", "an entry naming nothing"]):
+                subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
+            t0 = go(["touched", "--since", head0])["touched"]
+            expect("touched --since REV names a record by the entries since REV, an entry below the newest committed one among them",
+                   [x["id"] for x in t0] == ["idea-0001"] and t0[0]["named"] and go(["touched", "--since", head0, "--unnamed"])["touched"] == []
+                   and go(["touched", "--since", "HEAD"])["touched"] == [] and "the commit of the log's entry" not in go(["touched", "--since", head0])["base"])
+            subprocess.run(gitc + ["reset", "-q", head0], cwd=root, capture_output=True, text=True)
+            cfg.log.write_text(log0, encoding="utf-8")
             cfg.inbox.write_text("# Inbox\n\n- look at the bound\n", encoding="utf-8")
             p = go(["state", "--check"])
             expect("an inbox holding items is no failure of the freeze: the next session reads it", not p["problems"])
@@ -4254,7 +4310,10 @@ def selftest():
             old("question-0003", lambda fm: fm.update(answered_by=["finding-0002"], blocked={"date": today, "on": "the release", "reason": "r"}))
             old("idea-0001", lambda fm: fm.update(consumed_by="question-0001"))
             old("finding-0001", lambda fm: fm.update(status="refuted", paper="alpha",
-                                                     evidence=["papers/alpha.md#Theorem 2.1", "probes/p.py", "Lib/Foo.lean#lemma_L"]))
+                                                     evidence=["papers/alpha.md#Theorem 2.1", "probes/p.py", "Lib/Foo.lean#lemma_L",
+                                                               "reference:papers/alpha.md#Section 2"]))  # an anchor held to the file's existence before v0.5.0
+            (r2 / "papers").mkdir()
+            (r2 / "papers" / "alpha.md").write_text("# Alpha\n\n**Theorem 2.1.** It holds.\n\n## Section 2\n", encoding="utf-8")
             toml0 = (r2 / "flow.toml").read_text(encoding="utf-8")
             (r2 / "flow.toml").write_text(toml0 + '\n[task]\ndefault_kind = "work"\ndecision_owners = ["owner"]\n[finding]\nstated = "proven"\n', encoding="utf-8")
             (r2 / "records" / "directions.md").write_text("# Directions\n\n## Inbox\n\n- an item\n\n## Directions\n\n- **Bridge** (2026-01-01) — the words.\n", encoding="utf-8")
@@ -4273,6 +4332,7 @@ def selftest():
                     "kind: work — goes: a kind is a tag now", "status: refuted — goes: the forms of the evidence stand for it; delete the field, and add the tag `refuted`",
                     "paper: alpha — goes", "evidence papers/alpha.md#Theorem 2.1 — stated:papers/alpha.md#Theorem 2.1",
                     "evidence probes/p.py — statistical:probes/p.py", "evidence Lib/Foo.lean#lemma_L — formal:Lib/Foo.lean#lemma_L",
+                    "evidence reference:papers/alpha.md#Section 2 — #Section 2 is no row", "the nearest heading's anchor is #section-2: a document's anchor under reference is checked",
                     "consumed_by: question-0001 — consumed_by as a list", "answered_by as a list — answered_by: null")
             expect("the doctor names each old word and field with what it reads now, and exits 1",
                    rc == 1 and all(any(w in x for x in said) for w in want))
@@ -4285,9 +4345,10 @@ def selftest():
             expect("the doctor summarizes the mechanical classes with a count each and keeps the judgment lines apart", ok)
             if not ok:
                 print("      ", pl["summary"], "\n       ", "\n        ".join(x["msg"] for x in pl["problems"]))
-            # the fix: the mechanical classes written in place, the judgment ones left to the hand, then a green check
-            (r2 / "papers").mkdir()
-            (r2 / "papers" / "alpha.md").write_text("# Alpha\n\n**Theorem 2.1.** It holds.\n", encoding="utf-8")
+            # the fix: the mechanical classes written in place, the judgment ones left to the hand, then a green check;
+            # the hand's part first: the anchor of the old shape rewritten to the heading's
+            recs = load_all(c2)
+            old("finding-0001", lambda fm: fm["evidence"].__setitem__(3, "reference:papers/alpha.md#section-2"))
             (r2 / "probes").mkdir()
             (r2 / "probes" / "p.py").write_text("print('ok')\n", encoding="utf-8")
             rc, pl = dispatch(c2, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
@@ -4315,7 +4376,8 @@ def selftest():
                    and recs["task-0004"]["owner"] is None and recs["task-0004"]["drawn"] == today
                    and recs["idea-0002"]["owner"] is None and recs["idea-0002"]["drawn"] is None
                    and recs["question-0002"]["answered_by"] == "finding-0002" and recs["question-0003"]["answered_by"] == ["finding-0002"] and recs["question-0003"]["blocked"]["on"] == ["the release"]
-                   and recs["finding-0001"]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1", "statistical:probes/p.py", "formal:Lib/Foo.lean#lemma_L"]
+                   and recs["finding-0001"]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1", "statistical:probes/p.py", "formal:Lib/Foo.lean#lemma_L",
+                                                            "reference:papers/alpha.md#section-2"]
                    and recs["finding-0001"]["tags"] == ["refuted"] and not {"status", "paper"} & set(recs["finding-0001"].fm)
                    and list(recs["finding-0001"].fm) == list(SCHEMA["finding"]))
             # the hand's part: the bindings and the file, the open question's answer cleared, and the direction minted; two of that name

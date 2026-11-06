@@ -1856,11 +1856,13 @@ def imports_of(path):
 OWN_LINE = re.compile(r"^# own roots:(.*)$", re.M)
 
 
-def own_problems(cfg, tree, regen):
+def own_problems(cfg, tree, regen, imports=None):
     """Each manifest's roots taken as own, its `# own roots:` line, against [packages]: a root [packages] does
     not bind read as the project's own, and a bound root the package's modules import, directly or through
-    another, left out; a manifest without the line is an older generator's."""
-    problems, bound, imports, older = [], set(cfg.packages), {}, []
+    another, left out; a manifest without the line is an older generator's.  `imports`, {module: its imports}
+    for the modules read so far, is filled as modules are read and shared with the other structure checks."""
+    problems, bound, older = [], set(cfg.packages), []
+    imports = {} if imports is None else imports
     for m in cfg.manifests:
         try:
             text = m.read_text(encoding="utf-8")
@@ -1904,7 +1906,7 @@ def own_problems(cfg, tree, regen):
 def structure_problems(cfg, all_rows):
     """The manifests' modules against the tree, each root's umbrella, the roots each manifest read as own, and the
     import direction between packages."""
-    problems = []
+    problems, imports = [], {}  # each module's imports read once, for the own-roots walk and the package order
     tree = tree_modules(cfg)
     listed = {r.module for r in all_rows if r.kind == "module"}
     bound = set(cfg.packages)
@@ -1917,7 +1919,7 @@ def structure_problems(cfg, all_rows):
                         f"{', '.join(extra) or '-'}) — regenerate them in the workspace: {regen}")
     if unbound:
         problems.append(f"the manifests count modules under roots [packages] does not bind: {', '.join(unbound)}")
-    problems += own_problems(cfg, tree, regen)
+    problems += own_problems(cfg, tree, regen, imports)
     if cfg.umbrellas:
         for root, d in cfg.packages.items():
             umbrella = d / f"{root}.lean"
@@ -1946,7 +1948,9 @@ def structure_problems(cfg, all_rows):
             low = rank.get(mod.split(".")[0])
             if low is None:
                 continue
-            for imp in imports_of(f):
+            if mod not in imports:
+                imports[mod] = imports_of(f)
+            for imp in imports[mod]:
                 high = rank.get(imp.split(".")[0])
                 if high is not None and high > low:
                     problems.append(f"{f.relative_to(cfg.root).as_posix()} imports {imp}, against the package order {order}")
