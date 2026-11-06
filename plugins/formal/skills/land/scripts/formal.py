@@ -52,6 +52,8 @@ import sys
 import tempfile
 import tomllib
 import traceback
+import urllib.error
+import urllib.request
 from collections import OrderedDict, defaultdict, namedtuple
 from pathlib import Path
 
@@ -125,7 +127,8 @@ sanctioned = []
 # patterns = ['\\bworklog\\b', '\\bhandoff\\b']   # literal strings: a backslash is the regex's
 # A file class: every `X.lean` its `scope` names is a module (a tracked `.lean` file) of its
 # `packages`, directories as in package_order (omitted: each file's own package and those before
-# it), or a file of another project an `allow` expression matches, by the name or its file name.
+# it), or a file of another project an `allow` expression matches as the mention is written
+# ('^Average\\.lean$' allows a bare `Average.lean`, not `ALT/Ergodic/Average.lean`).
 # [[register.files]]
 # name = "the lower package names only its own files"
 # scope = ["{ws}/lower/**/*.lean"]
@@ -1545,7 +1548,7 @@ def path_suffixes(files):
 def files_class_hits(cfg, c, files, texts, modules):
     """(hits, problems) of a file class over the files it reads: each file name a line mentions that is no
     module of the class's packages, as a trailing run of a module's path, and that no allow expression
-    matches, as written or by its file name."""
+    matches as written: `^Average\\.lean$` allows a bare `Average.lean` and not `ALT/Ergodic/Average.lean`."""
     hits, problems, known = [], [], {}
     order = [(i, Path(os.path.relpath(d, cfg.root)).as_posix()) for i, d in enumerate(cfg.package_order)]
     for f in files:
@@ -1565,7 +1568,7 @@ def files_class_hits(cfg, c, files, texts, modules):
         for lineno, line in enumerate(texts[f].splitlines(), 1):
             for name in dict.fromkeys(FILE_MENTION.findall(line)):
                 if (re.sub(r"^(?:\.\.?/)+", "", name) in known[pkgs]
-                        or any(a.search(name) or a.search(name.rsplit("/", 1)[-1]) for a in c["allow"])):
+                        or any(a.search(name) for a in c["allow"])):
                     continue
                 hits.append(f"  {f}:{lineno}: [{c['name']}] `{name}` in: {line.strip()[:160]}")
     for d in c["packages"] or ():
@@ -2409,7 +2412,7 @@ def package_scenarios(root, expect):
         (root / "formal.toml").write_text(toml.replace("sanctioned = []\n", "sanctioned = []\n[[register.files]]\n" + body), encoding="utf-8")
         return Config(root)
 
-    lower = 'name = "lower names its own"\nscope = ["ws/lo/**/*.lean"]\npackages = ["lo"]\nallow = [\'^Ext\\.lean$\']\n'
+    lower = 'name = "lower names its own"\nscope = ["ws/lo/**/*.lean"]\npackages = ["lo"]\nallow = [\'^Mathlib/\', \'^Ext\\.lean$\']\n'
     cfg = files_class(lower)
     lo_b = ws / "lo" / "Lo" / "B.lean"
     keep = lo_b.read_text(encoding="utf-8")
@@ -2427,6 +2430,10 @@ def package_scenarios(root, expect):
     lo_b.write_text(keep + "-- after Mathlib's Ext.lean, Mathlib/Order/Ext.lean\n", encoding="utf-8")
     code, out = quiet(do_register, cfg)
     expect("register: a file name the class allows, bare or path-qualified, is clean", code == 0, out[-300:])
+    lo_b.write_text(keep + "-- after Ext.lean, as in Other/Ext.lean\n", encoding="utf-8")
+    code, out = quiet(do_register, cfg)
+    expect("register: a bare-name allow entry lets no path-qualified mention of the same name through",
+           code == 1 and "ws/lo/Lo/B.lean:4: [lower names its own] `Other/Ext.lean` in:" in out and "`Ext.lean` in:" not in out, out[-300:])
     code, out = quiet(do_register, files_class(lower.replace('scope = ["ws/lo/**/*.lean"]', 'scope = ["ws/gone/**"]')))
     expect("register: a file class reaching no shipped file fails as rot", code == 1 and "`lower names its own` reaches no shipped file" in out, out[-300:])
     lo_b.write_text(keep + "-- after `A.lean`\n", encoding="utf-8")
@@ -2487,6 +2494,19 @@ def init_scenarios(root, expect):
 
 
 def selftest():
+    """The cases below, the latest release never asked of the network, here or in a probe they run."""
+    saved = os.environ.get("RESEARCH_KIT_OFFLINE")
+    os.environ["RESEARCH_KIT_OFFLINE"] = "1"
+    try:
+        return selftest_cases()
+    finally:
+        if saved is None:
+            os.environ.pop("RESEARCH_KIT_OFFLINE", None)
+        else:
+            os.environ["RESEARCH_KIT_OFFLINE"] = saved
+
+
+def selftest_cases():
     bad = []
 
     def expect(name, cond, detail=""):
@@ -2728,6 +2748,13 @@ def selftest():
             installed(ver)
             rep = probe(root)
             expect("the pins at one tag make no proposal", pins_of(rep)["ok"] and not any(p["item"] == "pins" for p in rep["proposals"]), pins_of(rep)["detail"])
+            expect("the probe says the latest release could not be read with RESEARCH_KIT_OFFLINE set, and reads no more",
+                   pins_of(rep)["detail"].startswith("the latest release could not be read (RESEARCH_KIT_OFFLINE is set)")
+                   and render_probe(rep).splitlines()[-1].endswith("the probe read the root, PATH and wrote nothing"), pins_of(rep)["detail"])
+            r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
+            expect("pins at one tag behind the latest release move to it",
+                   not r["ok"] and r["target"] == "v99.0.0" and "claude plugin update formal@research-kit --scope project" in r["commands"]
+                   and f"after v{ver} up to v99.0.0" in str(r["releases"]), r["detail"])
         finally:
             if saved is None:
                 os.environ.pop("CLAUDE_CONFIG_DIR", None)
@@ -2833,10 +2860,11 @@ def manifest_commands(root, ws, packages, names=None):
 
 
 # --- the pins: duplicated byte-identical in research's setup.py and formal's formal.py (tests/run.py holds
-# them so), and copied into the runner `setup runner` writes -------------------------------------------------
+# them so) -------------------------------------------------------------------------------------------------
 
 KIT_REPO = "lividgreen/research-kit"
 KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
+KIT_LATEST = "https://api.github.com/repos/lividgreen/research-kit/releases/latest"
 
 
 def skill_version(skill_md):
@@ -2910,15 +2938,35 @@ def kit_tag(tag):
     return tuple(int(g) for g in m.groups()) if m else None
 
 
-def kit_pins(root, version, record=None):
+def kit_latest():
+    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s at most): (tag, None), or
+    (None, why) where it could not be read — offline, a refusal, an answer naming no release tag, or
+    `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
+    if os.environ.get("RESEARCH_KIT_OFFLINE", "") not in ("", "0"):
+        return None, "RESEARCH_KIT_OFFLINE is set"
+    req = urllib.request.Request(KIT_LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "research-kit-probe"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            tag = json.loads(r.read().decode("utf-8")).get("tag_name")
+    except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
+        why = e.reason if type(e) is urllib.error.URLError else e
+        return None, str(why) or type(e).__name__
+    return (tag, None) if kit_tag(tag) else (None, f"the latest release names no release tag ({tag!r})")
+
+
+def kit_pins(root, version, record=None, latest=None):
     """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
     settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
     install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
-    a script outside the kit): whether they name one tag and, where they do not, the steps that move every pin
-    to the newest of them and the releases whose upgrading paragraphs lie between.  It writes nothing."""
+    a script outside the kit), held to the kit's latest release (`latest`, a callable answering (tag, why),
+    defaults to `kit_latest`), or, where that could not be read, to the newest of them: whether every pin is at
+    that tag and, where one is not, the steps that move every pin to it and the releases whose upgrading
+    paragraphs lie between.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
-    said, tags = [], {}
+    newest, unread = (latest or kit_latest)()
+    said, tags = [f"the latest release is {newest}" if newest else
+                  f"the latest release could not be read ({unread}), so the pins are compared among themselves"], {}
     try:
         pc = (root / ".pre-commit-config.yaml").read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -2964,10 +3012,10 @@ def kit_pins(root, version, record=None):
     missing = sorted(n for n, on in enabled.items() if on is True and n.endswith("@research-kit") and inst is not None and n not in inst)
     said += [f"{n} is enabled in .claude/settings.json and not installed for this project" for n in missing]
     if version and not runs_installed:
-        said.insert(0, f"the plugin this runs from is v{version}")
+        said.insert(1, f"the plugin this runs from is v{version}")
         tags["the plugin this runs from"] = f"v{version}"
     ordered = all(kit_tag(t) for t in tags.values())
-    target = (max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None
+    target = newest or ((max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None)
     T = target or "<tag>"
     off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned else []) + [f"{n} (not installed)" for n in missing]
     steps, releases = [], None
@@ -2985,14 +3033,14 @@ def kit_pins(root, version, record=None):
         if tags.get("the plugin this runs from", T) != T:
             steps.append(f"move the plugin this runs from to {T}: its agent's marketplace pin, or by hand for a clone or a copy")
         steps.append("restart the session, then read the pins again")
-        seen = sorted({t for t in tags.values() if kit_tag(t)}, key=kit_tag)
-        if len(seen) > 1:
-            releases = f"read the Upgrading paragraph of each release after {seen[0]} up to {seen[-1]}, in {KIT_CHANGELOG}"
+        oldest = min((t for t in tags.values() if kit_tag(t)), key=kit_tag, default=None)
+        if oldest and kit_tag(T) and kit_tag(oldest) < kit_tag(T):
+            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {KIT_CHANGELOG}"
     named = off[0] if len(off) == 1 else ", ".join(off[:-1]) + " and " + off[-1] if off else ""
-    detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}"
-                                + (", the newest of them" if ordered and len(tags) > 1 else "") + ": move the pins together" if off else "")
+    which = ", the latest release" if newest else ", the newest of them" if ordered and len(tags) > 1 else ""
+    detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}{which}: move every pin to it" if off else "")
     return {"item": "pins at one tag", "need": "recommended", "ok": not off, "detail": detail, "target": target,
-            "commands": steps, "releases": releases}
+            "latest": newest, "latest_unread": unread, "commands": steps, "releases": releases}
 
 
 def probe(root):
@@ -3137,7 +3185,8 @@ def render_probe(rep):
             lines.append(f"    {c}")
     missing = [it["item"] for it in rep["environment"] + rep["project"] if not it["ok"] and it["need"] == "required"]
     lines += ["", f"formal probe: {len(rep['workspaces'])} workspace(s); " + (f"{len(missing)} required item(s) missing: {', '.join(missing)}" if missing else "every required item is present")
-              + f"; {len(rep['proposals'])} proposal(s); the probe read the root and PATH and wrote nothing"]
+              + f"; {len(rep['proposals'])} proposal(s); the probe read the root, PATH"
+              + (" and GitHub's latest release" if any(it.get("latest") for it in rep["project"]) else "") + " and wrote nothing"]
     return "\n".join(lines)
 
 

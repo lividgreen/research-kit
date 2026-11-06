@@ -2,12 +2,15 @@
 
 Every check is offline: `flow check`, `library check`, `formal check` and the dashboard read the project and nothing else; `formal handback`, `formal check`, `formal register`, `formal hypotheses`, `formal witnesses` and `flow state --check` read git.
 The library's online commands — `resolve`, `verify`, `fetch`, `restore`, `watch` — run on demand and never from a check.
+The two setup probes, `setup probe` and `formal probe`, ask GitHub's API for the kit's latest release, which the project's pins are held to, and send nothing of the project.
 
 ## The hosts
 
 They call arXiv, DOI content negotiation at doi.org, Crossref, OpenAlex, the OpenCitations index, GitHub's API for a repository's address and the page itself for any other address; `resolve --at` asks one interface alone — Crossref, OpenAlex, zbMATH or Semantic Scholar — in place of that round, and `fetch` asks Unpaywall for an open-access copy of a DOI when a contact address is set.
 `fetch --url` and `resolve --url` fetch the address given, whatever host it names.
 Only an http or https address is fetched, a redirect to any other scheme is not followed, and an answer past 256 MiB, or a source that unpacks past it, is not kept.
+
+The probes ask `https://api.github.com/repos/lividgreen/research-kit/releases/latest` alone, with the User-Agent `research-kit-probe` and a 5-second timeout; where the answer does not come, they say so and compare the pins among themselves, and `RESEARCH_KIT_OFFLINE=1` skips the request.
 
 ## The environment variables
 
