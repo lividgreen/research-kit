@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.6.1 — 2026-11-08
 
 A marketplace follows the releases: the kit keeps a branch `latest` that each release moves to its tag, and a project's marketplace at `ref` `latest` gets every release from a marketplace update, never the default branch's unreleased work, where it was pinned to a tag it moved by hand.
 
