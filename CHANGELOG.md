@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.6.0 — 2026-11-08
 
 The two consumers' first sessions at v0.5.0, a post-upgrade check and a first `whatsnext` and `freeze`: the freeze no longer holds the log to a renumbering, an entry may name a range of ids, an evidence item is replaced or retired by the CLI, a filter for the findings resting on one form alone, and the checks' summaries read as sentences; and from the first consumer's cut of its layers over the kit, the setup probe stating only the hooks pin it read, the built-in reflow leaving the common abbreviations unsplit, `formal cite --json`, and three review skills, an audit across the documents, scrutiny of one argument and an attribution check against a named result's primary source.
 **Upgrading**: no step is required, the records and the bindings being unchanged; a project set up before that will use the review skills runs `/research:research-init` once, which re-checks the setup and forms the `### Reviews` part of its instructions with the person.

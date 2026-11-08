@@ -4,7 +4,7 @@ description: Argument-level scrutiny of one proof, section or statement — the 
 license: Apache-2.0
 compatibility: No tooling; reads the target and what it invokes.
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # Scrutiny
