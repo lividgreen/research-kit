@@ -255,6 +255,12 @@ def as_tuple(v):
 
 _SENT = re.compile(r"([.?!])([\"”’')\]*`]*)[ \t]+(?=[A-Z0-9*`(\[“\"§_])")
 FENCE_RUN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+# The abbreviations the built-in reflow does not split after: the lowercase Latin ones are compared in any case, the capitalised
+# ones as spelled, and `et al.` by the `et ` before it.  A project with others (journal names such as `Amer.` and `Math.`) binds
+# its own reflow module, which is the escape that exists.
+BUILTIN_ABBREVIATIONS = frozenset((
+    "cf", "e.g", "i.e", "vs", "resp", "approx", "ibid",
+    "Prop", "Thm", "Lem", "Def", "Eq", "Fig", "Sec", "Ch", "No", "Vol", "Eqs", "Figs", "Secs", "Thms", "Props"))
 
 
 def fence_after(fence, line):
@@ -279,6 +285,10 @@ def _builtin_reflow(text):
         body, cont = line[m.end():], indent + " " * len(marker)
         parts, start = [], 0
         for b in _SENT.finditer(body):
+            word = re.search(r"(?:[A-Za-z]\.)*[A-Za-z]+$", body[:b.start()])
+            if b.group(1) == "." and word and (word.group() in BUILTIN_ABBREVIATIONS or word.group().lower() in BUILTIN_ABBREVIATIONS
+                                               or re.search(r"\bet al$", body[:b.start()])):  # `cf.`, `Thm.`, `et al.`, but `A.` is a sentence
+                continue
             if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
                     or re.fullmatch(r"(\*\*|__)(?:[^*_\s]+ ){0,3}[^*_\s]+(?: \([^()]*\))?\.\1", body[start:b.end(2)].strip()):  # a label, **State.**, **Lemma 2 (Jen 1990).**
                 continue
@@ -4276,8 +4286,8 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["entries"] = ents
             for e in ents:
                 emit(f"{e['doc']}:{e['line']}: {' + '.join(e['keys']) or 'NO CARD'} | {e['entry'][:180]}")
-            emit(f"{len(ents)} reference entr{'y' if len(ents) == 1 else 'ies'} under `## {cfg.entry_heading}` in: "
-                 + (", ".join(cfg.entry_docs) or "NO DOCUMENT CONFIGURED"))
+            emit(f"{len(ents)} reference entr{'y' if len(ents) == 1 else 'ies'} under `## {cfg.entry_heading}`"
+                 + (" in: " + ", ".join(cfg.entry_docs) if cfg.entry_docs else "; no document bound"))
         elif a.cmd == "pages":
             out["pages"] = pages_manifest(cfg)
             if not as_json:
@@ -4312,22 +4322,24 @@ def _dispatch(cfg, a, today, as_json, quiet):
                  f"{len(cov['copies_by_hand'])} obtained by hand"
                  + (f" and tracked under {cov['kept']}" if cov["kept"] else " and needing a backup outside the store")
                  + (f" ({', '.join(cov['copies_by_hand'])})" if cov["copies_by_hand"] else "")
-                 + f"; store {cov['store'] or 'NOT CONFIGURED'}; kept {cov['kept'] or 'not named: a copy obtained by hand goes to the store'}; "
-                 f"reflow via {cov['reflow']}; citing sites are computed from: {', '.join(cov['scan']) or 'NO PATH CONFIGURED'}")
+                 + f"; store {cov['store'] or 'no store bound'}; kept {cov['kept'] or 'not named: a copy obtained by hand goes to the store'}; "
+                 f"reflow via {cov['reflow']}; citing sites are computed from: {', '.join(cov['scan']) or 'no path bound'}")
             emit(f"fields: {cov['from_resolver']} card(s) written by a resolver, {cov['from_hand']} typed by hand; "
                  + (f"{cov['verified']} verified against a resolver, the oldest on {cov['verified_oldest']}" if cov["verified"]
                     else "none verified against a resolver")
                  + "; no resolver is asked here (`library verify` is online and on demand)")
-            emit(f"internal documents: {cov['internal']} card(s) naming a file of the project; every file under "
-                 f"{', '.join(cov['internal_dirs']) or 'NO DIRECTORY CONFIGURED'} has one; no bound document's reference entry may be tied to one")
+            emit(f"internal documents: {cov['internal']} card(s) naming a file of the project; "
+                 + (f"every file under {', '.join(cov['internal_dirs'])} has one" if cov["internal_dirs"] else "no directory is bound")
+                 + "; no bound document's reference entry may be tied to one")
             emit(f"extracts: {cov['extracts']} extract(s), {cov['extracts_anchored']} borne out by a kept copy"
                  + "".join(f", {n} unanchored — {k}" for k, n in cov["extracts_unanchored"].items())
                  + "; a quotation and a numbered locator are looked for in the kept text, a restatement is not judged")
             emit(f"watch: {cov['watches']} watch(es), {cov['watch_never_run']} never run, {cov['watch_seen']} identifier(s) seen; "
                  f"{cov['candidates']} candidate(s) proposed, {cov['candidates_excluded']} set aside; "
                  "no interface is asked here and no run is due: `library watch` looks when it is run")
-            emit(f"entries: {cov['entries']} reference entr{'y' if cov['entries'] == 1 else 'ies'} in {cov['entry_docs']} document(s) of "
-                 f"{', '.join(cov['entry_globs']) or 'NO DOCUMENT CONFIGURED'}, tied to {cov['tied_cards']} card(s)"
+            emit(f"entries: {cov['entries']} reference entr{'y' if cov['entries'] == 1 else 'ies'}"
+                 + (f" in {cov['entry_docs']} document(s) of {', '.join(cov['entry_globs'])}" if cov["entry_globs"] else " (no document bound)")
+                 + f", tied to {cov['tied_cards']} card(s)"
                  + (" — by read grade: " + ", ".join(f"{n} {g}" for g, n in cov["tied_grades"].items()) if cov["tied_grades"] else "")
                  + f"; {cov['untied_cards']} registered card(s) no entry cites; a work a document names outside its entries is not read")
             if problems:

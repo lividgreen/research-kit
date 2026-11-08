@@ -1256,11 +1256,16 @@ def expand_globs(cfg, globs):
     return sorted(out)
 
 
-def do_cite(cfg):
+def do_cite(cfg, as_json=False):
+    """The citations of the documents against the manifests; `as_json` prints one JSON document in the text's place (what
+    resolved and to which declarations, what the allowlists took, the drift, `ok`), with the text mode's exit code."""
     try:
         all_rows = list(rows(cfg))
     except ManifestError as e:
-        print(f"COULD NOT CHECK: {e}")
+        if as_json:
+            print(json.dumps({"resolved": [], "allowed": {}, "drift": [{"where": "manifests", "msg": f"COULD NOT CHECK: {e}"}], "ok": False}, indent=2))
+        else:
+            print(f"COULD NOT CHECK: {e}")
         return 2
     mod_pool, decls, fields, public, private = defaultdict(set), set(), set(), set(), set()
     for r in all_rows:
@@ -1290,16 +1295,23 @@ def do_cite(cfg):
         except ValueError:  # a package outside the project root
             pass
     docs_rx = re.compile(cfg.docs_url) if cfg.docs_url else None
-    ok, seen, drift = defaultdict(int), defaultdict(set), []
+    ok, seen, drift, resolved = defaultdict(int), defaultdict(set), [], []
     for name in sorted(cfg.retired):
         if matches_in(name, decls):
             drift.append(("formal.toml", f"`{name}` is bound as retired but is in the manifests — drop it from [documents] retired"))
     files = expand_globs(cfg, cfg.scan)
     if not files:
-        print(f"formal cite: FAIL — no document matches [documents] scan ({', '.join(cfg.scan)}), so the inventory the bindings name has rotted")
+        msg = f"no document matches [documents] scan ({', '.join(cfg.scan)}), so the inventory the bindings name has rotted"
+        if as_json:
+            print(json.dumps({"resolved": [], "allowed": {}, "drift": [{"where": "formal.toml", "msg": msg}], "ok": False}, indent=2))
+        else:
+            print(f"formal cite: FAIL — {msg}")
         return 1
     allowed = {t: k for k, ts in (("retired", cfg.retired), ("open target", cfg.open_targets), ("notation", cfg.notation),
                                   ("upstream", cfg.upstream)) for t in ts}
+
+    def got(kind, tok, names):  # a citation that resolved, for `--json`: the document and line being read, the kind, the names
+        resolved.append({"doc": rel, "line": lineno, "token": tok, "kind": kind, "declarations": sorted(names)})
 
     def visible(tok, pool, where):
         if private_only(tok, pool, private):
@@ -1316,6 +1328,7 @@ def do_cite(cfg):
                 hit = {m for m in modules if m == dotted or m.endswith("." + dotted)} or {m for m in modules if from_root.get(m) == fm.group(1)}
                 if hit:
                     ok["file"] += 1
+                    got("file", fm.group(0), hit)
                     for m in hit:
                         pool |= mod_pool[m]
                 else:
@@ -1324,6 +1337,7 @@ def do_cite(cfg):
                 m = dm.group(1).replace("/", ".")
                 if m in modules:
                     ok["docs-link"] += 1
+                    got("docs-link", dm.group(0), [m])
                     pool |= mod_pool[m]
                 else:
                     drift.append((where, f"an API-docs link names {m}, which is not a module of the tree — the link is dead"))
@@ -1338,17 +1352,21 @@ def do_cite(cfg):
                 if qm and qm.group(1) in namespaces:
                     if tok in decls:
                         ok["qualified"] += 1
+                        got("qualified", tok, [tok])
                         visible(tok, decls, where)
                     elif tok in fields:
                         ok["field"] += 1
+                        got("field", tok, [tok])
                     elif tok in modules:
                         ok["module-ref"] += 1
+                        got("module-ref", tok, [tok])
                     else:
                         drift.append((where, f"`{tok}` is qualified under the namespace `{qm.group(1)}` of the manifests, but no declaration has that name"))
                     continue
                 if qm and qm.group(1) in bases and tok not in cfg.upstream:
                     if tok in suffixes:
                         ok["decl-scoped"] += 1
+                        got("decl-scoped", tok, suffixes[tok])
                         visible(tok, suffixes[tok], where)
                     else:
                         drift.append((where, f"`{tok}` is scoped under `{qm.group(1)}`, a declaration of the manifests, but no name ends in it "
@@ -1356,16 +1374,20 @@ def do_cite(cfg):
                     continue
                 if not cite_candidate(tok):
                     continue
-                if pool and matches_in(tok, pool):
+                if pool and (hit := matches_in(tok, pool)):
                     ok["module-scoped"] += 1
+                    got("module-scoped", tok, hit)
                     visible(tok, pool, where)
-                elif matches_in(tok, decls):
+                elif hit := matches_in(tok, decls):
                     ok["global"] += 1
+                    got("global", tok, hit)
                     visible(tok, decls, where)
-                elif matches_in(tok, fields):
+                elif hit := matches_in(tok, fields):
                     ok["field"] += 1
+                    got("field", tok, hit)
                 elif tok in module_bases or tok in namespaces:
                     ok["module-ref"] += 1
+                    got("module-ref", tok, {m for m in modules if m.split(".")[-1] == tok or (tok in namespaces and m.split(".")[0] == tok)})
                 elif tok in cfg.upstream:
                     seen["upstream"].add(tok)
                 elif tok in cfg.notation:
@@ -1376,6 +1398,10 @@ def do_cite(cfg):
                     seen["retired"].add(tok)
                 else:
                     drift.append((where, f"`{tok}` is shaped like a declaration but resolves nowhere (the manifests, the modules, the allowlists of [documents])"))
+    if as_json:
+        print(json.dumps({"resolved": resolved, "allowed": {k: sorted(v) for k, v in sorted(seen.items())},
+                          "drift": [{"where": w, "msg": m} for w, m in drift], "ok": not drift}, indent=2))
+        return 1 if drift else 0
     print(f"formal cite: {len(files)} document(s) from {', '.join(cfg.scan)}; manifests: {len(decls)} declarations, {len(fields)} fields, "
           f"{len(modules)} modules, {len(private)} private only, namespaces {len(namespaces)}"
           + (f" (shared with upstream, not checked: {', '.join(sorted(cfg.ambiguous))})" if cfg.ambiguous else ""))
@@ -2248,6 +2274,16 @@ def cite_scenarios(root, expect):
         (root / "scripts" / "decls.txt").write_text(FIXTURE_MANIFEST + "private Lib.B Lib.B.helper_lemma\n", encoding="utf-8")
         code, out = quiet(do_cite, Config(root))
         expect(f"cite: {why} drifts", code == 1 and "a.md:13" in out, out[-300:])
+    doc.write_text(clean + "\nPlanted: `no_such_decl`.\n", encoding="utf-8")
+    code, out = quiet(do_cite, Config(root), True)
+    try:
+        doc_json = json.loads(out)
+    except ValueError:
+        doc_json = {}
+    expect("cite --json is one document listing a resolved token with its declaration and a planted drift, the text mode's exit code",
+           code == 1 and doc_json.get("ok") is False
+           and any(r["token"] == "kb_le" and r["doc"] == "papers/a.md" and r["declarations"] == ["Lib.A.kb_le"] for r in doc_json.get("resolved", []))
+           and [d["where"] for d in doc_json.get("drift", [])] == ["papers/a.md:13"], out[-500:])
     doc.write_text(clean + "\nThe [docs](https://x/docs/Lib/Q.html), `s_work` and `s_tar`.\n", encoding="utf-8")
     toml.write_text(saved.replace("notation = []", 'notation = ["s_work", "s_tar"]').replace("retired = []", 'retired = ["kb_le"]')
                     .replace('docs_url = ""', "docs_url = '/docs/([\\w/]+)\\.html'"), encoding="utf-8")
@@ -2887,6 +2923,22 @@ def selftest_cases():
             expect("pins at one tag behind the latest release move to it",
                    not r["ok"] and r["target"] == "v99.0.0" and "claude plugin update formal@research-kit --scope project" in r["commands"]
                    and f"after v{ver} up to v99.0.0" in str(r["releases"]), r["detail"])
+            expect("a remote rev is stated, and no rev-less claim made", f"the hooks pin rev v{ver}" in r["detail"] and "no hook pins" not in r["detail"], r["detail"])
+            (root / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: formal-check\n    language: system\n    entry: scripts/kit.py formal check\n", encoding="utf-8")
+            r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
+            expect("local hooks running the kit's scripts are said to carry no rev and to follow the plugins' pins; `repo: local` is no local repository",
+                   "no hook pins the kit by `rev`; the hooks are local and run the installed plugin's scripts, so they follow the plugins' pins" in r["detail"]
+                   and "local repository" not in r["detail"] and "the hooks' rev" not in r["detail"], r["detail"])
+            (root / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: prover-gate\n    language: system\n    entry: scripts/kit.py formal check\n", encoding="utf-8")
+            hk = {it["item"]: it for it in probe(root)["project"]}["formal-check hook"]
+            expect("a local hook whose entry runs `formal check` is the formal-check hook, whatever its id", hk["ok"] and "entry runs" in hk["detail"], hk["detail"])
+            (root / ".pre-commit-config.yaml").write_text("# formal-check, research-kit\nrepos: []\n", encoding="utf-8")
+            hk = {it["item"]: it for it in probe(root)["project"]}["formal-check hook"]
+            expect("a config naming formal-check only in a comment has no formal-check hook", not hk["ok"], hk["detail"])
+            (root / ".pre-commit-config.yaml").write_text("# research-kit\nrepos: []\n", encoding="utf-8")
+            r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
+            expect("a config naming the kit only in a comment pins nothing, and claims no local hooks",
+                   "no hook pins the kit by `rev`" in r["detail"] and "hooks are local" not in r["detail"], r["detail"])
         finally:
             if saved is None:
                 os.environ.pop("CLAUDE_CONFIG_DIR", None)
@@ -3032,6 +3084,37 @@ def hooks_pin(text):
     return None, None
 
 
+KIT_ENTRY = re.compile(r"\b(?:flow|library|dashboard|formal)\.py\b|\b(?:flow|library|formal)\s+(?:check|cite|anchors|register|index|doctor)\b")
+
+
+def hooks_kind(text):
+    """How a .pre-commit-config.yaml's hooks reach the kit, read from its lines with the comments dropped: "kit"
+    where a hook repo names research-kit, or any other repo but `local` carries the kit's hook ids (a checkout's
+    path); "local" where a `repo: local` hook's `entry` runs the kit's scripts (`flow.py`, `library.py`,
+    `dashboard.py` or `formal.py`, or `flow`, `library` or `formal` with a subcommand), so the installed plugin's
+    version runs and no hook carries a `rev`; None where neither."""
+    lines = [re.sub(r"(?:^|\s)#.*$", "", l).rstrip() for l in text.split("\n")]
+    indent = lambda l: len(l) - len(l.lstrip())
+    local = False
+    for i, l in enumerate(lines):
+        m = re.match(r"\s*(?:-\s+)?repo:\s*['\"]?([^\s'\"]+)", l)
+        if not m:
+            continue
+        s = i  # the item, bounded as hooks_pin bounds it
+        while s > 0 and not (re.match(r"\s*-\s", lines[s]) and (s == i or indent(lines[s]) < indent(l))):
+            s -= 1
+        d, e = indent(lines[s]), s + 1
+        while e < len(lines) and not (lines[e].strip() and indent(lines[e]) <= d):
+            e += 1
+        item = lines[s:e]
+        if m.group(1) == "local":
+            entries = [re.match(r"\s*(?:-\s+)?entry:\s*(.*)", x) for x in item]
+            local = local or any(r and KIT_ENTRY.search(r.group(1)) for r in entries)
+        elif "research-kit" in m.group(1) or any(re.match(r"\s*(?:-\s+)?id:\s*['\"]?(?:flow|library|formal)-(?:check|cite|anchors|register)\b", x) for x in item):
+            return "kit"
+    return "local" if local else None
+
+
 def install_record():
     """Claude Code's install record, `~/.claude/plugins/installed_plugins.json`; `CLAUDE_CONFIG_DIR` moves `~/.claude`."""
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "installed_plugins.json"
@@ -3108,6 +3191,9 @@ def kit_pins(root, version, record=None, latest=None):
     elif rev:
         said.append(f"the hooks pin rev {rev}")
         tags["the hooks' rev"] = rev
+    if not repo:
+        said.append("no hook pins the kit by `rev`" + ("; the hooks are local and run the installed plugin's scripts, so they follow the plugins' pins"
+                                                      if hooks_kind(pc) == "local" else ""))
     try:
         st = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -3251,9 +3337,13 @@ def probe(root):
     proj.append({"item": "prover language server (.mcp.json)", "need": "recommended", "ok": lsp,
                  "detail": "a server naming lean is registered" if lsp else ("no .mcp.json at the root" if not mcp.is_file() else "no server naming lean in .mcp.json") + "; the prover agent uses whatever prover tools are registered"})
     pc = root / ".pre-commit-config.yaml"
-    hook = pc.is_file() and "formal-check" in pc.read_text(encoding="utf-8", errors="replace")
+    # the kit's hook by its id, or a local hook whose entry runs `formal check`; a comment is no hook
+    pc_lines = [re.sub(r"(?:^|\s)#.*$", "", l) for l in pc.read_text(encoding="utf-8", errors="replace").split("\n")] if pc.is_file() else []
+    by_id = any(re.match(r"\s*(?:-\s+)?id:\s*['\"]?formal-check\b", l) for l in pc_lines)
+    by_entry = any(re.search(r"\bformal(?:\.py)?\s+check\b", m.group(1)) for m in (re.match(r"\s*(?:-\s+)?entry:\s*(.*)", l) for l in pc_lines) if m)
+    hook = by_id or by_entry
     proj.append({"item": "formal-check hook", "need": "required", "ok": hook,
-                 "detail": "named in .pre-commit-config.yaml" if hook else ("not in .pre-commit-config.yaml" if pc.is_file() else "no .pre-commit-config.yaml") + "; `formal check` runs before a commit"})
+                 "detail": "named in .pre-commit-config.yaml" if by_id else "a local hook's entry runs `formal check`" if hook else ("not in .pre-commit-config.yaml" if pc.is_file() else "no .pre-commit-config.yaml") + "; `formal check` runs before a commit"})
     proj.append({"item": "documents", "need": "present" if (root / "papers").is_dir() else "absent", "ok": True,
                  "detail": "papers/ exists, the default `[documents] scan`" if (root / "papers").is_dir() else "no papers/ directory; `[documents] scan` names the documents' globs"})
     # the hooks' rev, the marketplace's ref and the installed research-kit plugins, against this plugin's version
@@ -3370,7 +3460,7 @@ def _main(argv=None):
     p = sub("handback"); p.add_argument("--base", default="HEAD"); p.add_argument("--handoff")
     p = sub("readback"); p.add_argument("names", nargs="+"); p.add_argument("-o", "--out"); p.add_argument("--depth", type=int, default=2)
     p = sub("probe", help="report the project and the machine against the prover side's setup; writes nothing"); p.add_argument("--json", action="store_true")
-    sub("cite", help="every declaration name the documents cite resolves in the manifests")
+    p = sub("cite", help="every declaration name the documents cite resolves in the manifests"); p.add_argument("--json", action="store_true", help="one JSON document: what resolved and to which declarations, the allowlisted, the drift, ok")
     sub("anchors", help="every [Key] §N, [Key] Theorem N.M and [Key] Appendix X resolves in its document")
     sub("register", help="what ships carries none of the bound pattern classes and names only the files its file classes allow")
     p = sub("hypotheses", help="no public theorem shipped at the base gains a named condition"); p.add_argument("--base", default="HEAD")
@@ -3426,7 +3516,7 @@ def _main(argv=None):
         if a.cmd == "readback":
             return do_readback(cfg, a.names, a.out, a.depth)
         if a.cmd == "cite":
-            return do_cite(cfg)
+            return do_cite(cfg, a.json)
         if a.cmd == "anchors":
             return do_anchors(cfg)
         if a.cmd == "register":

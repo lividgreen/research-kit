@@ -57,7 +57,7 @@ The probe runs `flow doctor` and `flow index --check`, which write nothing; a st
 5. Write the instructions.
    Append a section `## Research records` to the instructions file the probe found, or where none exists to `CLAUDE.md` under Claude Code and `AGENTS.md` under any other agent, holding the paragraphs both inits printed, in the project's words where its names differ; a file that already has the section is left as it is.
 6. Write the hooks.
-   Add to `.pre-commit-config.yaml`, created or extended, the block `repo: https://github.com/lividgreen/research-kit`, `rev:` the tag the probe prints, hooks `flow-check` and `library-check`; a project working from a checkout of the kit names the checkout's path as the repo and its commit as the rev; a file already naming research-kit is left as it is.
+   Add to `.pre-commit-config.yaml`, created or extended, the block `repo: https://github.com/lividgreen/research-kit`, `rev:` the tag the probe prints, hooks `flow-check` and `library-check`; a project working from a checkout of the kit names the checkout's path as the repo and its commit as the rev; a file already naming research-kit is left as it is, and so is one whose `repo: local` hooks run the kit's scripts (the probe's item says so), which carry no `rev` and follow the installed plugins.
    Then `prek install` or `pre-commit install`, and once `prek run --all-files` or `pre-commit run --all-files`.
    Where the agent's harness refuses the write, the block is shown in the report for the person to paste.
 7. Verify.

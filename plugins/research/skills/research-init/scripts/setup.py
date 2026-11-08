@@ -186,10 +186,13 @@ def project(root):
             text = pc.read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
-        # the kit's repository by its name, or by its hooks where the repo is a checkout's path
-        has = "research-kit" in text or re.search(r"\bid:\s*['\"]?(?:flow|library)-check\b", text) is not None
+        # read by its lines, comments dropped: a repo naming the kit (or a checkout's path whose hooks are the kit's),
+        # or local hooks running the kit's scripts, which carry no rev and which the init leaves as they are
+        kind = hooks_kind(text)
         items.append({"item": ".pre-commit-config.yaml", "need": "present", "ok": True,
-                      "detail": "names research-kit already" if has else "exists without the kit's hooks; the block is added to it"})
+                      "detail": "names research-kit already" if kind == "kit" else
+                      "its hooks are local (`repo: local`) and run the installed plugin's scripts, so they carry no `rev`; the init leaves the file as it is" if kind == "local" else
+                      "exists without the kit's hooks; the block is added to it"})
     else:
         items.append({"item": ".pre-commit-config.yaml", "need": "absent", "ok": True, "detail": "not written yet; the init writes it with the kit's hooks"})
     mk = root / "Makefile"
@@ -300,6 +303,37 @@ def hooks_pin(text):
     return None, None
 
 
+KIT_ENTRY = re.compile(r"\b(?:flow|library|dashboard|formal)\.py\b|\b(?:flow|library|formal)\s+(?:check|cite|anchors|register|index|doctor)\b")
+
+
+def hooks_kind(text):
+    """How a .pre-commit-config.yaml's hooks reach the kit, read from its lines with the comments dropped: "kit"
+    where a hook repo names research-kit, or any other repo but `local` carries the kit's hook ids (a checkout's
+    path); "local" where a `repo: local` hook's `entry` runs the kit's scripts (`flow.py`, `library.py`,
+    `dashboard.py` or `formal.py`, or `flow`, `library` or `formal` with a subcommand), so the installed plugin's
+    version runs and no hook carries a `rev`; None where neither."""
+    lines = [re.sub(r"(?:^|\s)#.*$", "", l).rstrip() for l in text.split("\n")]
+    indent = lambda l: len(l) - len(l.lstrip())
+    local = False
+    for i, l in enumerate(lines):
+        m = re.match(r"\s*(?:-\s+)?repo:\s*['\"]?([^\s'\"]+)", l)
+        if not m:
+            continue
+        s = i  # the item, bounded as hooks_pin bounds it
+        while s > 0 and not (re.match(r"\s*-\s", lines[s]) and (s == i or indent(lines[s]) < indent(l))):
+            s -= 1
+        d, e = indent(lines[s]), s + 1
+        while e < len(lines) and not (lines[e].strip() and indent(lines[e]) <= d):
+            e += 1
+        item = lines[s:e]
+        if m.group(1) == "local":
+            entries = [re.match(r"\s*(?:-\s+)?entry:\s*(.*)", x) for x in item]
+            local = local or any(r and KIT_ENTRY.search(r.group(1)) for r in entries)
+        elif "research-kit" in m.group(1) or any(re.match(r"\s*(?:-\s+)?id:\s*['\"]?(?:flow|library|formal)-(?:check|cite|anchors|register)\b", x) for x in item):
+            return "kit"
+    return "local" if local else None
+
+
 def install_record():
     """Claude Code's install record, `~/.claude/plugins/installed_plugins.json`; `CLAUDE_CONFIG_DIR` moves `~/.claude`."""
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "installed_plugins.json"
@@ -376,6 +410,9 @@ def kit_pins(root, version, record=None, latest=None):
     elif rev:
         said.append(f"the hooks pin rev {rev}")
         tags["the hooks' rev"] = rev
+    if not repo:
+        said.append("no hook pins the kit by `rev`" + ("; the hooks are local and run the installed plugin's scripts, so they follow the plugins' pins"
+                                                      if hooks_kind(pc) == "local" else ""))
     try:
         st = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -528,7 +565,7 @@ def render(rep):
         lines.append(f"  {mark(it)}  {it['item']} [{it['need']}]: {it['detail']}")
     k = rep["kit"]
     where = f"laid out as a plugin in a git clone of the kit at {k['path']}" if k["layout"] == "clone" else f"laid out as a {k['layout']} at {k['path']}"
-    lines += ["", f"kit: version {k['version'] or 'UNKNOWN'} (the hooks pin rev {k['tag'] or '<tag>'}), {where}"]
+    lines += ["", f"kit: version {k['version'] or 'UNKNOWN'} (release tag {k['tag'] or '<tag>'}), {where}"]
     lines += ["", "proposals (nothing is installed by this probe)"]
     if not rep["proposals"]:
         lines.append("  nothing is missing")
@@ -778,6 +815,19 @@ def selftest():
         expect("a log not yet written is absent, marked neither ok nor missing, and not counted among the missing items",
                by["log"]["need"] == "absent" and log_line.lstrip().startswith("--") and " log" not in summary.split(";")[0])
         expect("a pre-commit config without the kit is reported as such", "without the kit's hooks" in by[".pre-commit-config.yaml"]["detail"])
+        pcdetail = lambda text: ((root / ".pre-commit-config.yaml").write_text(text, encoding="utf-8"),
+                                 next(it for it in project(root)[0] if it["item"] == ".pre-commit-config.yaml")["detail"])[1]
+        expect("a pre-commit config that only mentions research-kit in a comment is not the kit's",
+               "without the kit's hooks" in pcdetail("# the hooks of research-kit go below\nrepos:\n- repo: https://example.org/x  # not research-kit\n  rev: v1\n  hooks:\n  - id: x\n"))
+        local = "repos:\n- repo: local\n  hooks:\n  - id: flow-check\n    name: flow check\n    language: system\n    entry: scripts/kit.py flow check\n    pass_filenames: false\n"
+        expect("local hooks running the kit's scripts through a runner are reported as local, with no rev, and left as they are",
+               "hooks are local" in pcdetail(local) and "no `rev`" in pcdetail(local) and "leaves the file as it is" in pcdetail(local)
+               and "hooks are local" in pcdetail(local.replace("scripts/kit.py flow check", "python3 tools/run.py library.py check")))
+        expect("local hooks that run something else are not the kit's", "without the kit's hooks" in pcdetail(local.replace("scripts/kit.py flow check", "make lint")))
+        expect("a remote repo naming the kit, and a checkout's path with the kit's hook ids, are named as before",
+               pcdetail("repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v1\n") == "names research-kit already"
+               and pcdetail("repos:\n- repo: ../kit\n  rev: 0123abcd\n  hooks:\n  - id: library-check\n") == "names research-kit already")
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
         expect("the bindings files are reported absent", all(by[n]["need"] == "absent" for n in ("flow.toml", "library.toml", "formal.toml")))
         (root / "flow.toml").write_text("", encoding="utf-8")
         (root / "WORKLOG.md").write_text("# Worklog\n", encoding="utf-8")
@@ -837,6 +887,15 @@ def selftest():
                and pin("repos:\n- repo: https://github.com/lividgreen/research-kit\n  hooks:\n  - id: flow-check\n- repo: x\n  rev: v9\n") == ("https://github.com/lividgreen/research-kit", None))
         (bare / ".pre-commit-config.yaml").write_text("repos:\n- repo: ../research-kit\n  rev: 0123abcd\n", encoding="utf-8")
         expect("hooks from a local checkout are named and their rev not compared", pins(bare, v)["ok"] and "local repository ../research-kit" in pins(bare, v)["detail"])
+        (bare / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: flow-check\n    language: system\n    entry: scripts/kit.py flow check\n", encoding="utf-8")
+        expect("local hooks running the kit's scripts are said to carry no rev and to follow the plugins' pins, and `repo: local` is no local repository",
+               pins(bare, v)["ok"] and "no hook pins the kit by `rev`; the hooks are local and run the installed plugin's scripts, so they follow the plugins' pins" in pins(bare, v)["detail"]
+               and "local repository" not in pins(bare, v)["detail"] and "the hooks' rev" not in pins(bare, v)["detail"], pins(bare, v)["detail"])
+        (bare / ".pre-commit-config.yaml").write_text("# research-kit\nrepos: []\n", encoding="utf-8")
+        expect("a config naming the kit only in a comment pins nothing, and claims no local hooks",
+               "no hook pins the kit by `rev`" in pins(bare, v)["detail"] and "hooks are local" not in pins(bare, v)["detail"])
+        (bare / ".pre-commit-config.yaml").write_text(f"repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v{v}\n", encoding="utf-8")
+        expect("a hooks' rev is stated and no rev-less claim made", f"the hooks pin rev v{v}" in pins(bare, v)["detail"] and "no hook pins" not in pins(bare, v)["detail"])
         settings({"source": "directory", "path": "/somewhere/research-kit"})
         (bare / ".pre-commit-config.yaml").write_text(f"repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v{v}\n", encoding="utf-8")
         expect("a directory marketplace is named as one, not as following the default branch", pins(bare, v)["ok"] and "local directory" in pins(bare, v)["detail"])

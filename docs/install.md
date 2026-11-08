@@ -190,6 +190,20 @@ Each check reads its bindings file at the project root; a project with no `flow.
 A bindings file names code that runs — the reflow module, the library's command and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
 To update the hooks, set `rev` to the next tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it) and move the plugins to the same tag, as the next section says.
 
+A plugin-install project that wants one version everywhere may write its hooks the other way, as `repo: local` hooks with `language: system`, each `entry` a runner of the project's own followed by the script's command, so the hooks run the installed plugin's scripts and the marketplace's `ref` is the one pin; the kit ships no such runner, and the project's finds the script under the agent's plugin cache (see *Outside the agent* below).
+
+```yaml
+- repo: local
+  hooks:
+    - id: flow-check
+      name: flow check
+      language: system
+      entry: scripts/kit.py flow check   # the project's own runner, then the script's command
+      pass_filenames: false
+```
+
+The setup probe then reads the hooks as local, running the installed plugin's scripts, and holds the plugins' pins alone, saying that no hook pins the kit by `rev`.
+
 ### The plugins at the hooks' tag
 
 A marketplace added as `lividgreen/research-kit` follows the repository's default branch, while the hooks pin a tag, so between a push to `main` and a project's own bump its skills' text and scripts can be newer than its checks.
@@ -243,5 +257,6 @@ python3 .claude/skills/flow/scripts/flow.py check
 
 The other scripts lie under their skills the same way: `library/scripts/library.py`, `dashboard/scripts/dashboard.py`, and the `formal` plugin's `land/scripts/formal.py`.
 Under a plugin install a script sits in the agent's plugin cache instead, Claude Code's `~/.claude/plugins/cache/research-kit/<plugin>/<version>/skills/…` (`CLAUDE_CODE_PLUGIN_CACHE_DIR` moves that root), a path that changes with each version; so a project that runs the scripts outside the agent installs the skills into the project directory.
+A project that stays on the plugin install and wants a Makefile target writes its own small runner, which finds the script under the plugin cache at the pinned version, the probe's `pins at one tag` holding the pins together; the kit ships no runner.
 
 research-kit installs no command and is not published to PyPI: the agent runs the scripts from their skills, and the pre-commit hooks build their own environment from this repository at the pinned tag; the `research-kit` project on PyPI is an unrelated one.

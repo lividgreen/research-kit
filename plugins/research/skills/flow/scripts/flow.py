@@ -11,7 +11,8 @@ directory `flow.toml` names.  Six kinds:
              it may lean toward a direction and serve a goal
   finding    a CHECKABLE claim: each evidence item is form:target, the form one of [evidence] forms (the kit
              ships formal, statistical, peer-reviewed, stated, reference), resolved by its shape; the forms it
-             carries are its trust; evidence is added and never removed; it never closes
+             carries are its trust; evidence is added, and an item a later change left without its file is
+             swapped or retired with a dated note; it never closes
   goal       a destination the owner forms, with what reached means and a horizon; open | reached | given_up
   direction  the owner's dated statement of where the research moves; open | closed
 
@@ -35,7 +36,9 @@ Transitions (the only writers of state and provenance):
   flow finding SUMMARY FORM:TARGET... [--from ID]... [--answers Q] [--depends-on F]... [--tag T]...
              [--body FILE]                                     the one mint of a finding; --answers Q
                                                                closes Q answered by it
-  flow evidence F FORM:TARGET... evidence added to a finding, never removed: its trust raised
+  flow evidence F FORM:TARGET... evidence added to a finding: its trust raised
+  flow evidence F --replace OLD NEW  |  flow evidence F --retire OLD --reason R    an item whose file is gone, swapped
+                                 or retired, the dated note in the body keeping what it was
   flow goal SUMMARY --criterion C [--horizon H] [--from ID]...   |  flow reach G --reason R  |  flow giveup G --reason R
   flow direction NAME [--body FILE] [--from ID]...               |  flow drop D --reason R
   flow consume IDEA              an open idea -> consumed into every card that names it in derived_from
@@ -91,6 +94,7 @@ import difflib
 import hashlib
 import html
 import importlib.util
+import io
 import json
 import os
 import posixpath
@@ -347,6 +351,12 @@ class Config:
 MANIFEST_FIELD = re.compile(r"(?:«[^»]*»|[^\s«])+")
 _SENT = re.compile(r"([.?!])([\"”’')\]*`]*)[ \t]+(?=[A-Z0-9*`(\[“\"§_])")
 FENCE_RUN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+# The abbreviations the built-in reflow does not split after: the lowercase Latin ones are compared in any case, the capitalised
+# ones as spelled, and `et al.` by the `et ` before it.  A project with others (journal names such as `Amer.` and `Math.`) binds
+# its own reflow module, which is the escape that exists.
+BUILTIN_ABBREVIATIONS = frozenset((
+    "cf", "e.g", "i.e", "vs", "resp", "approx", "ibid",
+    "Prop", "Thm", "Lem", "Def", "Eq", "Fig", "Sec", "Ch", "No", "Vol", "Eqs", "Figs", "Secs", "Thms", "Props"))
 
 
 def fence_after(fence, line):
@@ -371,6 +381,10 @@ def _builtin_reflow(text):
         body, cont = line[m.end():], indent + " " * len(marker)
         parts, start = [], 0
         for b in _SENT.finditer(body):
+            word = re.search(r"(?:[A-Za-z]\.)*[A-Za-z]+$", body[:b.start()])
+            if b.group(1) == "." and word and (word.group() in BUILTIN_ABBREVIATIONS or word.group().lower() in BUILTIN_ABBREVIATIONS
+                                               or re.search(r"\bet al$", body[:b.start()])):  # `cf.`, `Thm.`, `et al.`, but `A.` is a sentence
+                continue
             if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
                     or re.fullmatch(r"(\*\*|__)(?:[^*_\s]+ ){0,3}[^*_\s]+(?: \([^()]*\))?\.\1", body[start:b.end(2)].strip()):  # a label, **State.**, **Lemma 2 (Jen 1990).**
                 continue
@@ -633,6 +647,11 @@ def parse(path):
         text = path.read_text(encoding="utf-8-sig")  # an editor's byte-order mark is not part of the record
     except UnicodeDecodeError as e:
         raise Refused(f"{path}: not UTF-8 ({e.reason} at byte {e.start})")
+    return parse_text(path, text)
+
+
+def parse_text(path, text):
+    """A record from its text, `path` naming it in a refusal."""
     if not text.startswith(FENCE + "\n"):
         raise Refused(f"{path}: no frontmatter")
     end = text.find("\n" + FENCE + "\n", len(FENCE))
@@ -1868,11 +1887,37 @@ def cmd_finding(cfg, recs, a, today):
 
 
 def cmd_evidence(cfg, recs, a, today):
-    """Evidence added to a finding, never removed: the way its trust is raised, a proof formalized, a probe run,
-    a work cited; each item resolved as at the mint."""
+    """Evidence added to a finding: the way its trust is raised, a proof formalized, a probe run, a work cited;
+    each item resolved as at the mint.  An item whose file a later change deleted is swapped (`--replace OLD NEW`,
+    NEW resolved as an added item is) or retired (`--retire OLD --reason R`, refused where it leaves the finding
+    none, which V6 fails), the dated note in the body keeping what the evidence was."""
     f = get(recs, a.finding, "finding")
-    resolve_items(cfg, a.evidence, have=f["evidence"] or [])
-    f.fm["evidence"] = list(f["evidence"] or []) + list(a.evidence)
+    held = list(f["evidence"] or [])
+    if (bool(a.evidence) + (a.replace is not None) + (a.retire is not None)) != 1:
+        raise Refused("flow evidence takes one of the items to add, --replace OLD NEW or --retire OLD --reason R")
+    if a.reason is not None and a.retire is None:
+        raise Refused("--reason goes with --retire")
+    if a.evidence:
+        resolve_items(cfg, a.evidence, have=held)
+        f.fm["evidence"] = held + list(a.evidence)
+    else:
+        old, new = a.replace if a.replace is not None else (a.retire, None)
+        if old not in held:
+            raise Refused(f"evidence {old} is not among {f.id}'s items, which are {', '.join(held) or 'none'}")
+        if new is not None:
+            resolve_items(cfg, [new], have=held)
+            at = held.index(old)  # a hand-edited finding may hold an item twice: one occurrence is acted on
+            f.fm["evidence"] = held[:at] + [new] + held[at + 1:]
+            append_note(f, today, f"evidence `{old}` replaced by `{new}`")
+        else:
+            if not (a.reason or "").strip():
+                raise Refused("--retire needs --reason: the words kept in the note")
+            at = held.index(old)  # one occurrence only, as with --replace
+            left = held[:at] + held[at + 1:]
+            if not left:
+                raise Refused(f"evidence {old} is {f.id}'s only item, and a finding with none fails V6: --replace it")
+            f.fm["evidence"] = left
+            append_note(f, today, f"evidence `{old}` retired: {a.reason.strip()}")
     save(cfg, f)
     return [], [f]
 
@@ -2307,6 +2352,10 @@ def cmd_find(cfg, recs, a, today):
         raise Refused(f"--grep {a.grep!r} is not a regular expression: {e}")
     if a.deep and not a.refers:
         raise Refused("--deep follows --refers: flow find --refers ID --deep")
+    if a.only and not a.form:
+        raise Refused("--only holds the forms of --form: flow find --form stated --only")
+    if a.kind and a.kind not in ("question", "conjecture"):
+        raise Refused(f"--kind {a.kind!r}: a question's kind is question or conjecture")
     target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
     naming = referrers(recs, target, a.deep) if a.refers else None
     for r in recs.values():
@@ -2320,7 +2369,7 @@ def cmd_find(cfg, recs, a, today):
             continue
         if a.kind and r["kind"] != a.kind:
             continue
-        if a.form and (r.type != "finding" or a.form not in forms_of(r)):
+        if a.form and (r.type != "finding" or not set(a.form) <= set(forms_of(r)) or (a.only and set(a.form) != set(forms_of(r)))):
             continue
         if a.tag and a.tag not in (r["tags"] or []):
             continue
@@ -2573,7 +2622,7 @@ def git(cfg, *args):
     if not exe:
         return None
     try:
-        r = subprocess.run([exe, *args], capture_output=True, text=True, cwd=cfg.root, timeout=60)
+        r = subprocess.run([exe, *args], capture_output=True, text=True, errors="replace", cwd=cfg.root, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode == 0 else None
@@ -2625,8 +2674,35 @@ def changed_since(cfg, base):
     return changed, ids
 
 
+def reranked_only(cfg, base, path):
+    """Whether the record at `path`, a file at the commit, differs from it in its `rank` alone: the front matter's
+    other fields and their order, and the body, are the same.  One `flow rank … --insert` renumbers every record below
+    the one inserted, and a renumbering writes the `rank` field and no other (it does not refresh `checked`, which only
+    a rank given to a record sets), so the session did not work on a record it only moved."""
+    old = git(cfg, "show", f"{base}:./{path}")
+    if old is None:
+        return False
+    try:
+        was, now = parse_text(cfg.root / path, old.lstrip("﻿")), parse(cfg.root / path)
+    except (Refused, OSError, ValueError):
+        return False
+    return was["rank"] != now["rank"] and list(was.fm) == list(now.fm) and was.body == now.body \
+        and {k: v for k, v in was.fm.items() if k != "rank"} == {k: v for k, v in now.fm.items() if k != "rank"}
+
+
 def names_id(text, id_):
-    return re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(id_), text) is not None
+    """Whether the log's text names a record: its id written out, or a range `PREFIX-NNNN…MMMM` (an en dash or three
+    dots for the ellipsis, written with no spaces around it) of the same digit width with the id's number within it."""
+    if re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(id_), text):
+        return True
+    m = re.fullmatch(r"(.+)-(\d+)", id_)
+    if not m:
+        return False
+    prefix, num = m.group(1), m.group(2)
+    for a, b in re.findall(r"(?<![\w-])%s-(\d{%d})(?:…|–|\.\.\.)(\d{%d})(?![\w-])" % (re.escape(prefix), len(num), len(num)), text):
+        if int(a) <= int(num) <= int(b):
+            return True
+    return False
 
 
 def close_check(cfg, recs, today):
@@ -2651,7 +2727,7 @@ def close_check(cfg, recs, today):
              f"file(s) changed since {base[:12]}, the commit of the entry of {base_date}: today's entry is written (`flow log add FILE`)")
     text = "\n".join(named)
     for i, p in sorted(ids.items()):
-        if not names_id(text, i):
+        if not names_id(text, i) and not reranked_only(cfg, base, p):
             fail(p, f"{i} changed since {base[:12]}, the commit of the log's entry of {base_date}, and no entry since names it"
                  " (`flow touched --unnamed` lists them all)")
     return fails, checked, undecided
@@ -2677,7 +2753,8 @@ def cmd_touched(cfg, recs, a, today):
     """The records changed since a commit, for the log's entry to name: by default since the commit of the log's
     newest committed entry, the base `flow state --check` reads, named by an entry from the top down to that one;
     `--since REV` since another commit, named by an entry from the top down to the newest the log held at REV;
-    `--unnamed`, those no such entry names."""
+    `--unnamed`, those no such entry names.  A record whose only change is its rank (a renumbering moved it) is left
+    out of the list and returned apart, as the third value: the log's entry need not name it."""
     if a.since:
         if git(cfg, "rev-parse", "--is-inside-work-tree") is None:
             raise NotRun(f"git is absent, or {cfg.root} is not in a work tree")
@@ -2691,15 +2768,18 @@ def cmd_touched(cfg, recs, a, today):
             raise NotRun(f"the base is the commit of the log's newest committed entry, and {why}; `--since REV` names another")
     _, ids = changed_since(cfg, base)
     text = "\n".join(named)
-    out = []
+    out, moved = [], []
     for i, p in sorted(ids.items(), key=lambda x: (x[0].rsplit("-", 1)[0], x[0])):
+        if reranked_only(cfg, base, p):
+            moved.append(i)
+            continue
         if a.unnamed and names_id(text, i):
             continue
         r = recs.get(i)
         out.append({"id": i, "path": p, "type": r.type if r else None, "state": stat(r) if r else "gone",
                     "summary": r["summary"] if r else None, "named": names_id(text, i)})
     said = f"since {base[:12]}" + (f", the commit of the log's entry of {base_date}" if base_date else "")
-    return out, said
+    return out, said, moved
 
 
 # --- the log: an entry written at its top, the old ones archived by month ------------
@@ -3448,6 +3528,13 @@ def selftest():
         if not cond:
             failures.append(name)
 
+    def text_of(c, argv):
+        """What a command prints to a person (not the JSON page), as a string."""
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            dispatch(c, argv, today=today, as_json=False, quiet=False)
+        return buf.getvalue()
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "flow.toml").write_text(SELFTEST_TOML)
@@ -3532,7 +3619,7 @@ def selftest():
         p = run(["finding", "a corollary", "stated:papers/alpha.md#Theorem 2.1", "--from", q])
         fc = p["created"][0]
         expect("a finding the answering produced names the question it came from", load_all(cfg)[fc]["derived_from"] == [q])
-        # evidence is added and never removed: the trust raised, a proof formalized
+        # evidence is added: the trust raised, a proof formalized (an item whose file is gone is swapped or retired, below)
         run(["evidence", fa, "stated:papers/alpha.md#Theorem 2.1"], ok=False)  # there already
         run(["evidence", fa, "formal:Lib/Foo.lean#nope"], ok=False)
         p = run(["evidence", fa, "formal:Lib/Foo.lean#lemma_L"])
@@ -3540,6 +3627,52 @@ def selftest():
                load_all(cfg)[fa]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1", "formal:Lib/Foo.lean#lemma_L"] and p["records"][0]["forms"] == "formal, stated")
         expect("find --form lists the findings carrying a form",
                fa in ids(["find", "--form", "formal"]) and fc in ids(["find", "--form", "stated"]) and f not in ids(["find", "--form", "statistical"]))
+        expect("find --form F --form G lists the findings carrying both, and --only those carrying no other",
+               fa in ids(["find", "--form", "formal", "--form", "stated"]) and fc not in ids(["find", "--form", "formal", "--form", "stated"])
+               and fc in ids(["find", "--form", "stated", "--only"]) and fa not in ids(["find", "--form", "stated", "--only"])
+               and fa in ids(["find", "--form", "stated", "--form", "formal", "--only"]) and fa not in ids(["find", "--form", "formal", "--only"]))
+        run(["find", "--only"], ok=False)  # --only holds the forms of --form
+        expect("find --kind takes a question's kind", q in ids(["find", "--kind", "question"]) and q not in ids(["find", "--kind", "conjecture"]))
+        qk = new(["frame", new(["capture", "a conjecture's idea"]), "--summary", "Is A true?", "--criterion", "k", "--kind", "conjecture"])
+        expect("find --kind conjecture finds a question framed as one, and not a plain question",
+               qk in ids(["find", "--kind", "conjecture"]) and q not in ids(["find", "--kind", "conjecture"]) and qk not in ids(["find", "--kind", "question"]))
+        run(["remove", qk, "--reason", "only for the find"])
+        p = run(["find", "--kind", "bogus"], ok=False)  # the refusal is the command's, so a JSON caller gets a page
+        expect("find --kind refuses a word that is no question's kind, in the page a JSON caller parses",
+               p["problems"][0]["code"] == "REFUSED" and "question or conjecture" in p["problems"][0]["msg"])
+        # an item whose file a later change deleted is swapped or retired, the note keeping what it was
+        run(["evidence", fc, "formal:Lib/Foo.lean#lemma_L"])
+        run(["evidence", fc, "--replace", "formal:Lib/Foo.lean#lemma_L", "statistical:probes/nothing.py"], ok=False)  # the new one resolved
+        run(["evidence", fc, "--replace", "formal:Lib/Foo.lean#lemma_Z", "statistical:probes/p.py"], ok=False)  # not among the items
+        run(["evidence", fc, "--replace", "formal:Lib/Foo.lean#lemma_L", "stated:papers/alpha.md#Theorem 2.1"], ok=False)  # there already
+        run(["evidence", fc, "stated:papers/alpha.md#Theorem 2.1", "--retire", "formal:Lib/Foo.lean#lemma_L", "--reason", "r"], ok=False)  # one way at a time
+        p = run(["evidence", fc, "--replace", "formal:Lib/Foo.lean#lemma_L", "statistical:probes/p.py"])
+        expect("evidence --replace swaps the item in place and notes it in the body",
+               load_all(cfg)[fc]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1", "statistical:probes/p.py"]
+               and f"{today} — evidence `formal:Lib/Foo.lean#lemma_L` replaced by `statistical:probes/p.py`" in load_all(cfg)[fc].body)
+        run(["evidence", fc, "--retire", "statistical:probes/p.py"], ok=False)  # no reason
+        run(["evidence", fc, "--reason", "gone"], ok=False)  # a reason alone
+        run(["evidence", fc, "--retire", "statistical:probes/q.py", "--reason", "gone"], ok=False)  # not among the items
+        run(["evidence", fc, "--retire", "statistical:probes/p.py", "--reason", "the probe was deleted"])
+        expect("evidence --retire removes the item and notes the reason in the body",
+               load_all(cfg)[fc]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1"]
+               and f"{today} — evidence `statistical:probes/p.py` retired: the probe was deleted" in load_all(cfg)[fc].body)
+        run(["evidence", fc, "--retire", "stated:papers/alpha.md#Theorem 2.1", "--reason", "gone"], ok=False)  # the last item: V6
+        # a hand-edited finding may hold an item twice: one occurrence is acted on, and the last one is never retired
+        twice = load_all(cfg)[fc]
+        twice.fm["evidence"] = ["stated:papers/alpha.md#Theorem 2.1"] * 2
+        twice.path.write_text(render(twice.fm, twice.body), encoding="utf-8")
+        run(["evidence", fc, "--retire", "stated:papers/alpha.md#Theorem 2.1", "--reason", "r"])
+        expect("evidence --retire of an item held twice removes one occurrence and leaves the other",
+               load_all(cfg)[fc]["evidence"] == ["stated:papers/alpha.md#Theorem 2.1"])
+        run(["evidence", fc, "--retire", "stated:papers/alpha.md#Theorem 2.1", "--reason", "r"], ok=False)  # the one left: V6
+        twice = load_all(cfg)[fc]
+        twice.fm["evidence"] = ["stated:papers/alpha.md#Theorem 2.1"] * 2
+        twice.path.write_text(render(twice.fm, twice.body), encoding="utf-8")
+        run(["evidence", fc, "--replace", "stated:papers/alpha.md#Theorem 2.1", "statistical:probes/p.py"])
+        expect("evidence --replace of an item held twice swaps one occurrence only",
+               load_all(cfg)[fc]["evidence"] == ["statistical:probes/p.py", "stated:papers/alpha.md#Theorem 2.1"])
+        run(["evidence", fc, "--retire", "statistical:probes/p.py", "--reason", "back to the one item"])
         run(["remove", t3, "--reason", "not needed"])
         i2 = new(["capture", "a second idea"])
         run(["frame", i2, "--summary", "Q2", "--criterion", "k", "--direction", "Nowhere"], ok=False)
@@ -3809,6 +3942,17 @@ def selftest():
         expect("check green with a cited key the library holds and a peer-reviewed item it holds", not p["problems"])
         expect("the coverage counts the cited keys by grade and the excluded ones",
                p["coverage"]["library"] == {"cited": 2, "records": 1, "grades": {"parts": 1, "unread": 1}, "excluded": 1})
+        txt = text_of(cfg, ["check"])
+        expect("check says in words how many keys the records cite, and what the manifest and the register bound check",
+               "library: 2 key(s) cited from the records" in txt and f"declaration evidence via {cfg.manifest}" in txt
+               and f"probe evidence via {cfg.probes}" in txt)
+        keep = (cfg.manifests, cfg.manifest, cfg.probes, cfg._manifest)
+        cfg.manifests, cfg.manifest, cfg.probes, cfg._manifest = ["gone.txt"], "gone.txt", "probes/gone.md", None
+        txt = text_of(cfg, ["check"])
+        cfg.manifests, cfg.manifest, cfg.probes, cfg._manifest = keep
+        expect("check says a bound manifest or register that is absent is not found, not that none is bound",
+               "declaration evidence unchecked (manifest gone.txt not found)" in txt
+               and "probe evidence unchecked (register probes/gone.md not found)" in txt and "no manifest bound" not in txt)
 
         # goals: formed by the owner, served by questions, reached or given up
         g = new(["goal", "Reach B", "--criterion", "B is proved", "--horizon", "before the talk", "--from", d])
@@ -4230,6 +4374,11 @@ def selftest():
                and "INBOX.md" in written and cfg.forms == SHIPPED_FORMS and "task" not in cfg.raw and "finding" not in cfg.raw)
         lines, _ = state_lines(cfg)
         expect("flow state prints the new log's top entry", any("the flow set up" in ln for ln in lines))
+        (root / "research").mkdir(exist_ok=True)
+        txt = text_of(cfg, ["check"])
+        expect("check says in words that no manifest, no register and no library is bound",
+               "declaration evidence unchecked (no manifest bound)" in txt and "probe evidence unchecked (no register bound)" in txt
+               and "library: none bound" in txt and "NOT CONFIGURED" not in txt)
         r = subprocess.run([sys.executable, __file__, "--help"], capture_output=True, text=True, cwd=tempfile.gettempdir())
         expect("--help works with no bindings file", r.returncode == 0 and "capture" in r.stdout and "init" in r.stdout)
         with tempfile.TemporaryDirectory() as bare:
@@ -4403,6 +4552,49 @@ def selftest():
             p = go(["state", "--check"])
             expect("the hands' active tasks and ideas are printed for the State paragraph, and fail nothing, whoever holds them",
                    not p["problems"] and any(h.startswith(f"owner: {t}") for h in p["hands"]) and any(h.startswith("agent: idea-0001") for h in p["hands"]))
+            # a renumbering moves the records below the one inserted: a record whose only change is its rank is no change the log must name
+            t1 = go(["task", "a ranked chore"])["created"][0]
+            t2 = go(["task", "a second ranked chore"])["created"][0]
+            go(["rank", t1, "1", "--why", "w", "--first-move", "f"])
+            go(["rank", t2, "2", "--why", "w", "--first-move", "f"])
+            entry.write_text("## 2026-10-27 — two ranked chores\n\n**State.** Two chores are ranked.\n", encoding="utf-8")
+            go(["log", "add", str(entry)])
+            for argv in (["add", "-A"], ["commit", "-q", "--no-verify", "-m", "two ranked chores"]):
+                subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
+            t3 = go(["task", "a chore ranked first"])["created"][0]
+            go(["rank", t3, "1", "--insert", "--why", "w", "--first-move", "f"])
+            entry.write_text(f"## 2026-10-27 — a chore ranked first\n\n**State.** The chore {t3} is ranked first.\n", encoding="utf-8")
+            go(["log", "add", str(entry)])
+            p = go(["state", "--check"])
+            expect("a record whose only change since the base is its rank passes the freeze with no entry naming it", not p["problems"])
+            p = go(["touched"])
+            expect("touched leaves the records only re-ranked out of its list and reports them apart",
+                   [x["id"] for x in p["touched"]] == [t3] and p["reranked_only"] == sorted([t1, t2]))
+            expect("touched says in its text which records were only re-ranked, and --ids lists the new task alone",
+                   f"re-ranked only: {', '.join(sorted([t1, t2]))}" in text_of(cfg, ["touched"]) and text_of(cfg, ["touched", "--ids"]).split() == [t3])
+            p2 = next(cfg.research.rglob(f"{t2}*.md"))
+            p2.write_text(p2.read_text(encoding="utf-8").replace("a second ranked chore", "a second ranked chore, reworded"), encoding="utf-8")
+            p = go(["state", "--check"], ok=False)
+            expect("planted: a record whose summary changed with its rank is held by the freeze until an entry names it",
+                   [x["path"] for x in p["problems"]] == [rel(cfg, p2)] and go(["touched"])["reranked_only"] == [t1])
+            p2.write_text(p2.read_text(encoding="utf-8").replace(", reworded", ""), encoding="utf-8")
+            # a record re-saved with only its quoting changed has the same rank: it is no record only moved, and stays an unnamed change
+            moved2 = p2.read_text(encoding="utf-8")
+            p2.write_text(moved2.replace(f"id: {t2}", f"id: '{t2}'").replace("rank: 3", "rank: 2"), encoding="utf-8")
+            expect("planted: a record whose rank did not change is not labelled re-ranked only",
+                   go(["touched"])["reranked_only"] == [t1] and t2 in [x["id"] for x in go(["touched"])["touched"]])
+            p2.write_text(moved2, encoding="utf-8")
+            # a range in the log's entry names every id of its prefix within it
+            expect("an entry's range of ids (an ellipsis, an en dash or three dots, written with no spaces) names the ids within it and not outside",
+                   all(names_id(f"The findings finding-0015{sep}0035 are in.", f"finding-{n:04d}") for sep in ("…", "–", "...")
+                       for n in (15, 20, 35))
+                   and not any(names_id(f"The findings finding-0015{sep}0035 are in.", i) for sep in ("…", "–", "...")
+                               for i in ("finding-0014", "finding-0036", "task-0020", "finding-00200", "finding-020"))
+                   and not any(names_id(f"The findings finding-0015{sep}0035 are in.", f"finding-{n:04d}") for sep in (" … ", " – ", " ... ")
+                               for n in (20, 35))
+                   and names_id("finding-0007 – 2024 runs", "finding-0007") and not names_id("finding-0007 – 2024 runs", "finding-0100")
+                   and not names_id("finding-0035…0015", "finding-0020") and names_id("finding-0035…0015", "finding-0035")
+                   and not names_id("finding-0015…0035x", "finding-0020"))
         elif os.environ.get("CI"):
             expect("git is on PATH in CI, where the freeze's log part is tested", False)
         else:
@@ -4549,6 +4741,16 @@ def selftest():
                                                                   ("prose.md:14", "**Do not merge this branch yet.** The tests fail.")])
         expect("planted: a line the reflow splits keeps its hard break on its last part",
                cfg.reflow("One. Two.  \nThree.\n- A. B.  \n  C.") == "One.\nTwo.  \nThree.\n- A.\n  B.  \n  C.")
+        expect("the built-in reflow leaves the scholarly abbreviations unsplit: Prop., Thm., Cf., i.e., e.g.",
+               _builtin_reflow("By Prop. 3.4 and Thm. 2 it holds.") == "By Prop. 3.4 and Thm. 2 it holds."
+               and _builtin_reflow("Cf. Smith (1990), i.e. the lemma, e.g. here.") == "Cf. Smith (1990), i.e. the lemma, e.g. here."
+               and _builtin_reflow("See Smith et al. 1990 for it.") == "See Smith et al. 1990 for it.")
+        expect("the built-in reflow still splits after a journal's abbreviations, which a project's bound module lists (the escape for others)",
+               _builtin_reflow("See Amer. J. Math. 60 for it.").startswith("See Amer.\n"))
+        expect("the built-in reflow splits after a single capital, Theorem A. and the matrix A., and after Fig. 2. only at the 2",
+               _builtin_reflow("Theorem A. Then it holds.") == "Theorem A.\nThen it holds."
+               and _builtin_reflow("Take the matrix A. The rest follows.") == "Take the matrix A.\nThe rest follows."
+               and _builtin_reflow("See Fig. 2. Then it holds.") == "See Fig. 2.\nThen it holds.")
         (root / "docs").mkdir()
         (root / "docs" / "a.md").write_text("# A\n\nIt is fine.\n", encoding="utf-8")
         go(["reflow", "--check", str(root / "docs"), str(root / "LOG.md")])
@@ -4624,7 +4826,10 @@ def build_parser():
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="what it came from: a done or aborted task, an idea, a question; repeatable")
     p.add_argument("--answers", metavar="Q", help="the one question it settles, which closes answered")
     p.add_argument("--depends-on", action="append", help="repeatable", dest="depends_on"); p.add_argument("--tag", action="append", help="repeatable; refuted for a disproof"); p.add_argument("--body")
-    p = sp.add_parser("evidence"); p.add_argument("finding"); p.add_argument("evidence", nargs="+", metavar="FORM:TARGET", help="added, never removed: how a finding's trust is raised")
+    p = sp.add_parser("evidence"); p.add_argument("finding"); p.add_argument("evidence", nargs="*", metavar="FORM:TARGET", help="added: how a finding's trust is raised")
+    p.add_argument("--replace", nargs=2, metavar=("OLD", "NEW"), help="the item OLD, as written, swapped for NEW, resolved as an added item is; a dated note in the body")
+    p.add_argument("--retire", metavar="OLD", help="the item OLD removed, with --reason; a dated note in the body")
+    p.add_argument("--reason", help="with --retire: why the item goes, kept in the note")
     p = sp.add_parser("goal"); p.add_argument("summary"); p.add_argument("--criterion", required=True, help="what reached means")
     p.add_argument("--horizon", help="how far out the destination lies, in words")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the direction it was produced along, which stays open, or the idea it came from; repeatable")
@@ -4655,8 +4860,11 @@ def build_parser():
     p = sp.add_parser("note", help="a file's text appended to a record's body under today's date"); p.add_argument("id")
     p.add_argument("--body", required=True, metavar="FILE", help="the text appended, set apart under the date")
     p = sp.add_parser("find")
-    for f in ("type", "state", "kind", "form", "tag", "owner", "requires", "grep"):
+    for f in ("type", "state", "tag", "owner", "requires", "grep"):
         p.add_argument("--" + f)
+    p.add_argument("--kind", help="a question's kind")
+    p.add_argument("--form", action="append", help="a finding's evidence form; repeatable, a finding listed when it carries every one given")
+    p.add_argument("--only", action="store_true", help="with --form: the findings whose evidence carries those forms and no other")
     p.add_argument("--from", dest="from_", metavar="ID", help="the records that name ID in derived_from")
     p.add_argument("--refers", metavar="ID|PATH", help="the records naming ID or PATH in any reference field, an evidence item, a source that is a path or a body link")
     p.add_argument("--deep", action="store_true", help="with --refers: the records naming those, and so on")
@@ -4914,14 +5122,16 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for ln in out["lines"]:
                 emit(ln)
         elif a.cmd == "touched":
-            rows, said = cmd_touched(cfg, recs, a, today)
-            out["touched"], out["base"] = rows, said
+            rows, said, moved = cmd_touched(cfg, recs, a, today)
+            out["touched"], out["base"], out["reranked_only"] = rows, said, moved
             if a.ids:
                 emit(" ".join(x["id"] for x in rows))
             else:
                 for x in rows:
                     emit(f"{x['id']} — {x['summary']} ({x['type']}, {x['state']})" if x["type"] else f"{x['id']} — gone ({x['path']})")
                 emit(f"{len(rows)} record(s) changed {said}" + (", not named by an entry since" if a.unnamed else ""))
+                if moved:
+                    emit(f"re-ranked only: {', '.join(moved)}")
         elif a.cmd == "artifacts":
             arts = cmd_artifacts(cfg, recs, a, today)
             out["artifacts"] = arts
@@ -4961,15 +5171,15 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for w in warnings:
                 emit(f"warning: {w}")
             emit(f"flow check: {len(recs)} records of the kinds {', '.join(cov['kinds'])}; {len(problems)} problem(s), {len(warnings)} warning(s); "
-                 + (f"evidence forms {', '.join(cov['forms'])}; declaration evidence via {cfg.manifest if cov['manifest'] else 'NOT CONFIGURED'}; "
-                    f"probe evidence via {cfg.probes if cov['probes'] else 'NOT CONFIGURED'}; " if cfg.has("finding") else "")
+                 + (f"evidence forms {', '.join(cov['forms'])}; declaration evidence {f'via {cfg.manifest}' if cov['manifest'] else f'unchecked (manifest {cfg.manifest} not found)' if cfg.manifest else 'unchecked (no manifest bound)'}; "
+                    f"probe evidence {f'via {cfg.probes}' if cov['probes'] else f'unchecked (register {cfg.probes} not found)' if cfg.probes else 'unchecked (no register bound)'}; " if cfg.has("finding") else "")
                  + f"reflow via {cov['reflow']}; markdownlint {'present' if cov['markdownlint'] else 'ABSENT'}")
             lc = cov["library"]
-            emit("library: " + (f"NOT CONFIGURED ({cfg.library_route}) — a cited key is not checked" if not cfg.library_cmd else
+            emit("library: " + (f"none bound ({cfg.library_route}) — a cited key is not checked" if not cfg.library_cmd else
                                 f"DID NOT ANSWER ({cfg.library_route})" if lc is None else
-                                f"{lc['cited']} key(s) cited from {lc['records']} record(s)"
+                                f"{lc['cited']} key(s) cited from the records, {lc['records']} record(s) citing"
                                 + (", by read grade: " + ", ".join(f"{n} {g}" for g, n in sorted(lc["grades"].items())) if lc["grades"] else "")
-                                + f"; {lc['excluded']} of them excluded cards; the papers' reference entries are not read here; asked through {cfg.library_route}"))
+                                + f"; {lc['excluded']} of them excluded cards; the papers' reference entries and the documents the library's scan binds are not read here; asked through {cfg.library_route}"))
             if problems:
                 out["ok"] = False
                 emit("to reproduce: `flow check` at the project root, the flow skill's scripts/flow.py; "

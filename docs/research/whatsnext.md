@@ -14,7 +14,7 @@ A focus may follow the command, `/research:whatsnext let's focus on the proofs`,
 3. The ranking: toward a goal where one is set, toward the directions where there are some, never so far that the rest is not seen; nothing is ranked down for lacking a route, a parked or blocked record keeps its rank with its wait shown, and a due date never moves a rank.
 4. The ranks written with `flow rank`, each with why now and its first move, or the whole order at once with `flow rank --set`.
 5. The intake: residues captured or framed, parks with a dated reason, and a task waiting on your decision parked with a reason naming it.
-6. The draw: the top work drawn into the agent's hand under its limit, and what the new order no longer puts first returned with a note; your hand is yours, and the agent only proposes for it.
+6. The draw: the top work drawn into the agent's hand under its limit, a question at the top refined into the task that is its first move and that drawn, or the hand left as it is where the question waits on something the agent cannot do, and what the new order no longer puts first returned with a note; your hand is yours, and the agent only proposes for it.
 
 It ends with what each inbox item became, the refreshed ranks and the hands, `flow check` green, a log entry and a commit.
 

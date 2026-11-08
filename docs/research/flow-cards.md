@@ -112,7 +112,7 @@ A finding has no `state` and no status: it is a checkable claim, it accumulates,
 
 | Field | Holds | Written by |
 | --- | --- | --- |
-| `evidence` | one or more items `form:target`, each resolved when it is written and at every check, no item twice; the set of forms present is the finding's trust, shown where a status stood | minted (`flow finding SUMMARY EVIDENCE…`); `evidence`, which adds items and never removes one |
+| `evidence` | one or more items `form:target`, each resolved when it is written and at every check, no item twice; the set of forms present is the finding's trust, shown where a status stood | minted (`flow finding SUMMARY EVIDENCE…`); `evidence`, which adds items, swaps one for another (`--replace OLD NEW`) or retires one (`--retire OLD --reason R`, refused where it leaves none), the last two with a dated note in the body |
 | `derived_from` | what it came from, `--from`: a done or aborted task, an idea or a question; the question it answers (`--answers`) is not listed here, and names it in `answered_by` | minted |
 | `depends_on` | findings it rests on; a cycle is refused | minted (`--depends-on`); `flow set` |
 
@@ -217,7 +217,7 @@ A task handed to a prover's session stays active in the agent's hand and counts 
 ### A finding's
 
 A finding is minted by `flow finding` alone, the one mint whatever produced it, with evidence of the forms the project accepts; a task's finding is minted after the task is made or aborted, `--from` it.
-It has no state transition after: it is never removed, since a finding found false is refuted by another finding, tagged `refuted`; `flow evidence` adds items to its evidence and never removes one, and its `summary` and `depends_on` change through `flow set`.
+It has no state transition after: it is never removed, since a finding found false is refuted by another finding, tagged `refuted`; `flow evidence` adds items to its evidence, and replaces or retires one whose file is gone with a dated note in the body, and its `summary` and `depends_on` change through `flow set`.
 
 ### A goal's
 

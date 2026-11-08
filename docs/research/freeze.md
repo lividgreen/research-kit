@@ -19,6 +19,7 @@ Its one rule is to save what is important for the work; its test is the clone: c
 ## The check under it
 
 `flow state --check` decides what a machine can see of a freeze and fails on two things: the log's top entry not dated today while the tree changed since the newest committed entry, and a record changed since then that no entry names.
+A record whose only change is its rank, which one renumbering gives every record below the one inserted, is not asked to be named, and an entry may name a range of ids written `finding-0015…0035` where it would otherwise write each out.
 `flow touched --unnamed` lists those records before the entry is written, so it names them without the ids gathered by hand.
 It prints each hand's active tasks and drawn ideas, a task handed to a prover session among them, for the State paragraph, and fails on none, since each hand continues its own work.
 An inbox holding items is no failure: the next session reads it.
