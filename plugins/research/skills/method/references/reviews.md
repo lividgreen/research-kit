@@ -1,6 +1,6 @@
-# Reviews and audits
+# Answering and triaging reviews
 
-Four procedures the `method` skill points at, each run when its occasion comes and never on a cadence.
+Three procedures the `method` skill points at, each run when its occasion comes and never on a cadence; a consistency audit across documents is the `audit` skill, argument-level scrutiny the `scrutinize` skill, and crediting a named external result the `attribution` skill.
 
 ## Answering a review
 
@@ -15,19 +15,6 @@ Four procedures the `method` skill points at, each run when its occasion comes a
 Check the claim side before crediting any gap on the proof side: a sentence that claims more than the artifact proves is the defect, whatever the proof lacks.
 A boundary section is read back as the reviewer would read it, with none of the project's context.
 
-## A consistency audit across documents
+## The outsider pass
 
-The mechanical checks run first; then what no script sees:
-
-- every import read at the exporting statement, for its strength, its conditions and its scope;
-- a regime condition stated with the same constants everywhere it is load-bearing;
-- a status labelled identically everywhere the claim appears;
-- definitional drift between documents;
-- every negative-coverage sentence, each with what would falsify it.
-
-The report is a table of the discrepancies — the files, which statement is correct, the severity — and the audit edits nothing.
-
-## Scrutiny and the outsider pass
-
-Argument-level scrutiny is checking, not verification: it finds where an argument is weak and certifies nothing.
 An outsider pass covers everything that is true only of a document an outsider reads — the pointers, the register, what the front matter promises; it runs when a posting is decided and never otherwise, and it authorizes no send.

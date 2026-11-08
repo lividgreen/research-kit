@@ -155,7 +155,7 @@ npx skills add lividgreen/research-kit -g -y               # every project, no p
 The scripts need Python 3.11 and run by path; this route installs no command, and the agent needs none.
 The `skills` CLI's [agents table](https://github.com/vercel-labs/skills/blob/main/docs/agents.md) lists some seventy agents with their project and global directories; `npx skills add … -a <agent>` names any of them.
 The `handoff` skill calls the `land` skill's script, so the two are installed together (`--skill handoff --skill land`).
-The `whatsnext` and `freeze` skills run the `flow` skill's script, so they are installed with it (`--skill flow --skill whatsnext --skill freeze`).
+The `whatsnext` and `freeze` skills run the `flow` skill's script, so they are installed with it (`--skill flow --skill whatsnext --skill freeze`), and the `attribution` skill runs the `library` skill's (`--skill library --skill attribution`).
 
 ### A copy
 

@@ -1,6 +1,6 @@
 ---
 name: method
-description: Method rules for a project that writes documents and makes claims — how to review, what to call things, what a document holds and when a result enters one, what counts as evidence, what to check before pricing a piece of work, how to change a target honestly when a wall is hit, how to work with the project's owner, and, where the project keeps a machine-checked library, how a formal target is picked and scoped and what a wall is. Use before a design round, a list refresh, a review pass, a registration or the pricing of a formal target. The rules come from one research programme, and the incidents that earned them are not part of the kit.
+description: Method rules for a project that writes documents and makes claims — how to answer a review, what to call things, what a document holds and when a result enters one, what counts as evidence, what to check before pricing a piece of work, how to change a target honestly when a wall is hit, how to work with the project's owner, and, where the project keeps a machine-checked library, how a formal target is picked and scoped and what a wall is. Use before a design round, a list refresh, a review pass, a registration or the pricing of a formal target. The rules come from one research programme, and the incidents that earned them are not part of the kit.
 license: Apache-2.0
 compatibility: No tooling; read before design, review and target changes.
 metadata:
@@ -19,8 +19,8 @@ These are one project's rules, earned over a research programme that pairs writt
 - A scope qualifier sits on the claim, not on the sentence's conclusion.
 - A negative-coverage sentence ("nothing in this work does X") is a claim about every document at once; its counterexample is usually a companion's own headline result under a hypothesis — and every landing re-reads such sentences for the landed result's kind, since no gate does.
 - A sentence found false of the artifact is corrected by the session that finds it, at its exact size, in that session; it is never put to the project's owner as a choice. The owner decides scope and significance; whether a false sentence stands is not a decision. A project whose instructions file says the owner is asked before any correction has opted out, and the session then puts the sentence, its evidence and the correction to them instead.
-- Crediting the work with settling a NAMED external result requires reading that result's primary source first — its quantifiers, its resources and the author's own caveats; a partial match names the special case proved and the gap.
-- Answering a review, triaging a review of a public artifact, a consistency audit across documents and an outsider pass follow [`references/reviews.md`](references/reviews.md).
+- Crediting the work with settling a NAMED external result requires reading that result's primary source first — its quantifiers, its resources and the author's own caveats; a partial match names the special case proved and the gap; the `attribution` skill runs the check.
+- A consistency audit across documents is the `audit` skill, and argument-level scrutiny the `scrutinize` skill; answering a review, triaging a review of a public artifact and an outsider pass follow [`references/reviews.md`](references/reviews.md).
 
 ## Terminology
 
@@ -85,7 +85,7 @@ These invariants keep that honest.
 1. **The original question stays on record.** Beside the result, write the statement before, the statement after, why, and whether the original is now settled, still open or refuted. An original open is never deleted by a change; it is answered, re-parked with the new reason, or marked refuted.
 2. **A change is not a settle.** A result proved after a change is registered as a result about the changed statement; its status label, its verification row and every summary site name that statement, and no sentence claims the original was settled unless the change is shown equivalent or stronger.
 3. **Weakening is disclosed where a reader looks first.** A change that adds a hypothesis, narrows a class or swaps a currency is carried at the headline, the abstract, the status label and the contributions, not only in an appendix row.
-4. **Every consumer is swept in the same session.** A changed definition or statement reaches every document, registry entry and docstring that cites it before the commit; the project binds the audit that checks this.
+4. **Every consumer is swept in the same session.** A changed definition or statement reaches every document, registry entry and docstring that cites it before the commit; the `audit` skill checks this, over the corpus the project names.
 5. **Evaluation is fixed before the result.** Probes, sweep sets, kill criteria and named hypotheses fixed for a round are not altered after seeing its result; changing them opens a new round with its own record. A probe that now passes because the statement moved is re-derived against the moved statement and says so.
 6. **A change that drops the interesting property is a finding, not a route.** When the provable form loses what made the question worth asking, record "the natural statement is unreachable or false; the provable form is X" and keep the natural statement open.
 7. **No change to please a check.** A statement is never weakened because a cited result lacks a mechanical proof, and never strengthened in prose beyond what the artifact proves; a named hypothesis with a citation is the honest form.

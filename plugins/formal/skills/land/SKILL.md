@@ -87,7 +87,7 @@ The one finding that settles the question carries `--answers Q`, which closes it
 A handoff that failed is `flow abort TASK --reason R`, its refuting finding minted after it the same way, `--from TASK --tag refuted`, its evidence the guard or the probe that shows the failure.
 A residue is a `flow capture`, a `flow frame IDEA… --summary S --criterion C` or a `flow park ID --reason R`, never a "what stays open" line appended to the question's body; a question found wrong is `flow wrong Q --reason R`, one shown impossible `flow impossible Q --by F`, and an idea, an open question or a ready task dropped is `flow remove ID --reason R`.
 Commit with NAMED paths — the prover session's sources, the package files, the manifests and the documents swept — never everything at once, since a sibling's in-flight work has been swept into a mislabelled commit that way.
-If the landing rewired a cross-document import, run the project's consistency audit in the same session, before the commit; if it did not, say so in the entry.
+If the landing rewired a cross-document import, run the consistency audit (`/research:audit`) in the same session, before the commit; if it did not, say so in the entry.
 
 ## The manifest generator
 

@@ -1,7 +1,7 @@
 # research
 
 The record side of research-kit: what a research project keeps in its own repository so that a coding agent works from it instead of from memory.
-Ideas, questions, tasks and findings are Markdown records the `flow` command moves through their states; the works the project cites are cards in a library that records how far each was read; a dashboard shows both; three working rules say how the agent reviews, designs and debugs.
+Ideas, questions, tasks and findings are Markdown records the `flow` command moves through their states; the works the project cites are cards in a library that records how far each was read; a dashboard shows both; three reviews hold the documents to one another, an argument to its premises and a claim to its source; three working rules say how the agent reviews, designs and debugs.
 It needs nothing else, and the [`formal` plugin](../formal/README.md) builds on it for a project with a Lean 4 library.
 
 In Claude Code 2.1.275 or later it installs in one step; [Install](../../docs/install.md) covers every other agent:
@@ -10,7 +10,7 @@ In Claude Code 2.1.275 or later it installs in one step; [Install](../../docs/in
 /plugin install research --marketplace lividgreen/research-kit
 ```
 
-Nine skills: four over a script each, two over the flow for a session's start and its freeze, three with no script behind them; the sections below take them one by one, and each tool has a page of its own in the documentation with its commands, the files it keeps, its bindings, its check and its words.
+Twelve skills: four over a script each, two over the flow for a session's start and its freeze, three reviews, three working rules with no script behind them; the sections below take them one by one, and each tool has a page of its own in the documentation with its commands, the files it keeps, its bindings, its check and its words.
 
 ## Records that hold
 
@@ -29,6 +29,15 @@ A session starts with `/research:whatsnext`: what you left in the inbox is read 
 It ends with `/research:freeze`: what the conversation found and no record holds is saved, `flow state --check` and the gates run, and the work is committed, so a cold session on another machine continues without asking.
 
 The [`whatsnext`](skills/whatsnext/SKILL.md) and [`freeze`](skills/freeze/SKILL.md) skills; [What is next](../../docs/research/whatsnext.md) and [The freeze](../../docs/research/freeze.md) are their pages.
+
+## Three reviews
+
+`/research:audit` checks that the documents agree: each import read at the statement it comes from, a condition stated with the same constants, a status labelled alike, a definition used as defined, a sentence saying what the documents lack held to the artifact.
+`/research:scrutinize` reads one argument for its claims and their status, its gaps and the steps it leans on hardest; it is checking, not verification.
+`/research:attribution` holds each sentence crediting the project with a named external result to that result's primary source, and writes each verdict on the work's card as an extract.
+Each runs the mechanical checks it needs, reports first and edits nothing while it does, then corrects in the same session each sentence it found false, of the artifact or of a source; what the project holds its documents to is formed with you by the setup and written in its instructions file, which the reviews read.
+
+The [`audit`](skills/audit/SKILL.md), [`scrutinize`](skills/scrutinize/SKILL.md) and [`attribution`](skills/attribution/SKILL.md) skills; [The audit](../../docs/research/audit.md), [Scrutiny](../../docs/research/scrutinize.md) and [The attribution check](../../docs/research/attribution.md) are their pages.
 
 ## A reference library that refuses an unread citation
 
@@ -56,7 +65,7 @@ The [`research-init`](skills/research-init/SKILL.md) skill, `/research:research-
 ## Working rules for the agent
 
 Three skills with no script behind them, each triggered by the conversation itself.
-`method` says how to review, what to call things, what a document holds and when a landed result enters one, what counts as evidence, what to check before pricing a piece of work, how to change a target honestly when a wall is hit, and how to work with the project's owner.
+`method` says how to answer a review, what to call things, what a document holds and when a landed result enters one, what counts as evidence, what to check before pricing a piece of work, how to change a target honestly when a wall is hit, and how to work with the project's owner.
 `design` runs a design pass before anything new is built, whenever you say "let's add X" or "what about Y".
 `debug` insists on the root cause before a fix, and again before anything is called fixed.
 They came out of one research project and are optional; the tools work without them.
