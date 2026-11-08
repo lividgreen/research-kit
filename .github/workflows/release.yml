@@ -1,8 +1,9 @@
 name: release
 
 # A pushed tag v* runs the tests, creates the GitHub Release from the tag's section of
-# CHANGELOG.md, then tells www.livid.work, which records the release on the project card and
-# republishes https://research-kit.livid.work at the tag.  The dispatch is a job of this run
+# CHANGELOG.md, moves the branch `latest` to the tag, then tells www.livid.work, which
+# records the release on the project card and republishes https://research-kit.livid.work at
+# the tag.  The dispatch is a job of this run
 # and not an `on: release` workflow: a Release created with GITHUB_TOKEN fires no other workflow.
 # workflow_dispatch with a tag resends the announcement for a release that already exists.
 
@@ -46,6 +47,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
+          fetch-depth: 0
       - name: The tag is the version the manifests carry
         run: |
           # Claude Code refreshes an installed plugin only when its manifest's version changes, so a
@@ -86,6 +88,17 @@ jobs:
             echo "release $TAG exists; left as it is"
           else
             gh release create "$TAG" --title "$TAG" --notes-file notes.md
+          fi
+      - name: The branch `latest` moves to the tag
+        run: |
+          # A marketplace at `ref: latest` follows the releases and never main's unreleased commits.
+          # The move is a fast-forward; a resend for an older tag leaves `latest` where it is.
+          git fetch --no-tags origin "+refs/heads/latest:refs/remotes/origin/latest" || true
+          if git rev-parse -q --verify refs/remotes/origin/latest > /dev/null \
+             && ! git merge-base --is-ancestor refs/remotes/origin/latest "$TAG^{commit}"; then
+            echo "latest is not behind $TAG; left as it is"
+          else
+            git push origin "$(git rev-parse "$TAG^{commit}"):refs/heads/latest"
           fi
 
   announce:

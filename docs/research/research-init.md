@@ -22,17 +22,17 @@ The probe labels the machine's items with one of these three words and the proje
 
 ## The pins and the upgrade steps
 
-The project's item `pins at one tag` compares the places a project pins the kit: the hooks' `rev` in `.pre-commit-config.yaml`, the marketplace's `ref` in `.claude/settings.json`, and the version of each plugin of the research-kit marketplace that Claude Code installed for the project, beside the version of the plugin the probe runs from.
+The project's item `pins at one tag` compares the places a project pins the kit: the hooks' `rev` in `.pre-commit-config.yaml`, the marketplace's `ref` in `.claude/settings.json`, which is to be `latest`, the branch each release moves to its tag ([Install](../install.md#following-the-releases)), and the version of each plugin of the research-kit marketplace that Claude Code installed for the project, beside the version of the plugin the probe runs from.
 Where no hook names the kit's repository the item says that no hook pins the kit by `rev`, and, where the project's `repo: local` hooks run the kit's scripts, that the hooks are local and follow the plugins' pins; the report's `kit:` line gives the version and the release tag of the plugin the probe runs from, which are no pin of the hooks.
 The installed versions come from Claude Code's install record, `~/.claude/plugins/installed_plugins.json` (`CLAUDE_CONFIG_DIR` moves `~/.claude`), where the project's own entry, of scope local or project, stands over a user one.
-The probe asks GitHub for the kit's latest release, and the item names each pin that differs from it and a plugin the project's settings enable that is not installed; where the install record is absent, under another agent or with nothing installed, it says so and compares the hooks and the marketplace alone.
+The probe asks GitHub for the kit's latest release, and the item names each pin that differs from it, a marketplace at a tag or at no ref with the move to `latest`, and a plugin the project's settings enable that is not installed; where the install record is absent, under another agent or with nothing installed, it says so and compares the hooks and the marketplace alone.
 Where the latest release cannot be read, offline, refused or with `RESEARCH_KIT_OFFLINE=1` set, the item says so and why, and compares the pins among themselves, against the newest of them.
 
 The report's `upgrade` section, in the text and under `--json`, names the steps a move to another release still asks, each with its command, in the order an upgrade takes them:
 
 | Step | What the probe reads | What it names |
 | --- | --- | --- |
-| `pins` | the item above | the releases from the oldest pin up to the latest whose **Upgrading** paragraphs to read in the [changelog](https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md), then the five steps of [Install](../install.md#the-plugins-at-the-hooks-tag): the `ref` edited, the marketplace added at the tag, each plugin off it updated, the hooks' `rev` set, the restart |
+| `pins` | the item above | the releases from the oldest pin up to the latest whose **Upgrading** paragraphs to read in the [changelog](https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md), then the steps of [Install](../install.md#following-the-releases): the `ref` edited to `latest` and the marketplace added at it where it is not there, else the marketplace updated; each plugin off the release updated; a remote hooks' `rev` set; the restart |
 | `records` | `flow doctor` of the `flow` skill beside this one | the mechanical edits `flow doctor --fix` writes, counted by class, and the things for the hand `flow doctor` lists ([The flow](flow.md#flow-doctor)) |
 | `index` | `flow index --check` | a stale index, which `flow index` rewrites |
 
@@ -61,4 +61,5 @@ The agent runs each skill's script by its installed path; a Makefile target or a
 - **research-init** — the skill that sets a project up: it probes, proposes, re-checks what exists and adds what is missing, rewriting nothing without your word, and reports; `/research:research-init`.
 - **probe** — the report `setup probe` prints: the environment, the project, the kit's version, the proposals, the upgrade steps and a coverage line; it writes and installs nothing.
 - **pins** — the places a project pins the kit: the hooks' `rev`, the marketplace's `ref` and the version of each installed plugin; at the latest release, the skills' text and scripts are the checks' release and the newest.
+- **`latest`** — the kit's branch that the release workflow moves to each release tag; a marketplace at it follows the releases and never the default branch's unreleased work.
 - **required, recommended, optional** — the probe's three words for what the machine has: a required item is one the setup needs, a recommended one is proposed, an optional one serves what the project does; the project's own items read `present`, `absent`, `found` or `none`.

@@ -32,10 +32,10 @@ Claude Code, Grok Build and Factory Droid read Claude Code's marketplace and plu
 
 #### Claude Code
 
-Add this repository as a marketplace, then install `research`, and `formal` where the project has a prover:
+Add this repository as a marketplace at `latest`, the branch each release moves to its tag ([Following the releases](#following-the-releases)), then install `research`, and `formal` where the project has a prover:
 
 ```text
-/plugin marketplace add lividgreen/research-kit
+/plugin marketplace add lividgreen/research-kit#latest
 /plugin install research@research-kit
 /plugin install formal@research-kit
 ```
@@ -45,13 +45,14 @@ A repository enables it for everyone in its committed `.claude/settings.json`; e
 ```json
 {
   "extraKnownMarketplaces": {
-    "research-kit": { "source": { "source": "github", "repo": "lividgreen/research-kit" } }
+    "research-kit": { "source": { "source": "github", "repo": "lividgreen/research-kit", "ref": "latest" } }
   },
   "enabledPlugins": { "research@research-kit": true, "formal@research-kit": true }
 }
 ```
 
 From Claude Code 2.1.275, `/plugin install research --marketplace lividgreen/research-kit` adds the marketplace and installs in one step.
+A marketplace added so follows the default branch; the setup probe names the move to `latest`.
 The skills are then `/research:flow`, `/research:library`, `/research:dashboard`, `/research:method`, `/formal:handoff`, `/formal:land` and so on, the prover agent `formal:prover`, and a skill runs its script by the path its text gives.
 A plugin's skills and agents load when a session starts, so restart the session after an install or an update, before the next handoff or transition; in the session that installed `formal`, the `formal:prover` agent type is not loaded yet and the `handoff` skill takes its general-purpose fallback.
 The repository has no `bin/` directory on purpose: claude.ai and Cowork refuse a plugin that has one.
@@ -70,7 +71,7 @@ grok plugin install formal@research-kit --trust
 #### Factory Droid
 
 ```sh
-droid plugin marketplace add lividgreen/research-kit
+droid plugin marketplace add 'lividgreen/research-kit#latest'
 droid plugin install research@research-kit
 droid plugin install formal@research-kit
 ```
@@ -86,7 +87,7 @@ The `formal` plugin carries the `prover` there for GitHub Copilot (`com.github.c
 Add this repository as a marketplace, then install `research`, and `formal` where the project has a prover:
 
 ```sh
-codex plugin marketplace add lividgreen/research-kit
+codex plugin marketplace add lividgreen/research-kit --ref latest
 codex plugin add research@research-kit
 codex plugin add formal@research-kit
 ```
@@ -98,7 +99,7 @@ Each plugin's `plugin.json` (under `plugins/<plugin>/`) is its Agent Plugins man
 The Copilot CLI reads the same marketplace as Claude Code:
 
 ```sh
-copilot plugin marketplace add lividgreen/research-kit
+copilot plugin marketplace add lividgreen/research-kit#latest
 copilot plugin install research@research-kit
 copilot plugin install formal@research-kit
 ```
@@ -188,7 +189,7 @@ With a Lean workspace, `/formal:formal-init` follows for the prover side ([The f
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the setup proposes one where none is on PATH.
 Each check reads its bindings file at the project root; a project with no `flow.toml`, `library.toml` or `formal.toml` leaves that hook out.
 A bindings file names code that runs — the reflow module, the library's command and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
-To update the hooks, set `rev` to the next tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it) and move the plugins to the same tag, as the next section says.
+To update the hooks, set `rev` to the latest tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it); the plugins follow the releases through the marketplace's `latest`, as the next section says.
 
 A plugin-install project that wants one version everywhere may write its hooks the other way, as `repo: local` hooks with `language: system`, each `entry` a runner of the project's own followed by the script's command, so the hooks run the installed plugin's scripts and the marketplace's `ref` is the one pin; the kit ships no such runner, and the project's finds the script under the agent's plugin cache (see *Outside the agent* below).
 
@@ -204,38 +205,38 @@ A plugin-install project that wants one version everywhere may write its hooks t
 
 The setup probe then reads the hooks as local, running the installed plugin's scripts, and holds the plugins' pins alone, saying that no hook pins the kit by `rev`.
 
-### The plugins at the hooks' tag
+### Following the releases
 
-A marketplace added as `lividgreen/research-kit` follows the repository's default branch, while the hooks pin a tag, so between a push to `main` and a project's own bump its skills' text and scripts can be newer than its checks.
-A project keeps the two at one tag by pinning the marketplace to the tag its `rev` names, in the form each agent documents:
+A marketplace added as `lividgreen/research-kit` follows the repository's default branch, which carries merged work before its release under the last release's version, so a plugin updated from it can run text and scripts no release has, and the cache may keep an older copy of the same version.
+The kit keeps a branch `latest` that the release workflow moves to each release tag, so a marketplace at `latest` follows the releases and nothing else; a project declares it once, in the form each agent documents:
 
-| Agent | The marketplace at a tag |
+| Agent | The marketplace following the releases |
 | --- | --- |
-| Claude Code | `claude plugin marketplace add 'lividgreen/research-kit#<tag>' --scope project`, which writes `"ref": "<tag>"` beside `"repo"` in the source of `.claude/settings.json` |
-| Codex | `codex plugin marketplace add lividgreen/research-kit --ref <tag>` |
-| GitHub Copilot | `copilot plugin marketplace add lividgreen/research-kit#<tag>`; in VS Code, `"lividgreen/research-kit#<tag>"` in `chat.plugins.marketplaces` |
-| Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#<tag>'` |
+| Claude Code | `claude plugin marketplace add 'lividgreen/research-kit#latest' --scope project`, which writes `"ref": "latest"` beside `"repo"` in the source of `.claude/settings.json` |
+| Codex | `codex plugin marketplace add lividgreen/research-kit --ref latest` |
+| GitHub Copilot | `copilot plugin marketplace add lividgreen/research-kit#latest`; in VS Code, `"lividgreen/research-kit#latest"` in `chat.plugins.marketplaces` |
+| Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#latest'` |
 
-A pinned marketplace updates to its tag and no further; the project moves it and the hooks' `rev` to the next tag together, in one commit where the pin is in a committed settings file.
-Where the release changes the records' model, that commit carries the migration too, since `flow-check` at the new tag fails every commit that touches a record until the records are in the new form, and the plugin already runs the new version; a project that must commit between the two runs that commit with `SKIP=flow-check` (prek and pre-commit read it) and says so in the log entry.
+A release then reaches the project by updating the marketplace and the plugins: in Claude Code `claude plugin marketplace update research-kit` (or auto-update turned on for the marketplace), then `claude plugin update research@research-kit --scope project` and the same for `formal@research-kit`, then a restart.
+The restart is literal: until it, the session runs the old skills' text against the new scripts; a session that must mint a record before its restart runs the new version's script by its cache path, as the skills say to anyway, and the records it writes pass the new check.
+Local hooks running the installed plugin's scripts follow the plugins with nothing to move; remote hooks pin a tag by `rev`, since pre-commit takes no branch as a pin, and `prek autoupdate` or `pre-commit autoupdate` moves it to the latest release in the project's next commit.
+Where the release changes the records' model, `flow-check` at the new version fails every commit that touches a record until the records are in the new form, so the project's next commit carries the migration; a project that must commit before it runs that commit with `SKIP=flow-check` (prek and pre-commit read it) and says so in the log entry.
 `flow task`, `flow state` and `flow show` run on an unmigrated tree at the new version, so the migration task is minted first; `flow doctor --fix` then writes the mechanical part of the migration and lists the rest ([The flow](research/flow.md#flow-doctor)).
-Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move together by hand.
-The setup probe, run from the installed plugin, asks GitHub for the kit's latest release and says whether the hooks' `rev`, the marketplace's `ref` in the project's `.claude/settings.json`, the version of each plugin Claude Code installed for the project and the plugin's own version are all at it.
-Where one is not, it names each pin that is off with the steps below, which move every pin to the latest release, and the releases from the oldest pin up to it whose **Upgrading** paragraphs to read.
+Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move by hand.
+The setup probe, run from the installed plugin, asks GitHub for the kit's latest release and says whether the marketplace follows `latest`, and whether the hooks' `rev`, the version of each plugin Claude Code installed for the project and the plugin's own version are at the latest release.
+A marketplace at a tag, or at no ref, is named as off with the move to `latest`, and each other pin that is off with its step, beside the releases from the oldest pin up to the latest whose **Upgrading** paragraphs to read.
 Where the latest release cannot be read, offline or refused, the probe says so and compares the pins among themselves, against the newest of them; `formal probe` says the same of the `formal` plugin ([The research setup](research/research-init.md#the-pins-and-the-upgrade-steps)).
 
-In Claude Code the marketplace is one per machine, known by its name to every project on it, and a project moves its pin in five steps:
+In Claude Code the marketplace is one per machine, known by its name to every project on it, and a project pinned to a tag moves to `latest` in four steps:
 
-1. Edit the `ref` to the tag in every settings file that holds the marketplace's entry: the project's `.claude/settings.json`, and the user's `~/.claude/settings.json` where another project on the machine pinned it there.
+1. Edit the `ref` to `latest` in every settings file that holds the marketplace's entry: the project's `.claude/settings.json`, and the user's `~/.claude/settings.json` where the user's settings declare it too.
    The `add` of the next step refuses while an entry elsewhere names another ref (`its source doesn't match its extraKnownMarketplaces entry in user or managed settings`), and writes the `ref` itself only where no other settings file carries one.
-2. `claude plugin marketplace add 'lividgreen/research-kit#<tag>' --scope project` points the marketplace at the tag in place, re-cloning it there.
+2. `claude plugin marketplace add 'lividgreen/research-kit#latest' --scope project` points the marketplace at `latest` in place, re-cloning it there.
    It answers `Marketplace 'research-kit' already on disk — declared in project settings`, which reads as a no-op while it has moved the clone.
-3. `claude plugin update research@research-kit --scope project`, and the same for `formal@research-kit`, moves the project's plugins to the tag; every other project on the machine keeps the version it installed until it runs the update itself.
-   It ends with `Restart to apply changes`, which is literal: until the restart the session runs the old skills' text against the new hooks, the drift the pin exists to prevent; a session that must mint a record before its restart runs the new version's script by its cache path, as the skills say to anyway, and the records it writes pass the new check.
-4. Set the hooks' `rev` to the tag, in the same commit as the settings file.
-5. Run the setup probe, which says whether the pins are at the latest release and what of the migration is left (`flow doctor`'s count and a stale index), and restart the session before the next transition.
+3. `claude plugin update research@research-kit --scope project`, and the same for `formal@research-kit`, moves the project's plugins to the latest release; every other project on the machine keeps the version it installed until it runs the update itself.
+4. Run the setup probe, which says whether the pins are at the latest release and what of the migration is left (`flow doctor`'s count and a stale index), and restart the session before the next transition.
 
-Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the tag the machine knows.
+Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the ref the machine knows.
 Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
 Claude Code 2.1.318 behaves so.
 

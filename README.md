@@ -66,21 +66,21 @@ The `research` plugin needs Python 3.11 or later and git; the `formal` plugin ne
 In Claude Code:
 
 ```text
-/plugin marketplace add lividgreen/research-kit
+/plugin marketplace add lividgreen/research-kit#latest
 /plugin install research@research-kit
 ```
 
 In Codex:
 
 ```sh
-codex plugin marketplace add lividgreen/research-kit
+codex plugin marketplace add lividgreen/research-kit --ref latest
 codex plugin add research@research-kit
 ```
 
 In the GitHub Copilot CLI:
 
 ```sh
-copilot plugin marketplace add lividgreen/research-kit
+copilot plugin marketplace add lividgreen/research-kit#latest
 copilot plugin install research@research-kit
 ```
 

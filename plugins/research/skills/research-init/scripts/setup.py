@@ -267,6 +267,7 @@ def proposals(env, hook_runner, installers, managed=None):
 KIT_REPO = "lividgreen/research-kit"
 KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
 KIT_LATEST = "https://api.github.com/repos/lividgreen/research-kit/releases/latest"
+KIT_FOLLOW = "latest"  # the branch the release workflow moves to each release tag, which a marketplace follows
 
 
 def skill_version(skill_md):
@@ -394,7 +395,8 @@ def kit_pins(root, version, record=None, latest=None):
     a script outside the kit), held to the kit's latest release (`latest`, a callable answering (tag, why),
     defaults to `kit_latest`), or, where that could not be read, to the newest of them: whether every pin is at
     that tag and, where one is not, the steps that move every pin to it and the releases whose upgrading
-    paragraphs lie between.  It writes nothing."""
+    paragraphs lie between.  A marketplace at `ref` KIT_FOLLOW follows the releases and is no pin to compare; one
+    at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
     newest, unread = (latest or kit_latest)()
@@ -420,16 +422,20 @@ def kit_pins(root, version, record=None, latest=None):
     st = st if isinstance(st, dict) else {}
     markets = st.get("extraKnownMarketplaces") if isinstance(st.get("extraKnownMarketplaces"), dict) else {}
     src = markets["research-kit"].get("source") if isinstance(markets.get("research-kit"), dict) else None
-    unpinned = False
+    unpinned = stuck = following = False
     if isinstance(src, dict):
         ref = src.get("ref") or (str(src.get("url") or "").partition("#")[2] or None)
         if src.get("source") in ("directory", "file"):
             said.append(f"the marketplace in .claude/settings.json is a local {src['source']}, which no ref pins")
+        elif ref == KIT_FOLLOW:
+            said.append(f"the marketplace in .claude/settings.json follows ref {KIT_FOLLOW}, which each release moves to its tag")
+            following = True
         elif ref:
-            said.append(f"the marketplace in .claude/settings.json pins ref {ref}")
+            said.append(f"the marketplace in .claude/settings.json pins ref {ref}, which stops there where `{KIT_FOLLOW}` follows each release")
             tags["the marketplace's ref"] = str(ref)
+            stuck = True
         else:
-            said.append("the marketplace in .claude/settings.json pins no ref and follows the default branch")
+            said.append(f"the marketplace in .claude/settings.json pins no ref and follows the default branch, unreleased commits included, where `{KIT_FOLLOW}` follows the releases")
             unpinned = True
     if not repo and not isinstance(src, dict):
         said.append("nothing in the project pins the kit yet")
@@ -453,19 +459,23 @@ def kit_pins(root, version, record=None, latest=None):
     ordered = all(kit_tag(t) for t in tags.values())
     target = newest or ((max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None)
     T = target or "<tag>"
-    off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned else []) + [f"{n} (not installed)" for n in missing]
+    off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned or stuck and tags["the marketplace's ref"] == T else []) \
+        + [f"{n} (not installed)" for n in missing]
     steps, releases = [], None
     if off:
-        if unpinned or tags.get("the marketplace's ref", T) != T:
-            steps.append(f"edit the `ref` of `extraKnownMarketplaces.research-kit` to {T} in .claude/settings.json, "
-                         "and in ~/.claude/settings.json where another project on the machine pinned it there")
+        if unpinned or stuck:
+            steps.append(f"edit the `ref` of `extraKnownMarketplaces.research-kit` to {KIT_FOLLOW} in .claude/settings.json, "
+                         "and in ~/.claude/settings.json where the user's settings declare the marketplace too")
         lag = [n for n in (inst or {}) if tags.get(n) != T]
-        if steps or lag or missing:
-            steps.append(f"claude plugin marketplace add '{KIT_REPO}#{T}' --scope project")
+        if steps or (lag or missing) and not following:
+            steps.append(f"claude plugin marketplace add '{KIT_REPO}#{KIT_FOLLOW}' --scope project")
+        elif lag or missing:
+            steps.append("claude plugin marketplace update research-kit")
         steps += [f"claude plugin update {n} --scope {inst[n].get('scope') or 'project'}" for n in lag]
         steps += [f"claude plugin install {n} --scope project" for n in missing]
         if tags.get("the hooks' rev", T) != T:
-            steps.append(f"set the hooks' `rev` to {T} in .pre-commit-config.yaml, in the commit that moves the settings file")
+            steps.append(f"set the hooks' `rev` to {T} in .pre-commit-config.yaml (`prek autoupdate` or `pre-commit autoupdate` does it), "
+                         "or write them as local hooks running the installed plugin's scripts, which follow the plugins")
         if tags.get("the plugin this runs from", T) != T:
             steps.append(f"move the plugin this runs from to {T}: its agent's marketplace pin, or by hand for a clone or a copy")
         steps.append("restart the session, then read the pins again")
@@ -605,7 +615,7 @@ def installed_scenarios(tmp, v, expect):
     p = tmp / "pinned"
     p.mkdir()
     kit_hooks(p, f"v{v}")
-    kit_settings(p, f"v{v}")
+    kit_settings(p, KIT_FOLLOW)
     rec = tmp / "installed_plugins.json"
     entry = lambda scope, version, project=p: {"scope": scope, **({"projectPath": str(project)} if scope != "user" else {}),
                                                "installPath": str(tmp / "cache" / version), "version": version}
@@ -622,11 +632,11 @@ def installed_scenarios(tmp, v, expect):
            and "claude plugin update research@research-kit --scope local" in r["commands"], r["detail"])
     r = against({"research@research-kit": [entry("user", v)]})
     expect("a user entry stands where the project has none", r["ok"] and "(user scope)" in r["detail"], r["detail"])
-    kit_settings(p, f"v{v}", ("research@research-kit", "formal@research-kit"))
+    kit_settings(p, KIT_FOLLOW, ("research@research-kit", "formal@research-kit"))
     r = against({"research@research-kit": [entry("project", v)], "formal@research-kit": [entry("project", "0.0.1")]})
     expect("an installed plugin behind the pins is named, with the update that moves it and the releases between to read",
            not r["ok"] and "formal@research-kit differs from" in r["detail"]
-           and r["commands"][:2] == [f"claude plugin marketplace add '{KIT_REPO}#v{v}' --scope project", "claude plugin update formal@research-kit --scope project"]
+           and r["commands"][:2] == ["claude plugin marketplace update research-kit", "claude plugin update formal@research-kit --scope project"]
            and "update research@" not in " ".join(r["commands"]) and f"after v0.0.1 up to v{v}" in str(r["releases"]) and KIT_CHANGELOG in str(r["releases"]),
            f"{r['detail']} {r['commands']} {r['releases']}")
     r = against({"research@research-kit": [entry("project", v)]})
@@ -635,8 +645,9 @@ def installed_scenarios(tmp, v, expect):
     kit_settings(p, "v0.0.1")
     kit_hooks(p, "v0.0.1")
     r = against({"research@research-kit": [entry("project", v)]})
-    expect("pins behind the installed plugin move to its tag: the ref edited, the marketplace added at it, the hooks' rev set, the restart",
+    expect("pins behind the installed plugin move to its tag: the ref edited to follow the releases, the marketplace added at it, the hooks' rev set, the restart",
            not r["ok"] and r["target"] == f"v{v}" and [c.split(" ")[0] for c in r["commands"]] == ["edit", "claude", "set", "restart"]
+           and f"to {KIT_FOLLOW} in .claude/settings.json" in r["commands"][0] and r["commands"][1] == f"claude plugin marketplace add '{KIT_REPO}#{KIT_FOLLOW}' --scope project"
            and "the hooks' rev and the marketplace's ref differ" in r["detail"] and f"after v0.0.1 up to v{v}" in str(r["releases"]), str(r["commands"]))
     kit_settings(p, "v99.0.0")
     kit_hooks(p, "v99.0.0")
@@ -659,7 +670,7 @@ def latest_scenarios(tmp, v, expect):
     p = tmp / "latest"
     p.mkdir()
     kit_hooks(p, f"v{v}")
-    kit_settings(p, f"v{v}")
+    kit_settings(p, KIT_FOLLOW)
     rec = tmp / "latest_plugins.json"
     rec.write_text(json.dumps({"version": 2, "plugins": {"research@research-kit": [
         {"scope": "project", "projectPath": str(p), "installPath": str(tmp / "cache" / v), "version": v}]}}), encoding="utf-8")
@@ -667,14 +678,21 @@ def latest_scenarios(tmp, v, expect):
     expect("a latest release newer than every pin moves every pin to it, with the releases between to read",
            not r["ok"] and r["target"] == "v99.0.0" and r["latest"] == "v99.0.0" and r["detail"].startswith("the latest release is v99.0.0;")
            and "from v99.0.0, the latest release: move every pin to it" in r["detail"]
-           and [c.split(" ")[0] for c in r["commands"]] == ["edit", "claude", "claude", "set", "move", "restart"]
-           and f"claude plugin marketplace add '{KIT_REPO}#v99.0.0' --scope project" in r["commands"]
+           and [c.split(" ")[0] for c in r["commands"]] == ["claude", "claude", "set", "move", "restart"]
+           and r["commands"][0] == "claude plugin marketplace update research-kit" and f"follows ref {KIT_FOLLOW}" in r["detail"]
            and f"after v{v} up to v99.0.0" in str(r["releases"]), f"{r['detail']} {r['commands']} {r['releases']}")
     s = {x["item"]: x for x in upgrade(p, r)}
     expect("the upgrade's pins step names the latest release", s["pins"]["state"] == "pending" and "moves to v99.0.0, the latest release" in s["pins"]["detail"])
     r = kit_pins(p, v, rec, latest=lambda: (f"v{v}", None))
     expect("pins agreeing at the latest release are ok", r["ok"] and r["target"] == f"v{v}" and r["detail"].startswith(f"the latest release is v{v};"), r["detail"])
     expect("the upgrade's pins step says the pins are at the latest release", upgrade(p, r)[0]["detail"] == f"at one tag, v{v}, the latest release")
+    kit_settings(p, f"v{v}")
+    r = kit_pins(p, v, rec, latest=lambda: (f"v{v}", None))
+    expect(f"a marketplace pinned to a tag, the latest one included, is off, its step the move to {KIT_FOLLOW}",
+           not r["ok"] and "the marketplace's ref differs" in r["detail"] and "which stops there" in r["detail"]
+           and [c.split(" ")[0] for c in r["commands"]] == ["edit", "claude", "restart"]
+           and r["commands"][1] == f"claude plugin marketplace add '{KIT_REPO}#{KIT_FOLLOW}' --scope project", f"{r['detail']} {r['commands']}")
+    kit_settings(p, KIT_FOLLOW)
     kit_hooks(p, "v0.0.1")
     r = kit_pins(p, v, rec, latest=lambda: (None, "no network"))
     expect("where the latest release could not be read the pins are compared among themselves, against the newest of them, and it is said so",
@@ -871,12 +889,13 @@ def selftest():
         (bare / ".pre-commit-config.yaml").write_text(f"repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v{v}\n  hooks:\n  - id: flow-check\n", encoding="utf-8")
         (bare / ".claude").mkdir()
         settings = lambda src: (bare / ".claude" / "settings.json").write_text(json.dumps({"extraKnownMarketplaces": {"research-kit": {"source": src}}}), encoding="utf-8")
-        settings({"source": "github", "repo": "lividgreen/research-kit", "ref": f"v{v}"})
-        expect("the hooks' rev, the marketplace's ref and the plugin's version at one tag agree", pins(bare, v)["ok"])
+        settings({"source": "github", "repo": "lividgreen/research-kit", "ref": KIT_FOLLOW})
+        expect(f"the hooks' rev and the plugin's version at one tag agree, the marketplace following {KIT_FOLLOW}",
+               pins(bare, v)["ok"] and f"follows ref {KIT_FOLLOW}" in pins(bare, v)["detail"], pins(bare, v)["detail"])
         settings({"source": "github", "repo": "lividgreen/research-kit"})
         expect("a marketplace with no ref follows the default branch, and the pins do not agree",
                not pins(bare, v)["ok"] and "follows the default branch" in pins(bare, v)["detail"])
-        settings({"source": "github", "repo": "lividgreen/research-kit", "ref": f"v{v}"})
+        settings({"source": "github", "repo": "lividgreen/research-kit", "ref": KIT_FOLLOW})
         (bare / ".pre-commit-config.yaml").write_text("repos:\n- repo: https://github.com/lividgreen/research-kit\n  rev: v0.0.1\n", encoding="utf-8")
         expect("a hooks' rev at another tag is named", not pins(bare, v)["ok"] and "the hooks' rev differ" in pins(bare, v)["detail"])
         pin = lambda text: hooks_pin(text)
