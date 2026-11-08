@@ -72,8 +72,8 @@ Set the task's `state` to `active` by hand and run `flow check`:
 ```text
 records/tasks/task-0001-prove-the-lemma.md: V9 active without an owner
 records/INDEX.md: V11 records/INDEX.md is stale — run `flow index`
-flow check: 4 records of the kinds idea, question, task, finding, goal, direction; 2 problem(s), 0 warning(s); evidence forms formal, statistical, peer-reviewed, stated, reference; declaration evidence via NOT CONFIGURED; probe evidence via NOT CONFIGURED; reflow via built-in; markdownlint present
-library: 0 key(s) cited from 0 record(s); 0 of them excluded cards; the papers' reference entries are not read here; asked through the library skill beside this one
+flow check: 4 records of the kinds idea, question, task, finding, goal, direction; 2 problem(s), 0 warning(s); evidence forms formal, statistical, peer-reviewed, stated, reference; declaration evidence unchecked (no manifest bound); probe evidence unchecked (no register bound); reflow via built-in; markdownlint present
+library: 0 key(s) cited from the records, 0 record(s) citing; 0 of them excluded cards; the papers' reference entries and the documents the library's scan binds are not read here; asked through the library skill beside this one
 to reproduce: `flow check` at the project root, the flow skill's scripts/flow.py; where no skill is loaded, `pre-commit run flow-check --all-files`
 ```
 
@@ -98,7 +98,7 @@ flow state
 `flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution.
 The other task, never drawn, is removed with its reason, since the result settles the question; both tasks are now in `records/archive/`.
 Then `flow finding` mints `finding-0001` from the made task, its evidence the probe in the `statistical` form, and `--answers` closes the question answered by it; a question refuses to close while a task that came from it is ready or active, so the tasks are closed first.
-The finding's trust is the forms its evidence carries, here `statistical`; a proof formalized later is added with `flow evidence finding-0001 formal:Lib/Foo.lean#decl`, and evidence is never removed.
+The finding's trust is the forms its evidence carries, here `statistical`; a proof formalized later is added with `flow evidence finding-0001 formal:Lib/Foo.lean#decl`, and an item whose file is later gone is replaced or retired with `--replace` or `--retire`, a dated note in the body keeping what it was.
 The check passes with one warning: no probes register is bound, so the probe is reported unchecked rather than resolved (`[evidence] probes` in `flow.toml` binds one, a Markdown table naming each self-asserting script).
 
 The log is not a transition.
@@ -113,7 +113,7 @@ The entry for the result is written by the agent, or by you, in the same commit 
 ### A session's start and end
 
 With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and draws the top work into the agent's hand; [What is next](whatsnext.md) says the rest.
-It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
+It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry, written out or within a range such as `finding-0015…0035`, a record whose only change is its rank not asked to be named), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
 
 ## A card
 

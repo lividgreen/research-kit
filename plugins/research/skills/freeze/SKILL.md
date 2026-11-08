@@ -17,7 +17,8 @@ The one rule is to save what is important for the work, anything useful the sess
 
 1. **The records say what the session knows.**
    The log's top State paragraph is current and its next action names the fresh session's first move; where work happened after the entry, it is extended or a new entry added with `flow log add FILE`.
-   `flow touched --unnamed` lists the records changed since the newest committed entry that no entry names yet, the ids the entry is to name; `--ids` prints them on one line.
+   `flow touched --unnamed` lists the records changed since the newest committed entry that no entry names yet, the ids the entry is to name; `--ids` prints them on one line, and a record only re-ranked by a renumbering is left out, not to be named.
+   The entry may write the ids out or name a run of them as a range, `finding-0015…0035` (an en dash or three dots for the ellipsis, written with no spaces around it), which the check reads as every id of that prefix from 0015 to 0035; `touched` lists each id on its own.
    At the month's first freeze, `flow log archive --before DATE` moves the older entries.
 2. **Flush what only the context holds.**
    Inventory the conversation turn by turn, the person's messages and the replies both, under the test: if the transcript were deleted now, would anything the person said, or anything the person was told, be lost?
@@ -28,7 +29,7 @@ The one rule is to save what is important for the work, anything useful the sess
 3. **Sweep by meaning.**
    Search the surfaces a reader sees, the documents and the published pages, for the claims this session made stale, by the claims' own words, not only the files the session already touched.
 4. **The checks and the gates, by exit code.**
-   `flow state --check` decides what a machine can see: the log's top entry dated today where the tree changed since the newest committed entry, and every record changed since then named by an entry; it prints each hand's active tasks and drawn ideas for the State paragraph and fails on none.
+   `flow state --check` decides what a machine can see: the log's top entry dated today where the tree changed since the newest committed entry, and every record changed since then named by an entry, a range of ids read and a record only re-ranked not asked for; it prints each hand's active tasks and drawn ideas for the State paragraph and fails on none.
    It exits 1 on a failure, 2 where a part could not be decided, never read as clean; `flow check` and the project's other checks run beside it.
 5. **A commit with named paths, then the push as the backup.**
    Steps 2 to 5 run even on a clean tree: a clean tree says nothing about what the conversation still holds.
