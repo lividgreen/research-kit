@@ -4,13 +4,13 @@
     "name": "Mykola Palamarchuk"
   },
   "metadata": {
-    "description": "Two plugins: research (the setup, the flow, a session's start and its freeze, the reference library, the dashboard, the method, design, debug) and formal (the prover side: formal-init, handoff, land, the prover agent, the manifest generator)."
+    "description": "Two plugins: research (the setup, the flow, a session's start and its freeze, the reference library, the dashboard, audit, scrutinize, attribution, the method, design, debug) and formal (the prover side: formal-init, handoff, land, the prover agent, the manifest generator)."
   },
   "plugins": [
     {
       "name": "research",
       "source": "./plugins/research",
-      "description": "Research records for a coding agent, changed through transitions and held together by a check: ideas, questions, tasks and findings as typed Markdown records, a reference library that refuses an unread citation, a dashboard over both, a session's start and its freeze, and the method a session works by.",
+      "description": "Research records for a coding agent, changed through transitions and held together by a check: ideas, questions, tasks and findings as typed Markdown records, a reference library that refuses an unread citation, a dashboard over both, a session's start and its freeze, three reviews of the documents, and the method a session works by.",
       "category": "productivity",
       "tags": [
         "research",

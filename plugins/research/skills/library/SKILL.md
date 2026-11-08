@@ -111,7 +111,7 @@ A card graded unread carries no extract unless it names the card the work is kno
 
 `library claims` reads the bound documents for sentences of the shapes that credit the document against a named work — a verb of settling, a first, an identification — and lists each one that carries the first author's surname and the year of a card the document's references are tied to, with that card's extracts.
 The shapes are regular expressions the project may replace in `library.toml` (`[claims] shapes`); the defaults are generic, and a project with a prover adds its own words there.
-A sentence at a card with no extract is unverifiable from the library: the work is to be read and the extract written before the sentence is trusted.
+A sentence at a card with no extract is unverifiable from the library: the work is to be read and the extract written before the sentence is trusted; the `attribution` skill runs that check from this list.
 The list is a worklist and never a verdict, and a sentence that names no carded work is not on it.
 
 ## The watch

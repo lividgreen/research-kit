@@ -38,8 +38,8 @@ In Claude Code each skill is also a slash command: `/research:research-init`, `/
 
 ## What is in the box
 
-- The [`research` plugin](../plugins/research/README.md), for any research project: the records and their flow, the reference library, the checks on every commit, the dashboard, a session's start and its freeze, and three working rules, nine skills in all.
-  [Getting started](research/getting-started.md) walks through a first project, and each tool has its page: [the setup](research/research-init.md), [the flow](research/flow.md) and its [cards](research/flow-cards.md), [what is next](research/whatsnext.md) and [the freeze](research/freeze.md), [the library](research/library.md) and its [cards](research/library-cards.md), [the dashboard](research/dashboard.md), [the working rules](research/working-rules.md).
+- The [`research` plugin](../plugins/research/README.md), for any research project: the records and their flow, the reference library, the checks on every commit, the dashboard, a session's start and its freeze, three reviews, and three working rules, twelve skills in all.
+  [Getting started](research/getting-started.md) walks through a first project, and each tool has its page: [the setup](research/research-init.md), [the flow](research/flow.md) and its [cards](research/flow-cards.md), [what is next](research/whatsnext.md) and [the freeze](research/freeze.md), [the audit](research/audit.md), [scrutiny](research/scrutinize.md) and [the attribution check](research/attribution.md), [the library](research/library.md) and its [cards](research/library-cards.md), [the dashboard](research/dashboard.md), [the working rules](research/working-rules.md).
 - The [`formal` plugin](../plugins/formal/README.md), for a project that pairs its documents with a Lean 4 library: a handoff to a prover session that is checked before it is sent, a landing that reads the built tree before any document changes, and checks on the documents, three skills with the prover agent and the manifest generator.
   Its pages are [the setup](formal/formal-init.md), [the handoff](formal/handoff.md) and [the landing](formal/land.md).
 

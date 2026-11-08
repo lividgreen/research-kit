@@ -1,6 +1,6 @@
 ---
 name: formal-init
-description: Sets a project up for the formal plugin — `formal.toml` over its Lean workspace, the manifest generator in the workspace, the prover session's standing instructions, the flow's declaration evidence, the `formal-check` hook and the document gates' hooks — and checks an existing setup. Use as `/formal:formal-init`, or when asked to set up the prover side, the formal plugin or the handoff and landing of Lean work in a project. Probes the workspace, the project and the machine with `formal probe`, proposes what is missing and installs it only on the person's word, writes what is absent and nothing that exists, and reports. Needs the research plugin's setup first.
+description: Sets a project up for the formal plugin — `formal.toml` over its Lean workspace, the manifest generator in the workspace, the prover session's standing instructions, the flow's declaration evidence, the `formal-check` hook and the document gates' hooks — and checks an existing setup. Use as `/formal:formal-init`, or when asked to set up the prover side, the formal plugin or the handoff and landing of Lean work in a project. Probes the workspace, the project and the machine with `formal probe`, proposes what is missing and installs it only on the person's word, re-checks on every run what exists against the workspace as it stands, adds what is missing on the person's word and rewrites nothing without it, and reports. Needs the research plugin's setup first.
 license: Apache-2.0
 compatibility: Python 3.11 or later for `scripts/formal.py` of the `land` skill; git; the prover, its build and `lake` are the project's, proposed when absent.
 metadata:
@@ -46,7 +46,7 @@ A lakefile under a workspace's directory, or one it requires by path, is a packa
 5. Place the generator.
    Copy `scripts/DeclManifest.lean` of the `land` skill into the workspace where it is absent, never into a package inside it, and leave the manifests to the prover's first run after a genuine build, as the report says.
 6. Write the instructions.
-   Where the file `formal.toml` names is absent, write it from `references/workspace-instructions.md` of the `handoff` skill with the slots filled from the probe and the answers; where it exists, leave it and say so.
+   Where the file `formal.toml` names is absent, write it from `references/workspace-instructions.md` of the `handoff` skill with the slots filled from the probe and the answers; where it exists, re-read it against the template and the workspace, add what it lacks on the person's word, and name what is stale with the edit proposed.
 7. Bind the flow's evidence and the hook.
    In `flow.toml`, set `[evidence] manifest`, `manifest_roots` (the workspace's package directories) and `manifest_extension = "lean"`; add `formal-check` to the kit's block in `.pre-commit-config.yaml`, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
 8. Verify and report.
@@ -56,6 +56,7 @@ A lakefile under a workspace's directory, or one it requires by path, is a packa
 ## Rules
 
 - Nothing is installed or registered without the person's word; a proposal is shown as the command or the entry that would be written.
-- Nothing that exists is overwritten: `formal.toml`, the instructions file, the generator, a hook block naming `formal-check`.
+- Every run re-checks everything the setup covers that exists — `formal.toml`, the instructions file, the generator, the flow's evidence binding, the hooks — against the workspace as it stands, and adds what is missing; a project set up before is never taken as done because its files are present.
+- Nothing that exists is overwritten without the person's word: `formal.toml` (`--force` only when they ask), the instructions file, the generator, a hook block naming `formal-check`; what is stale in one is named with the edit proposed.
 - The probe is the evidence: a root it did not read from the lakefile is not invented, and a slot it cannot fill is asked, never guessed.
 - A workspace never learns of the project's records through this setup: the instructions file carries the prover session's rules and nothing of the records or the documents beyond the bans `formal.toml` names.

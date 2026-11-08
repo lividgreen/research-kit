@@ -1,6 +1,6 @@
 # The formal setup
 
-`/formal:formal-init` sets the prover side up for a project with a Lean 4 workspace and checks an existing setup: it probes the workspaces, the project and the machine with `formal probe`, proposes what is missing, installs nothing without your word, writes what is absent and nothing that exists, and reports.
+`/formal:formal-init` sets the prover side up for a project with a Lean 4 workspace and checks an existing setup: it probes the workspaces, the project and the machine with `formal probe`, proposes what is missing, installs nothing without your word, re-checks what exists against the workspace as it stands and adds what is missing, rewriting nothing without your word, and reports.
 It needs the `research` plugin's setup first ([The research setup](../research/research-init.md)), since the findings and the records are the flow's; the probe and `formal init` are commands of the `formal` script, which lives in the `land` skill, and the [`formal-init`](../../plugins/formal/skills/formal-init/SKILL.md) skill is the procedure around them.
 
 ## What a setup is
@@ -26,7 +26,7 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 3. Installs what was chosen and probes again.
 4. Writes `formal.toml` where it is absent, `[packages]` and the package order filled from the lakefiles, the instructions file, the manifests and the handoff's record bindings taken from the workspace, `flow.toml` and `library.toml` where they say them, and binds `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them.
 5. Places the generator in the workspace where it is absent, never into a package inside it, and leaves the manifests to the prover's first run after a genuine build.
-6. Writes the instructions file from the template where the file `formal.toml` names is absent.
+6. Writes the instructions file from the template where the file `formal.toml` names is absent, and where it exists re-reads it against the template, adding what it lacks on your word.
 7. Binds the flow's declaration evidence in `flow.toml` and adds the hooks to the kit's block.
 8. Runs `formal check` and `flow check`, and reports what was written, installed and declined, with the first handoff as the next step; a manifest not yet generated is named as the prover's first move with its generate command.
    Where the plugin was installed in the same session, the report says the `formal:prover` agent type appears after a restart, since an agent type is loaded when a session starts.
@@ -138,5 +138,5 @@ Either kind of class whose scope reaches no shipped file fails as rot, and so do
 
 ## Words
 
-- **formal-init** — the skill that sets the prover side up: it probes, proposes, writes what is absent and nothing that exists, and reports; `/formal:formal-init`, after the `research` plugin's setup.
+- **formal-init** — the skill that sets the prover side up: it probes, proposes, re-checks what exists and adds what is missing, rewriting nothing without your word, and reports; `/formal:formal-init`, after the `research` plugin's setup.
 - **probe** — the report `formal probe` prints: the workspaces with their roots and toolchains, the tools, the pins and what the setup is missing; it writes and installs nothing.

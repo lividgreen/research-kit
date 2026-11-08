@@ -14,7 +14,7 @@ Then one section per plugin, one page per tool: each page has, where the tool ha
 
 ## The `research` plugin
 
-The [plugin's page](../plugins/research/README.md) says what each of its nine skills is for.
+The [plugin's page](../plugins/research/README.md) says what each of its twelve skills is for.
 
 - [Getting started](research/getting-started.md) — a first project step by step: the records as written, a failed check, a card, the dashboard
 - [The research setup](research/research-init.md) — what a setup is, what `/research:research-init` probes, asks, writes and installs
@@ -22,6 +22,9 @@ The [plugin's page](../plugins/research/README.md) says what each of its nine sk
 - [Flow cards](research/flow-cards.md) — the specification of a record: the files, the form, every field of the four kinds, the states and the transitions
 - [What is next](research/whatsnext.md) — `/research:whatsnext`: the inbox read, the list ranked under a focus, the top work drawn
 - [The freeze](research/freeze.md) — `/research:freeze`: what a cold session needs saved, `flow state --check`, the report
+- [The audit](research/audit.md) — `/research:audit`: the documents held to one another, the mechanical checks first, a table of discrepancies, then the corrections
+- [Scrutiny](research/scrutinize.md) — `/research:scrutinize`: one argument's claims, gaps and load-bearing steps, checking and not verification
+- [The attribution check](research/attribution.md) — `/research:attribution`: a claim about a named external result held to its primary source, each verdict an extract on the card
 - [The library](research/library.md) — the cards' tool: the commands, the store and the kept directory, `library.toml`, every code `library check` reports, its words
 - [Library cards](research/library-cards.md) — the specification of a card: the file and the key, the form, every field, the states and the grades, an extract, a copy
 - [The dashboard](research/dashboard.md) — the read-only page over the records and the cards: the flags, what it mounts, the component protocol

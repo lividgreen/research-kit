@@ -20,6 +20,9 @@ A research thread, from a remark at a talk to a result, looks like this:
 - **"Let's re-rank so the split work finishes first."**
   The order changes with its reasons, and the index regenerates.
   A rank without a reason fails the check at commit, and so does a state edited by hand that leaves the records inconsistent.
+- **"Do the two papers still agree?"**, `/research:audit`, `/research:scrutinize the main lemma` or `/research:attribution`
+  The agent runs the checks first, then reads what no script sees: each import against the statement it comes from, one argument for its gaps, each claim about a named external result against its primary source.
+  It reports before it edits, then corrects each sentence it found false of the work and asks you what is yours to decide.
 - **"Let's freeze here."** or `/research:freeze`
   The agent saves what the conversation found and no record holds, sweeps what the session made stale, runs the checks and commits, and leaves one directive for the next session in the inbox.
 - **Next week: "Where were we?"**
