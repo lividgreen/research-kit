@@ -4,6 +4,14 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A marketplace follows the releases: the kit keeps a branch `latest` that each release moves to its tag, and a project's marketplace at `ref` `latest` gets every release from a marketplace update, never the default branch's unreleased work, where it was pinned to a tag it moved by hand.
+
+**Upgrading**, in Claude Code, once: edit the marketplace's `ref` to `latest` in the project's `.claude/settings.json` and in `~/.claude/settings.json` where the user's settings declare it, run `claude plugin marketplace add 'lividgreen/research-kit#latest' --scope project`, then `claude plugin update research@research-kit --scope project` and the same for `formal@research-kit`, and restart; [Install](docs/install.md#following-the-releases) has the steps, and the setup probe names them.
+
+- The release workflow moves the branch `latest` to each release tag by a fast-forward, after the GitHub Release is made; a resend for an older tag leaves it where it is.
+- The setup probes (`setup.py probe` and `formal probe`) read a marketplace at `latest` as following the releases, no pin to compare, its step for a plugin behind the latest release `claude plugin marketplace update research-kit`; a marketplace at a tag, the latest one included, or at no ref is off, its steps the `ref` edited to `latest` and the marketplace added at it; a remote hooks' `rev` behind is moved by `prek autoupdate` or `pre-commit autoupdate`.
+- [Install](docs/install.md), the READMEs, the setup skills and their pages add the marketplace at `latest` (`#latest`, Codex's `--ref latest`), and "The plugins at the hooks' tag" is "Following the releases".
+
 ## v0.6.0 — 2026-11-08
 
 The two consumers' first sessions at v0.5.0, a post-upgrade check and a first `whatsnext` and `freeze`: the freeze no longer holds the log to a renumbering, an entry may name a range of ids, an evidence item is replaced or retired by the CLI, a filter for the findings resting on one form alone, and the checks' summaries read as sentences; and from the first consumer's cut of its layers over the kit, the setup probe stating only the hooks pin it read, the built-in reflow leaving the common abbreviations unsplit, `formal cite --json`, and three review skills, an audit across the documents, scrutiny of one argument and an attribution check against a named result's primary source.
@@ -53,7 +61,7 @@ The consumers' pieces after v0.4.3: a pins check held to the latest release for 
 
 **Upgrading**, from v0.4.3 or earlier:
 
-1. Move the pins to the latest release, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart; `research-init`'s probe now asks GitHub for the latest release, names each pin that is off it with its command, and the releases from the oldest pin whose **Upgrading** paragraphs to read.
+1. Move the pins to the latest release, as [Install](docs/install.md#following-the-releases) says, and restart; `research-init`'s probe now asks GitHub for the latest release, names each pin that is off it with its command, and the releases from the oldest pin whose **Upgrading** paragraphs to read.
 2. A block's `on` is a list now: run `flow doctor --fix`, which writes each block's one value as a one-item list, then `flow check`. The `flow-check` hook at the new tag fails every record-touching commit while a block of the old shape stands, so the bump and this edit land in one commit, as in v0.4.1; a project with no block has nothing to fix.
 3. With the `formal` plugin: copy the `land` skill's `scripts/DeclManifest.lean` over the workspace's copy (`formal probe` names it stale) and regenerate every manifest; each gains a second line, `# own roots: …`, and its rows are unchanged, and `formal check` fails on a manifest without the line. An explicit `--own` in `[manifest] generate` that lists the project's roots can go: the default takes the same roots, and the check now holds them against `[packages]`.
 4. A `statistical:` or `reference:` item naming a Markdown document with an anchor is checked as a `stated` one is now, where it was held to the file's existence alone: an anchor that is no row, numbered statement or heading's anchor fails V6, `flow doctor` names each such item for the hand with the nearest heading's anchor, and the hand rewrites it to the row, the statement, the heading's anchor or the path alone. Nothing else in the records changes; `[evidence] statement_words` and `row_id` default to the words and the id pattern the check read before.
@@ -90,7 +98,7 @@ The `formal` plugin:
 
 Two consumers' first sessions under v0.4.1's model, read for where a command and its validator disagree, where an instruction misled and where a refusal left the session guessing; nothing in the records changes.
 
-**Upgrading**, from v0.4.1 or v0.4.2: move the three pins, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart.
+**Upgrading**, from v0.4.1 or v0.4.2: move the three pins, as [Install](docs/install.md#following-the-releases) says, and restart.
 Where the project's instructions call `flow …` or `library …` bare, add the line the inits now print: it means the skill's script by its installed path, no command on PATH.
 A migration that brought only the recent results in as findings has more to mint: every committed measurement whose evidence resolves is one (the migration guide's third principle, below).
 
@@ -124,7 +132,7 @@ A logo: `docs/assets/logo/` holds `logo.svg`, a small-size `favicon.svg`, the 12
 
 The migration to v0.4.0's model, made a procedure for a project of any size: `flow doctor --fix` writes the mechanical part, the upgrade steps say how the bump and the migration go under the hooks, and the doctor's text, the install page's pin order and the flow script's own usage are corrected from two consumers' upgrades.
 
-**Upgrading**, from v0.4.0: move the three pins, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) now says in five steps, and restart; nothing in the records changes.
+**Upgrading**, from v0.4.0: move the three pins, as [Install](docs/install.md#following-the-releases) now says in five steps, and restart; nothing in the records changes.
 From v0.3.0 or earlier: the steps of v0.4.0 below hold, with two corrections — step 2's "edit each file by hand" is `flow doctor --fix` for the mechanical classes, then the by-hand list it prints; and the bump and the migration land in one commit, since `flow-check` at the new tag fails every record-touching commit until the migration is done (or the intermediate commit runs with `SKIP=flow-check`, said so in the log); `flow task`, `flow state` and `flow show` run on the unmigrated tree, so the migration task is minted first.
 Rewrite the comments `flow init` wrote beside the `flow.toml` lines the doctor says to delete, which it does not read.
 
@@ -150,7 +158,7 @@ The flow gains the two ends of its chain, goals above the questions and the arti
 
 **Upgrading**:
 
-1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart the session before the next transition.
+1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release, as [Install](docs/install.md#following-the-releases) says, and restart the session before the next transition.
 2. Run `flow doctor` and edit each file it names by hand, as it says; no transition migrates a record. A task's `kind` goes, its value a tag where it says something; a finding's `status` and `paper` go, each evidence item gains its form as a prefix (`formal:` for a declaration, `statistical:` for a probe, `stated:` for a statement or row of the project's own document), a refuted finding gains the tag `refuted`, and a finding under a shard directory moves to `findings/`; every task gains `due` and `after`, every question `serves`. Then `flow index`; the `flow-check` hook fails until `flow check` is green.
 3. Directions are records: for each bullet of the directions file, `flow direction "Name" --body FILE` with the bullet's words in FILE, then write the new id into each question's `direction` in place of the bold name, and delete the file and `[paths] directions`; the doctor lists the bullets.
 4. In `flow.toml`, delete the `[task]` and `[finding]` sections, and add `[evidence] forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]`, keeping the forms the project accepts and adding its own words; say in the project's instructions what each form means for it.
@@ -184,7 +192,7 @@ The flow's model is re-settled in this release: its states, its closings, its ha
 
 **Upgrading**:
 
-1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release, as [Install](docs/install.md#the-plugins-at-the-hooks-tag) says, and restart the session before the next transition.
+1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release, as [Install](docs/install.md#following-the-releases) says, and restart the session before the next transition.
 2. Run `flow doctor` and edit each file it names by hand, as it says; no transition migrates a record. `abandoned` becomes `closed`, its state `removed`, or `aborted` for a task that was drawn; `decomposed` becomes `open`; `kill` becomes `criterion`; every record gains the fields it lacks; a task's and a finding's `question` field goes, the question named in `derived_from` where it is not; `answered_by` becomes one value and `consumed_by` a list. A question answered by a task gains a finding: mint it with `flow finding … --from TASK`, without `--answers`, which refuses a question that is not open, then write the finding's id into the question's `answered_by`, one value, in place of the list; where no finding is to be had, the question reads as removed, with `closed` holding the date and the reason. A question answered by several findings keeps the one that settles it in `answered_by`, and each other names the question in its `derived_from`. Then `flow index`; the `flow-check` hook fails until `flow check` is green.
 3. In `flow.toml`, delete `decision_kinds`, `decision_owners`, `question_optional_kinds` and the `decision` kind, park each open decision task with a reason naming the decision, and fold a prover's hand into the agent's (`agent = 4` is the new default).
 4. Move the directions file's `## Inbox` items to `INBOX.md` at the root (`[paths] inbox` names another) and delete the section.
@@ -252,7 +260,7 @@ The documentation:
 
 **Upgrading**:
 
-1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release; in Claude Code, add the marketplace again at the tag with `--scope project` and run `claude plugin update`, and never remove the marketplace, which uninstalls the plugins for every project on the machine. [Install](docs/install.md#the-plugins-at-the-hooks-tag) gives the commands.
+1. Move the hooks' `rev`, the marketplace's `ref` and the plugins to this release; in Claude Code, add the marketplace again at the tag with `--scope project` and run `claude plugin update`, and never remove the marketplace, which uninstalls the plugins for every project on the machine. [Install](docs/install.md#following-the-releases) gives the commands.
 2. Copy the `land` skill's `scripts/DeclManifest.lean` over the workspace's copy: its `--own` now defaults to every root of the workspace's own packages, so the regenerated manifests can gain `hypothesis` rows for conditions defined in another package. Regenerate and commit the manifests before running `formal hypotheses` against an older revision.
 3. With `[packages]` bound, `formal check` now reads the tree, and the `formal-check` hook fails on a stale manifest, an umbrella that leaves a module out, a module under a root `[packages]` does not bind, an untracked file under a root that git does not ignore, and an import against `[workspace] package_order`; regenerate or fix, or set `umbrellas = false` where an umbrella leaves modules out on purpose.
 4. For the new gates, add `[anchors]`, `[register]` and the `[documents]` allowlists to `formal.toml` by hand, as [The formal setup](docs/formal/formal-init.md) shows them (`formal init` leaves an existing file alone), then the `formal-cite`, `formal-anchors` and `formal-register` hooks.

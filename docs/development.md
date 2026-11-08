@@ -25,7 +25,7 @@ tests/run.py                      the tests
 tools/release.py                  cuts a release: the version fields, the changelog, the commit and the tag
 .github/workflows/tests.yml       the same tests on every push, on four Python versions, plus a wheel build
 .github/workflows/changelog.yml   every pull request adds a line under the changelog's `## Unreleased`
-.github/workflows/release.yml     a pushed tag v*: the tests, the GitHub Release from the changelog, the website told
+.github/workflows/release.yml     a pushed tag v*: the tests, the GitHub Release from the changelog, `latest` moved, the website told
 pyproject.toml, .pre-commit-hooks.yaml, CITATION.cff, LICENSE, NOTICE
 CONTRIBUTING.md, SECURITY.md      what a change carries; how a vulnerability is reported
 ```
@@ -76,7 +76,8 @@ Then it opens a fresh `## Unreleased` in a second commit, after the tag, so the 
 It refuses an empty `## Unreleased`, a version not above the last release, an existing tag, a dirty tree or another branch, and a failed test leaves nothing committed; it pushes nothing, and the atomic push sends both commits and the tag or none of them.
 The tests hold the version fields equal to each other and to the changelog's last release, and every changelog heading to `## Unreleased` or `## vX.Y.Z — YYYY-MM-DD`.
 The marketplace entry carries no version of its own.
-The tag is what a project's hooks pin (pre-commit's `rev`) and what Zenodo archives; no file in the repository names a version other than those version fields and the changelog's headings.
+The release workflow then moves the branch `latest` to the tag, by a fast-forward, so a marketplace at `latest` follows the releases ([Install](install.md#following-the-releases)); a resend for an older tag leaves it where it is.
+The tag is what a project's remote hooks pin (pre-commit's `rev`) and what Zenodo archives; no file in the repository names a version other than those version fields and the changelog's headings.
 
 The pushed tag starts `.github/workflows/release.yml`, which does the rest: it runs the tests at the tag, refuses a tag that is not the version the manifests carry, creates the GitHub Release titled with the tag and with the tag's section of `CHANGELOG.md` as its notes (no section, no release), and tells the website's repository, which records the release on the project card and publishes the documentation at the tag.
 Run by hand with a tag, the workflow creates a Release that is missing and resends the announcement for one that exists.
