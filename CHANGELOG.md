@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.7.0 — 2026-11-09
 
 The consumers' first sessions at v0.6.1, a setup re-run after an upgrade, a `whatsnext`, a `freeze` and a migration check: the release a project's setup was last brought to is a committed line of its bindings, which an older script refuses to write under; the setup probe reads what the instructions file holds and names a pin file with uncommitted changes; the inits print their paragraphs without writing; `flow rank --set` orders without asserting a read; a freeze is invoked as a request of its own, its steps a checklist; the skills that stand for a command are called by the person's bare words every time; `formal readback` reads what a statement uses from the elaborated environment, through the manifest; and the `formal` plugin stands on its own.
 
