@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Root-cause debugging discipline — use when encountering any bug, failing test or check, unexpected behavior, or build failure, BEFORE proposing fixes; and again before claiming anything is fixed. Especially when a "quick obvious fix" is tempting or previous fixes didn't stick.
+description: Root-cause debugging discipline — use when encountering any bug, failing test or check, unexpected behavior, or build failure, BEFORE proposing fixes; and again before claiming anything is fixed. Especially when a "quick obvious fix" is tempting or previous fixes didn't stick. When the person says 'debug' or 'root cause', they mean this skill — call it every time, even if it ran earlier in the session, and take every step.
 license: Apache-2.0
 compatibility: No tooling; read before fixing and before claiming a fix.
 metadata:

@@ -1,6 +1,6 @@
 ---
 name: attribution
-description: An attribution check — every sentence crediting the project with proving, settling, bypassing, re-deriving or being first at a named external result, held to that result's primary source on four axes (the resource measured, the quantifiers, the scope and the author's own caveats), each verdict recorded on the work's card as an extract; a table of verdicts, the documents edited by nothing, after which each overclaim is corrected. Use as `/research:attribution`, optionally with documents (`/research:attribution the survey`), before a document goes out, and after an edit that adds or rewords a claim about an external work. Runs the `library` skill's commands; the project's instructions file names its documents and its claim words.
+description: An attribution check — every sentence crediting the project with proving, settling, bypassing, re-deriving or being first at a named external result, held to that result's primary source on four axes (the resource measured, the quantifiers, the scope and the author's own caveats), each verdict recorded on the work's card as an extract; a table of verdicts, the documents edited by nothing, after which each overclaim is corrected. Use as `/research:attribution`, optionally with documents (`/research:attribution the survey`), before a document goes out, and after an edit that adds or rewords a claim about an external work. Runs the `library` skill's commands; the project's instructions file names its documents and its claim words. When the person says 'attribution', 'check the attributions' or 'attrcheck', they mean this skill — call it every time, even if it ran earlier in the session, and take every step.
 license: Apache-2.0
 compatibility: The `library` skill beside this one, whose script it runs; a kept or fetchable copy of each primary source.
 metadata:
@@ -17,7 +17,7 @@ Crediting the work with settling a named external result requires reading that r
 ## The project's part
 
 The claim shapes `library claims` matches are `[claims] shapes` in `library.toml`, where a project with a prover adds its own words.
-The setup (`/research:research-init`) forms with the person the documents a reader sees beyond those `library.toml` binds (a blog, a front page) and writes them in the instructions file, under `### Reviews` in its `## Research records` section; the check reads them there.
+The setup (`/research:research-init`) forms with the person the documents a reader sees beyond those `library.toml` binds (a blog, a front page), and which documents a review may correct in the session and which it reports and asks the person about first, and writes them under a `### Reviews` heading of the instructions file, inside its `## Records and method` section; the check reads them there.
 Where the instructions file has no such part, or it does not say what this review needs, the review says so and advises `/research:research-init`, which forms it with the person in a project set up before as well; where only this review's part is missing and a full setup is not needed, it asks the person for that part in place and, on their word, writes it where the setup would.
 The documents of a run are what the person gives with the command, and otherwise the bound ones with those the instructions add; the report says which it took.
 
@@ -53,12 +53,13 @@ The documents of a run are what the person gives with the command, and otherwise
    An UNVERIFIABLE verdict has no place read, so it is a dated note on the card saying what could not be obtained, never an extract.
    The cards carry the verdicts between sessions; `library claims --uncovered` lists only the works whose card carries no extract at all, so a sentence at a work that has one is still compared with it, sentence by sentence.
 5. **Then the corrections.**
-   After the report, each overclaim is corrected in this session at its own size, the reframe written where the sentence stood and at every summary site that restates it; a project whose instructions say the person is asked before any correction gets the sentence, its evidence and the reframe put to them instead.
+   After the report, each overclaim is corrected in this session at its own size, the reframe written where the sentence stood and at every summary site that restates it; a document the project's part names as one a review reports and asks about first gets the sentence, its evidence and the reframe put to the person instead.
    This check runs again over the corrected sentences and `library check` with the project's gates after the edits, and the `audit` skill too where the reframe changed a statement other documents cite.
 
 ## Traps
 
 - A cited theorem or equation number is checked to exist in the edition cited, not only the work: editions number differently, and an extract records its edition.
 - A quotation typed from a rendering may not be the source's words; a failing anchor is read at the kept text before the extract is blamed.
+- A claim that a result is absent from an upstream library, or present in it, is checked at the upstream's committed state (`git show HEAD:<path>`, or the tag the document cites) or at the live upstream, never at a working tree, which may carry the project's own uncommitted patch and read the claim's negation.
 
 **Output.** The documents taken, the table of verdicts, the extracts written or replaced, the corrections made, and what was asked or captured.

@@ -36,6 +36,8 @@ package and any prover's declaration list may follow:
     field <module> <name>                  a structure projection (citable, not counted)
     hypothesis <module> <theorem> <cond>   a public theorem's named condition
     instance <module> <theorem> <class>    a class one of its instance binders carries
+    uses <module> <decl> <const>           a project declaration the decl's elaborated statement refers to
+                                           (a definition's value too); what `readback` follows
 
 Exit codes: 0 clean; 1 problems found (each printed with its place); 2 could not run — a
 distinct code, so an exit-code reader never mistakes "did not run" for "clean".
@@ -144,7 +146,8 @@ banned = []
 # What names a record as a source, so the prompt must carry the docstring-register warning, since
 # a docstring renders into the public artifact: the records' path prefixes, the id prefixes, the
 # file names of the log and the registry, and regular expressions for reference keys; `init` takes
-# them from flow.toml's [paths] and [prefixes] and library.toml's cite prefix where those exist.
+# them from flow.toml's [paths] and [prefixes] and library.toml's cite prefix where those exist, and
+# leaves them empty where the project has neither (the formal plugin works without the research setup).
 records = {records}
 id_prefixes = {id_prefixes}
 meta_names = {meta_names}
@@ -152,8 +155,7 @@ key_patterns = {key_patterns}
 """
 INIT_DEFAULTS = {"files": '["scripts/decls.txt"]', "packages": '# Lib = "."', "order": "[]",
                  "generate": '"lake env lean --run DeclManifest.lean --roots <Root> --out ../scripts/decls.txt"',
-                 "records": '["records"]', "id_prefixes": '["idea", "question", "task", "finding"]',
-                 "meta_names": "[]", "key_patterns": "[]"}
+                 "records": "[]", "id_prefixes": "[]", "meta_names": "[]", "key_patterns": "[]"}
 
 
 class Config:
@@ -254,7 +256,7 @@ def find_root(start=None):
 
 # --- the manifest grammar -----------------------------------------------------------------
 
-KINDS = ("module", "private", "field", "hypothesis", "instance", "decl")
+KINDS = ("module", "private", "field", "hypothesis", "instance", "uses", "decl")
 Row = namedtuple("Row", "kind module name extra lineno raw")
 # a field of a row: a run of non-space characters, a «…» part kept whole with any spaces inside it
 FIELD = re.compile(r"(?:«[^»]*»|[^\s«])+")
@@ -283,6 +285,8 @@ def rows_from_text(text, name="manifest"):
             yield Row("hypothesis", p[1], p[2], p[3], lineno, raw)
         elif p[0] == "instance" and len(p) == 4:
             yield Row("instance", p[1], p[2], p[3], lineno, raw)
+        elif p[0] == "uses" and len(p) == 4:
+            yield Row("uses", p[1], p[2], p[3], lineno, raw)
         elif len(p) == 2 and p[0] not in KINDS:
             yield Row("decl", p[0], p[1], None, lineno, raw)
         else:
@@ -796,14 +800,8 @@ SCOPE_LINE = re.compile(
     r"(?:local |scoped )?(?:notation|infix|infixl|infixr|prefix|postfix|macro|macro_rules|syntax)|attribute \[local)")
 MODIFIER_ABOVE = re.compile(r"^(?:@\[.*\]\s*$|(?:omit|include|set_option|open)\b.*\bin\s*$)")
 OPEN_BRACKETS, CLOSE_BRACKETS = "([{⟨⦃", ")]}⟩⦄"
-TOKEN = re.compile(r"[^\s()\[\]{}⟨⟩,;:=\"`]+")
-QUANT = re.compile(r"(?:∀|∃|fun|λ)\s+([^,]{0,120}?)(?:,|=>|↦)")
-LAMBDA = re.compile(r"(?:fun|λ)\s+([^=]{0,120}?)=>")
-MATCH_ARM = re.compile(r"^\s*\|([^=]{0,200}?)=>", re.M)
-BINDER_GROUP = re.compile(r"[({⦃]\s*([^:()}{⦃⦄]{1,80}?)\s*:")
-SET_BUILDER = re.compile(r"\{\s*([^|{}]{0,60}?)\s*(?:\||//)")
-UPSTREAM_PREFIX = ("Nat.", "List.", "Finset.", "Set.", "Function.", "Real.", "ENNReal.", "Part.")
-IMPORT_LINE = re.compile(r"^\s*(?:public\s+|private\s+)?import\s+(?:all\s+)?([A-Za-z0-9_.]+)")
+# a manifest the generator wrote with its `uses` section: a row of it, or the header line that says it was written
+USES_ROWS = re.compile(r"^(?:uses\s|#\s*uses rows:)", re.M)
 NAMESPACE_LINE = re.compile(r"^namespace\s+(\S+)")
 SECTION_LINE = re.compile(r"^(?:@\[[^\]]*\]\s*)?(?:(?:public|private|noncomputable)\s+)*section\b")
 END_LINE = re.compile(r"^end\b")
@@ -857,14 +855,23 @@ class Reader:
 
     def __init__(self, cfg):
         self.cfg = cfg
-        self.names, self.instances = {}, {}
+        self.names, self.instances, self.uses = {}, {}, {}
+        old = [m.name for m in cfg.manifests if USES_ROWS.search(manifest_text(cfg, m)) is None]
+        if old:
+            raise ManifestError(
+                f"{', '.join(old)} has no `uses` section — the generator that wrote it predates it, and a read-back packet "
+                f"follows those rows: copy the land skill's scripts/DeclManifest.lean over the workspace's and regenerate: "
+                f"{cfg.generate or 'the command formal.toml binds in [manifest] generate'}")
         for r in rows(cfg):
             if r.kind in ("decl", "private"):
                 self.names[r.name] = r.module
             elif r.kind == "instance":
                 self.instances.setdefault(r.name, set()).add(r.extra)
+            elif r.kind == "uses":  # the project declarations a statement refers to, as Lean elaborated it
+                self.uses.setdefault(r.name, {})[r.extra] = None
         self.instances = {n: sorted(cs) for n, cs in self.instances.items()}
-        self._closure, self._files, self._comments = {}, {}, {}
+        self.uses = {n: list(cs) for n, cs in self.uses.items()}
+        self._files, self._comments = {}, {}
 
     def resolve(self, tok, prefer_module=None):
         hits = {n for n in self.names if n == tok or n.endswith("." + tok) or n.split(".")[-1] == tok}
@@ -905,26 +912,6 @@ class Reader:
                     bad.update(range(text.count("\n", 0, start), text.count("\n", 0, end) + 1))
             self._comments[path] = bad
         return self._comments[path]
-
-    def import_closure(self, module):
-        """Modules a module can see: itself and its transitive imports among the project's."""
-        if module in self._closure:
-            return self._closure[module]
-        seen, queue = {module}, [module]
-        while queue:
-            m = queue.pop()
-            path = module_path(self.cfg, m)
-            if not path.is_file():
-                continue
-            for ln in self.file_lines(path):
-                if ln.startswith(("theorem", "lemma", "def", "namespace", "@[")):
-                    break
-                hit = IMPORT_LINE.match(ln)
-                if hit and hit.group(1) not in seen and hit.group(1).split(".")[0] in self.cfg.packages:
-                    seen.add(hit.group(1))
-                    queue.append(hit.group(1))
-        self._closure[module] = seen
-        return seen
 
     @staticmethod
     def find_decl(lines, qname, in_comment=frozenset()):
@@ -1024,57 +1011,18 @@ class Reader:
                 k += 1
         return out
 
-    @staticmethod
-    def bound_names(text):
-        out = set()
-        for rx in (QUANT, LAMBDA, MATCH_ARM, SET_BUILDER):
-            for m in rx.finditer(text):
-                out.update(TOKEN.findall(m.group(1).split(":")[0]))
-        for m in BINDER_GROUP.finditer(text):
-            out.update(TOKEN.findall(m.group(1)))
-        return out
-
-    def names_in(self, text, prefer_module, scope_text=""):
-        """Project-local names a block mentions, and the dot-notation tokens declined."""
-        found, dotted = OrderedDict(), OrderedDict()
-        bound = self.bound_names(text + "\n" + scope_text)
-        visible = self.import_closure(prefer_module) if prefer_module else None
-        for m in TOKEN.finditer(text):
-            raw = m.group(0)
-            tok = raw.strip(".!?⁻¹")
-            if not tok or tok[0].isdigit() or tok.startswith(UPSTREAM_PREFIX):
-                continue
-            if len(tok) <= 2 and m.start() > 0 and text[m.start() - 1] == "=":
-                continue
-            hits = self.resolve(tok, prefer_module)
-            if visible is not None:
-                hits = {n for n in hits if self.names[n] in visible}
-            if not hits and "." in tok and not raw.startswith("."):
-                tok = tok.split(".")[0]
-                hits = self.resolve(tok, prefer_module) if tok else set()
-                if visible is not None:
-                    hits = {n for n in hits if self.names[n] in visible}
-            if not hits:
-                continue
-            own = any(self.names[n] == prefer_module for n in hits)
-            if raw.startswith(".") and not own:
-                dotted.setdefault(tok, set()).update(hits)
-                continue
-            if len(tok) <= 2 and tok in bound and not own:
-                continue
-            for n in sorted(hits):
-                found.setdefault(n, tok)
-        return found, dotted
-
     def build(self, targets, depth):
-        sections, missing, dotted, cut, theorems_named = OrderedDict(), [], OrderedDict(), OrderedDict(), OrderedDict()
+        """The packet's parts: the sections, what could not be resolved, the names the depth bound cut, the theorems a
+        statement names, and the declarations used that have no source line of their own.  What a block refers to is
+        read from the manifests' `uses` rows, to the depth; the source is read only to show each block."""
+        sections, missing, cut, theorems_named, unshown = OrderedDict(), [], OrderedDict(), OrderedDict(), OrderedDict()
         queue = [(t, 0, None) for t in targets]
         while queue:
-            tok, d, prefer = queue.pop(0)
+            tok, d, user = queue.pop(0)
             if d == 0:
                 hits, why = self.resolve_target(tok)
             else:
-                hits, why = (self.resolve(tok, prefer) if tok not in self.names else {tok}), None
+                hits, why = ({tok} if tok in self.names else set()), None
             if not hits:
                 missing.append(why or tok)
                 continue
@@ -1089,7 +1037,10 @@ class Reader:
                 lines = self.file_lines(path)
                 i, kind = self.find_decl(lines, qname, self.comment_lines(path))
                 if i is None:
-                    missing.append(f"{qname} (declaration line not found in {path.name})")
+                    if d > 0:  # an instance Lean named, a derived one: used, and no line of the source is its own
+                        unshown.setdefault(qname, f"{path.relative_to(self.cfg.root)}")
+                    else:
+                        missing.append(f"{qname} (declaration line not found in {path.name})")
                     continue
                 if d > 0 and kind not in DEF_LIKE:
                     theorems_named[qname] = f"{path.relative_to(self.cfg.root)}:{i + 1}"
@@ -1099,23 +1050,23 @@ class Reader:
                 sections[qname] = {"module": module, "file": str(path.relative_to(self.cfg.root)), "line": start + 1,
                                    "kind": kind, "text": text, "depth": d, "scope": scope,
                                    "instances": self.instances.get(qname, []) if d == 0 else []}
-                found, dots = self.names_in(text, module, "\n".join(t for _, t in scope))
-                for tok3, cands in dots.items():
-                    dotted.setdefault(tok3, set()).update(cands)
-                for n2, tok2 in found.items():
+                for n2 in self.uses.get(qname, ()):
                     if n2 == qname or n2 in sections:
                         continue
-                    if d + 1 > depth:
-                        cut.setdefault(n2, tok2)
+                    if n2 not in self.names:
+                        if not any(m.startswith(n2 + " ") for m in missing):
+                            missing.append(f"{n2} (used by `{qname}`, and in no manifest — regenerate the manifest of its package)")
+                    elif d + 1 > depth:
+                        cut.setdefault(n2, qname)
                     else:
-                        queue.append((n2, d + 1, module))
+                        queue.append((n2, d + 1, qname))
         for n in list(cut):
             if n in sections:
                 del cut[n]
-        for tok in list(dotted):
-            if not (dotted[tok] - set(sections)):
-                del dotted[tok]
-        return sections, missing, cut, theorems_named, dotted
+        for n in list(unshown):
+            if n in sections:
+                del unshown[n]
+        return sections, missing, cut, theorems_named, unshown
 
 
 HEADER = """# Read-back packet
@@ -1136,23 +1087,26 @@ its use only. Do not guess what a document might say; write what the Lean says.
 
 ## Limits of this packet (read before trusting it)
 
-Text-derived, not elaborated: scope lines are shown in FILE ORDER (every `variable`,
+Which declarations a block refers to is read from the compiled project, not from the text: the
+manifests' `uses` rows list, for each declaration, the project declarations its elaborated statement
+refers to (a definition's value too), with a structure projection `x.f`, an inherited field, dot
+notation, an instance and a notation all resolved by Lean to the declaration they stand for, and an
+upstream name never listed. What is SHOWN is source text: scope lines are shown in FILE ORDER (every `variable`,
 `open`, notation and `namespace`/`section`/`end` line preceding the declaration), once per
 file, so the reader decides which `variable`s are in scope from the nesting. Docstrings and
-comments are stripped on purpose. Theorem proofs are cut at `:=`. Definitions are included
-to depth {depth}; names cut by that bound and theorems named by a statement are listed, not
-shown. A name is matched by its last component, within what the naming file imports — except
-the declarations to read back themselves, each named by module or qualified name when its
-bare name lives in more than one module; a projection written as dot notation is NOT matched
-that way, because the receiver's type is not elaborated here — any such name is listed under
-its own heading instead. Upstream names (the prover's libraries) are never shown. Where a
+comments are stripped on purpose. Theorem proofs are cut at `:=`, and a theorem's proof refers to
+nothing here: only its statement does. Definitions are included to depth {depth}; names cut by that
+bound and theorems named by a statement are listed, not shown, and so is a declaration used that has
+no line of the source of its own (an instance Lean named, a derived one). The declarations to read
+back themselves are named by module or qualified name when the bare name lives in more than one
+module. Upstream names (the prover's libraries) are never shown. Where a
 declaration's instance-implicit binders are listed by class (from the manifest, not derived
 here), that is a restatement of what the `[…]` binders already show — not a tier, and not a
 claim about which binders are mathematics versus encoding.
 """
 
 
-def render(sections, missing, cut, theorems_named, dotted, depth):
+def render(sections, missing, cut, theorems_named, unshown, depth):
     out = [HEADER.format(depth=depth)]
     roots = [n for n, s in sections.items() if s["depth"] == 0]
     deps = [n for n, s in sections.items() if s["depth"] > 0]
@@ -1187,13 +1141,11 @@ def render(sections, missing, cut, theorems_named, dotted, depth):
     if cut:
         out.append("## Named but not shown (beyond the depth bound)\n")
         out.append(", ".join(f"`{n}`" for n in cut) + "\n")
-    if dotted:
-        out.append("## Dot-notation names, NOT resolved\n")
-        out.append("Written as a projection on a receiver whose type this packet does not elaborate. A project name "
-                   "with the same last component exists and is listed so the reader knows the match was declined "
-                   "rather than missed — it may well be a different definition. Read these by their use.\n")
-        out.append("\n".join(f"* `{tok}` — matches by bare name: " + ", ".join(f"`{c}`" for c in sorted(cs))
-                             for tok, cs in dotted.items()) + "\n")
+    if unshown:
+        out.append("## Used, with no source line of their own (listed, not shown)\n")
+        out.append("Declarations a statement refers to, in the manifests, that no line of their file declares by name — an "
+                   "instance Lean named, a derived one. Read these by their use.\n")
+        out.append("\n".join(f"* `{n}` — {where}" for n, where in unshown.items()) + "\n")
     if theorems_named:
         out.append("## Theorems a statement names (listed, not shown)\n")
         out.append("\n".join(f"* `{n}` — {where}" for n, where in theorems_named.items()) + "\n")
@@ -1209,8 +1161,8 @@ def do_readback(cfg, names, out, depth):
     except ManifestError as e:
         print(f"COULD NOT CHECK: {e}")
         return 2
-    sections, missing, cut, thms, dots = reader.build(names, depth)
-    text = render(sections, missing, cut, thms, dots, depth)
+    sections, missing, cut, thms, unshown = reader.build(names, depth)
+    text = render(sections, missing, cut, thms, unshown, depth)
     if out:
         Path(out).write_text(text, encoding="utf-8")
         print(f"readback: packet written to {out} — {len([s for s in sections.values() if s['depth'] == 0])} "
@@ -2017,7 +1969,7 @@ def toml_strings(items, literal=False):
 def handoff_bindings(root):
     """[handoff]'s record bindings as the flow's and the library's bindings name them: the records' and the
     log archive's directories, the id prefixes, the log's file name, the library's citation key; the
-    generic default for each that neither file binds.  ({key: TOML text}, the files read)."""
+    key that neither file binds is left empty, the formal plugin working without the research setup.  ({key: TOML text}, the files read)."""
     fill, read = {}, []
     flow = toml_of(root / "flow.toml")
     if flow:
@@ -2090,17 +2042,32 @@ def do_init(root, workspace, force=False):
     for n in notes:
         print(f"  {n}")
     print()
-    print("What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:")
-    print()
-    print("- `formal …` here is the land skill's script run by its installed path from the project root, no command")
-    print("  on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/formal/<version>/skills/land/scripts/formal.py …`.")
-    print(f"- The prover workspace is `{workspace}/`; its standing rules are `{instructions}`, which the")
-    print("  prover session reads first and which the project's root session never overrides but by naming a file.")
-    print("- Lean work ships as a checked handoff prompt (`formal handoffcheck`), and a handback is landed by")
-    print("  reading the tree, never the report (`formal handback`, `formal readback`), before any document moves.")
-    print("- The declaration manifests `formal.toml` names are regenerated by the prover session after the last")
-    print("  declaration change; the documents' cited declaration names are checked against them.")
-    print("The `formal` plugin is installed for the project's agent as well; its `formal:prover` agent is the prover session.")
+    print(init_instructions(workspace, instructions), end="")
+
+
+def init_instructions(workspace, instructions):
+    """The paragraphs `formal init` prints for the project's instructions file."""
+    return ("What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:\n\n"
+            "- `formal …` here is the land skill's script run by its installed path from the project root, no command\n"
+            "  on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/formal/<version>/skills/land/scripts/formal.py …`.\n"
+            f"- The prover workspace is `{workspace}/`; its standing rules are `{instructions}`, which the\n"
+            "  prover session reads first and which the project's root session never overrides but by naming a file.\n"
+            "- Lean work ships as a checked handoff prompt (`formal handoffcheck`), and a handback is landed by\n"
+            "  reading the tree, never the report (`formal handback`, `formal readback`), before any document moves.\n"
+            "- The declaration manifests `formal.toml` names are regenerated by the prover session after the last\n"
+            "  declaration change; the documents' cited declaration names are checked against them.\n"
+            "The `formal` plugin is installed for the project's agent as well; its `formal:prover` agent is the prover session.\n")
+
+
+def print_instructions(root, workspace):
+    """The paragraphs for the bindings as they stand: the workspace and its instructions file read from formal.toml where
+    one stands and reads, else the workspace given (or the default) and the instructions file init would name.  It
+    writes nothing and refuses nothing."""
+    ws = toml_of(Path(root) / "formal.toml").get("workspace", {})
+    ws = ws if isinstance(ws, dict) else {}
+    workspace = str(ws.get("dir") or workspace)
+    found = [f for f in ("AGENTS.md", "CLAUDE.md") if (Path(root) / workspace / f).is_file()]
+    return init_instructions(workspace, str(ws.get("instructions") or f"{workspace}/{found[0] if found else 'AGENTS.md'}"))
 
 
 # --- selftest -------------------------------------------------------------------------------
@@ -2139,6 +2106,7 @@ end Lib.C
 """
 FIXTURE_MANIFEST = """# a test manifest
 # own roots: Lib
+# uses rows: 2
 module Lib 0
 module Lib.A 3
 module Lib.B 2
@@ -2151,6 +2119,8 @@ Lib.B Lib.B.s
 Lib.C Lib.C.KB
 hypothesis Lib.A Lib.A.kb_le Lib.B.Cond
 instance Lib.A Lib.A.kb_le DecidableEq
+uses Lib.A Lib.A.kb_le Lib.A.KB
+uses Lib.A Lib.A.kb_le Lib.B.Cond
 """
 
 
@@ -2628,6 +2598,16 @@ def init_scenarios(root, expect):
     (root / "lean" / "inner").mkdir(parents=True)
     (root / "lean" / "lakefile.toml").write_text('name = "proj"\n\n[[lean_lib]]\nname = "Proj"\n', encoding="utf-8")
     (root / "lean" / "CLAUDE.md").write_text("# rules\n", encoding="utf-8")
+    # the formal plugin on its own: no flow.toml, no library.toml, and `init` still writes a formal.toml that reads, its record bindings empty
+    quiet(do_init, root, "lean")
+    cfg = Config(root)
+    (root / "formal.toml").unlink()
+    expect("init: with no research setup the record bindings are empty, no flow.toml is read or required, and the check runs",
+           cfg.records == () and cfg.id_prefixes == () and cfg.meta_names == () and cfg.key_patterns == ()
+           and not (root / "flow.toml").exists(), f"{cfg.records} {cfg.id_prefixes}")
+    draft = "<prompt session=fresh>\nT\nSource: ref:smith-2020 and T-0007.\nRefute first: n = 1.\nCommissioned: `foo`.\n</prompt>\n"
+    expect("init: with no research setup a handoff naming a record by its id raises no register warning, there being no records to name",
+           not any("ref:smith-2020" in p or "T-0007" in p for p in check_handoff(draft, cfg)[0]))
     (root / "flow.toml").write_text('[paths]\nrecords = "notes"\narchive = "notes/archive"\nlog = "journal/LOG.md"\n'
                                     'log_archive = "journal/old"\n\n[prefixes]\nidea = "I"\nquestion = "Q"\ntask = "T"\nfinding = "F"\n\n'
                                     '[evidence]\nmanifest = "build/proj.decls"\n', encoding="utf-8")
@@ -2641,6 +2621,16 @@ def init_scenarios(root, expect):
     expect("init: the records, the ids, the log and the citation key are the flow's and the library's",
            cfg.records == ("notes", "journal/old") and cfg.id_prefixes == ("I", "Q", "T", "F") and cfg.meta_names == ("LOG.md",)
            and cfg.key_patterns == ("ref:[a-z0-9][a-z0-9-]*",), f"{cfg.records} {cfg.id_prefixes} {cfg.meta_names} {cfg.key_patterns}")
+    snap = lambda: {q: q.read_bytes() for q in sorted(root.rglob("*")) if q.is_file()}
+    before = snap()
+    r = subprocess.run([sys.executable, __file__, "init", "--print-instructions", "--root", str(root)], capture_output=True, text=True)
+    expect("init --print-instructions prints the paragraphs for formal.toml as it stands and writes nothing",
+           r.returncode == 0 and "The prover workspace is `lean/`; its standing rules are `lean/CLAUDE.md`" in r.stdout and snap() == before, r.stdout + r.stderr)
+    with tempfile.TemporaryDirectory() as t2:
+        r = subprocess.run([sys.executable, __file__, "init", "--print-instructions", "--root", t2, "--workspace", "prover"], capture_output=True, text=True)
+        expect("init --print-instructions with no formal.toml prints the workspace given and writes nothing",
+               r.returncode == 0 and "The prover workspace is `prover/`; its standing rules are `prover/AGENTS.md`" in r.stdout and not any(Path(t2).iterdir()),
+               r.stdout + r.stderr)
     draft = ("<prompt session=fresh>\nT\nSource: ref:smith-2020 and T-0007.\nRefute first: n = 1.\n"
              "Commissioned: `foo`.\n</prompt>\n")
     problems, _ = check_handoff(draft, cfg)
@@ -2674,6 +2664,171 @@ def selftest():
                     os.environ[k] = v
 
 
+FIXTURE_P = """namespace Lib.P
+
+structure Base where
+  size : Nat
+
+structure Learner extends Base where
+  missCount : Nat
+  step : Nat → Nat
+
+def Learner.Reaches (L : Learner) (n : Nat) : Prop := L.step n = L.size
+
+def Good (L : Learner) : Prop := L.missCount ≤ L.size
+
+def card (n : Nat) : Nat := n
+
+def classify : Nat → Nat
+  | 0 => card 0
+  | _ + 1 => 1
+
+private def hidden (L : Learner) : Nat := L.missCount
+
+instance : Inhabited Learner := ⟨{ size := 0, missCount := 0, step := id }⟩
+
+theorem bound (L : Learner) (h : Good L) (n : Nat) : L.missCount ≤ L.size + n.succ := by
+  have := h
+  unfold Good at this
+  omega
+
+theorem reaches (L : Learner) (h : L.Reaches 3) : L.step 3 = L.toBase.size := h
+
+theorem sees_hidden (L : Learner) : hidden L = L.missCount := rfl
+
+structure Conf where
+  k : Nat := card 3
+  name : Nat := (classify 1)
+
+def viaMatch (x : Option Nat) : Nat :=
+  match x with
+  | some y => classify y
+  | none => card 7
+
+def Learner.next (L : Learner) : Learner := { L with missCount := L.missCount + 1 }
+
+def dflt : Learner := default
+
+theorem dot (L : Learner) : L.next.missCount = L.missCount + 1 := rfl
+
+end Lib.P
+"""
+# the manifest `DeclManifest.lean` wrote for this file, in a real Lean 4.35 package (names changed from `Scratch` to `Lib`)
+FIXTURE_P_MANIFEST = """# generated by DeclManifest.lean (a real run)
+# own roots: Lib
+# uses rows: 26
+module Lib.P 16
+Lib.P Lib.P.Base
+Lib.P Lib.P.Conf
+Lib.P Lib.P.Good
+Lib.P Lib.P.Learner
+Lib.P Lib.P.Learner.Reaches
+Lib.P Lib.P.Learner.next
+Lib.P Lib.P.bound
+Lib.P Lib.P.card
+Lib.P Lib.P.classify
+Lib.P Lib.P.dflt
+Lib.P Lib.P.dot
+Lib.P Lib.P.instInhabitedLearner
+Lib.P Lib.P.reaches
+Lib.P Lib.P.sees_hidden
+Lib.P Lib.P.viaMatch
+field Lib.P Lib.P.Base.size
+field Lib.P Lib.P.Conf.k
+field Lib.P Lib.P.Conf.name
+field Lib.P Lib.P.Learner.missCount
+field Lib.P Lib.P.Learner.step
+field Lib.P Lib.P.Learner.toBase
+private Lib.P Lib.P.hidden
+hypothesis Lib.P Lib.P.bound Lib.P.Good
+hypothesis Lib.P Lib.P.reaches Lib.P.Learner.Reaches
+uses Lib.P Lib.P.Conf Lib.P.card
+uses Lib.P Lib.P.Conf Lib.P.classify
+uses Lib.P Lib.P.Good Lib.P.Base
+uses Lib.P Lib.P.Good Lib.P.Learner
+uses Lib.P Lib.P.Learner Lib.P.Base
+uses Lib.P Lib.P.Learner.Reaches Lib.P.Base
+uses Lib.P Lib.P.Learner.Reaches Lib.P.Learner
+uses Lib.P Lib.P.Learner.next Lib.P.Learner
+uses Lib.P Lib.P.bound Lib.P.Base
+uses Lib.P Lib.P.bound Lib.P.Good
+uses Lib.P Lib.P.bound Lib.P.Learner
+uses Lib.P Lib.P.classify Lib.P.card
+uses Lib.P Lib.P.dflt Lib.P.Learner
+uses Lib.P Lib.P.dflt Lib.P.instInhabitedLearner
+uses Lib.P Lib.P.dot Lib.P.Learner
+uses Lib.P Lib.P.dot Lib.P.Learner.next
+uses Lib.P Lib.P.hidden Lib.P.Learner
+uses Lib.P Lib.P.instInhabitedLearner Lib.P.Base
+uses Lib.P Lib.P.instInhabitedLearner Lib.P.Learner
+uses Lib.P Lib.P.reaches Lib.P.Base
+uses Lib.P Lib.P.reaches Lib.P.Learner
+uses Lib.P Lib.P.reaches Lib.P.Learner.Reaches
+uses Lib.P Lib.P.sees_hidden Lib.P.Learner
+uses Lib.P Lib.P.sees_hidden Lib.P.hidden
+uses Lib.P Lib.P.viaMatch Lib.P.card
+uses Lib.P Lib.P.viaMatch Lib.P.classify
+"""
+
+
+def readback_scenarios(expect):
+    """The read-back over a manifest a real Lean run wrote (`FIXTURE_P_MANIFEST`): what a statement refers to is read
+    from its `uses` rows — a field of the binder's structure, an inherited one, a namespace definition through dot
+    notation, a definition's value, a private definition, an instance Lean named — and a manifest without them is refused."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        quiet(do_init, root, "ws")
+        (root / "formal.toml").write_text((root / "formal.toml").read_text().replace('# Lib = "."', 'Lib = "."'))
+        (root / "ws" / "Lib").mkdir(parents=True)
+        (root / "ws" / "Lib" / "P.lean").write_text(FIXTURE_P)
+        (root / "scripts").mkdir()
+        decls = root / "scripts" / "decls.txt"
+        decls.write_text(FIXTURE_P_MANIFEST)
+        reader = Reader(Config(root))
+
+        def depths(*targets, depth=2):
+            sections, missing, cut, thms, unshown = reader.build(list(targets), depth)
+            return {n: s["depth"] for n, s in sections.items()}, missing, cut, thms, unshown, render(sections, missing, cut, thms, unshown, depth)
+
+        got, missing, cut, thms, unshown, text = depths("bound")
+        expect("a statement reaches the structure of a projection on its binder, the structure an inherited field is of, and the "
+               "definition a hypothesis names; an upstream `n.succ` is nothing; nothing is unresolved",
+               got == {"Lib.P.bound": 0, "Lib.P.Learner": 1, "Lib.P.Good": 1, "Lib.P.Base": 1} and not missing and not unshown, f"{got} {missing}")
+        got, missing, cut, thms, unshown, text = depths("reaches")
+        expect("dot notation on a binder reaches the definition of the type's namespace, a field the structure",
+               got == {"Lib.P.reaches": 0, "Lib.P.Learner": 1, "Lib.P.Base": 1, "Lib.P.Learner.Reaches": 1} and not missing, f"{got}")
+        got, missing, cut, thms, unshown, text = depths("dot")
+        expect("a definition reached by a chained projection (`L.next.missCount`) is read to its own uses at the next depth",
+               got == {"Lib.P.dot": 0, "Lib.P.Learner": 1, "Lib.P.Learner.next": 1, "Lib.P.Base": 2} and not missing, f"{got}")
+        got, missing, cut, thms, unshown, text = depths("Conf", depth=0)
+        expect("past the depth bound a use is cut and listed, not shown; a structure's field defaults are its uses",
+               got == {"Lib.P.Conf": 0} and set(cut) == {"Lib.P.card", "Lib.P.classify"} and "Named but not shown" in text, f"{got} {dict(cut)}")
+        got, missing, cut, thms, unshown, text = depths("viaMatch")
+        expect("a definition's value is read, its matcher included: `match` arms reach `classify` and `card`",
+               set(got) == {"Lib.P.viaMatch", "Lib.P.classify", "Lib.P.card"} and not missing, f"{got}")
+        got, missing, cut, thms, unshown, text = depths("sees_hidden")
+        expect("a private definition is reached by its source-level name and shown",
+               got.get("Lib.P.hidden") == 1 and "private def hidden" in text and not missing, f"{got} {missing}")
+        got, missing, cut, thms, unshown, text = depths("dflt")
+        expect("an instance Lean named has no line of its own: listed under its heading, shown nowhere, not unresolved",
+               set(unshown) == {"Lib.P.instInhabitedLearner"} and not missing and "no source line of their own" in text, f"{dict(unshown)} {missing}")
+        out = root / "packet.md"
+        r = subprocess.run([sys.executable, __file__, "readback", "dflt", "-o", str(out), "--root", str(root)], capture_output=True, text=True)
+        expect("readback exits 0 over such a packet, 0 unresolved", r.returncode == 0 and "0 unresolved" in r.stdout, r.stdout + r.stderr)
+        decls.write_text(FIXTURE_P_MANIFEST.replace("uses Lib.P Lib.P.viaMatch Lib.P.card", "uses Lib.P Lib.P.viaMatch Lib.P.vanished"))
+        reader = Reader(Config(root))
+        got, missing, *_ = depths("viaMatch")
+        r = subprocess.run([sys.executable, __file__, "readback", "viaMatch", "-o", str(out), "--root", str(root)], capture_output=True, text=True)
+        expect("a use no manifest lists is unresolved, naming the declaration that used it, and the exit is 1",
+               len(missing) == 1 and "Lib.P.vanished" in missing[0] and "Lib.P.viaMatch" in missing[0] and r.returncode == 1, f"{missing} {r.stdout}")
+        decls.write_text("\n".join(ln for ln in FIXTURE_P_MANIFEST.splitlines() if not ln.startswith(("uses ", "# uses rows"))) + "\n")
+        r = subprocess.run([sys.executable, __file__, "readback", "bound", "--root", str(root)], capture_output=True, text=True)
+        expect("a manifest an older generator wrote, with no `uses` section, is refused with the way to regenerate it",
+               r.returncode == 2 and "no `uses` section" in r.stdout and "DeclManifest.lean" in r.stdout, r.stdout + r.stderr)
+        decls.write_text("\n".join(ln for ln in FIXTURE_P_MANIFEST.splitlines() if not ln.startswith("uses ")).replace("rows: 26", "rows: 0") + "\n")
+        expect("a manifest that says it wrote an empty section is not mistaken for an older generator's", Reader(Config(root)).uses == {})
+
+
 def selftest_cases():
     bad = []
 
@@ -2690,7 +2845,10 @@ def selftest_cases():
         do_init(root, "ws")
         cfg = Config(root)
         expect("init writes a bindings file the loader reads", cfg.workspace_name == "ws" and cfg.scan == ["papers/*.md"])
-        (root / "formal.toml").write_text((root / "formal.toml").read_text().replace('# Lib = "."', 'Lib = "."'))
+        # the record bindings are the project's (init leaves them empty without a flow.toml): bound here, to test the check itself
+        (root / "formal.toml").write_text((root / "formal.toml").read_text().replace('# Lib = "."', 'Lib = "."')
+                                          .replace("records = []", 'records = ["records"]')
+                                          .replace("id_prefixes = []", 'id_prefixes = ["idea", "question", "task", "finding"]'))
         (root / "ws" / "Lib").mkdir(parents=True)
         (root / "ws" / "Lib.lean").write_text("import Lib.A\nimport Lib.B\npublic import Lib.C\n")
         (root / "ws" / "Lib" / "A.lean").write_text(FIXTURE_A)
@@ -2707,8 +2865,8 @@ def selftest_cases():
         except ManifestError:
             expect("an unparseable row raises", True)
         reader = Reader(cfg)
-        sections, missing, cut, thms, dots = reader.build(["A.KB", "kb_le", "byarms"], 2)
-        text = render(sections, missing, cut, thms, dots, 2)
+        sections, missing, cut, thms, unshown = reader.build(["A.KB", "kb_le", "byarms"], 2)
+        text = render(sections, missing, cut, thms, unshown, 2)
         expect("a module-qualified target resolves to its declaration", "### `Lib.A.KB` —" in text)
         expect("the docstring and the comment are stripped", "The doc" not in text and "a comment" not in text)
         nested = "/- a /- b -/\ntheorem fake : True := trivial\n-/\ntheorem real : True := trivial\n"
@@ -2724,13 +2882,12 @@ def selftest_cases():
         expect("a definition the statement names is included at depth 1", "### `Lib.B.Cond` —" in text and "(def, depth 1)" in text)
         expect("the file's variable line is in scope", "variable (n : ℕ)" in text)
         expect("the manifest's instance classes are listed", "`DecidableEq`" in text)
-        expect("nothing unresolved", not missing, str(missing))
+        expect("nothing unresolved", not missing and not unshown, str(missing) + str(unshown))
+        expect("a definition of a module the statement does not use is not followed, whatever its bare name",
+               "Lib.C.KB" not in sections and "Lib.B.s" not in sections, str(list(sections)))
         sec2, mis2, *_ = reader.build(["KB"], 2)
         expect("a bare name declared in two modules is refused as ambiguous", not sec2 and len(mis2) == 1 and "ambiguous" in mis2[0])
-        found, _ = reader.names_in("KB y = KB y", "Lib.B")
-        expect("a name from a module the file does not import does not resolve", not found)
-        found, _ = reader.names_in("∀ s, s = s", "Lib.A")
-        expect("a bound one-letter variable does not pull in a short definition", "Lib.B.s" not in found)
+        readback_scenarios(expect)
         # the handoff check
         base = ("<prompt session=fresh>\nT1\n1. Target: prove `foo` in `Lib/Foo.lean`.\n{refute}{bundle}\n"
                 "Commissioned: `foo`.\n\nReport back per ws/AGENTS.md.\n</prompt>\n")
@@ -2932,6 +3089,23 @@ def selftest_cases():
             (root / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: prover-gate\n    language: system\n    entry: scripts/kit.py formal check\n", encoding="utf-8")
             hk = {it["item"]: it for it in probe(root)["project"]}["formal-check hook"]
             expect("a local hook whose entry runs `formal check` is the formal-check hook, whatever its id", hk["ok"] and "entry runs" in hk["detail"], hk["detail"])
+            # the formal plugin on its own: the research setup's marker is no concern of the prover side
+            flow_toml = (root / "flow.toml").read_text(encoding="utf-8") if (root / "flow.toml").is_file() else None
+            try:
+                (root / "flow.toml").write_text((flow_toml or "") + '\n[kit]\nrelease = "v99.0.0"\n', encoding="utf-8")
+                rep = probe(root)
+                expect("the probe reads no [kit] release and makes no setup proposal, whatever the research setup's marker says",
+                       not any(it["item"] == "[kit] release" for it in rep["project"]) and not any(p["item"] == "setup" for p in rep["proposals"]))
+                (root / "flow.toml").unlink()
+                items = {it["item"]: it for it in probe(root)["project"]}
+                expect("with no flow.toml the probe says the research setup is not there, as information: ok, absent, no proposal",
+                       items["flow.toml"]["ok"] and items["flow.toml"]["need"] == "absent" and "works on its own" in items["flow.toml"]["detail"]
+                       and "MISSING  flow.toml" not in render_probe(probe(root)))
+            finally:
+                if flow_toml is not None:
+                    (root / "flow.toml").write_text(flow_toml, encoding="utf-8")
+                elif (root / "flow.toml").is_file():
+                    (root / "flow.toml").unlink()
             (root / ".pre-commit-config.yaml").write_text("# formal-check, research-kit\nrepos: []\n", encoding="utf-8")
             hk = {it["item"]: it for it in probe(root)["project"]}["formal-check hook"]
             expect("a config naming formal-check only in a comment has no formal-check hook", not hk["ok"], hk["detail"])
@@ -3154,22 +3328,45 @@ def kit_tag(tag):
 
 
 def kit_latest():
-    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s at most): (tag, None), or
-    (None, why) where it could not be read — offline, a refusal, an answer naming no release tag, or
-    `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
+    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s, and once more at 10 s after a
+    timeout): (tag, None), or (None, why) where it could not be read — offline, a refusal, an answer naming no release
+    tag, or `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
     if os.environ.get("RESEARCH_KIT_OFFLINE", "") not in ("", "0"):
         return None, "RESEARCH_KIT_OFFLINE is set"
     req = urllib.request.Request(KIT_LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "research-kit-probe"})
-    try:
-        with urllib.request.urlopen(req, timeout=5) as r:
-            tag = json.loads(r.read().decode("utf-8")).get("tag_name")
-    except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
-        why = e.reason if type(e) is urllib.error.URLError else e
-        return None, str(why) or type(e).__name__
+    for timeout in (5, 10):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                tag = json.loads(r.read().decode("utf-8")).get("tag_name")
+            break
+        except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
+            why = e.reason if type(e) is urllib.error.URLError else e
+            if isinstance(why, TimeoutError) and timeout == 5:  # a slow answer is asked once more, with longer to come
+                continue
+            return None, str(why) or type(e).__name__
     return (tag, None) if kit_tag(tag) else (None, f"the latest release names no release tag ({tag!r})")
 
 
-def kit_pins(root, version, record=None, latest=None):
+def kit_dirty(root):
+    """The pin files, `.claude/settings.json` and `.pre-commit-config.yaml`, that differ from the commit, by `git status
+    --porcelain`: (paths, None), the paths from the root; or (None, why) where git is not on PATH, and (None, None)
+    where the root is in no work tree, which holds no commit to differ from."""
+    if not shutil.which("git"):
+        return None, "git is not on PATH"
+    files = (".claude/settings.json", ".pre-commit-config.yaml")
+    try:
+        prefix = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-prefix"], capture_output=True, text=True, timeout=30)
+        st = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--", *files], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)
+    if prefix.returncode or st.returncode:
+        return None, None
+    pre = prefix.stdout.strip()
+    paths = [l[3:].split(" -> ")[-1].strip('"') for l in st.stdout.splitlines() if len(l) > 3]
+    return sorted({q[len(pre):] if q.startswith(pre) else q for q in paths}), None
+
+
+def kit_pins(root, version, record=None, latest=None, dirty=None):
     """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
     settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
     install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
@@ -3177,7 +3374,9 @@ def kit_pins(root, version, record=None, latest=None):
     defaults to `kit_latest`), or, where that could not be read, to the newest of them: whether every pin is at
     that tag and, where one is not, the steps that move every pin to it and the releases whose upgrading
     paragraphs lie between.  A marketplace at `ref` KIT_FOLLOW follows the releases and is no pin to compare; one
-    at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  It writes nothing."""
+    at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  A pin file with uncommitted
+    changes is named (`dirty`, a callable answering as `kit_dirty`, defaults to it), since a clone reads its committed
+    pin.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
     newest, unread = (latest or kit_latest)()
@@ -3220,6 +3419,10 @@ def kit_pins(root, version, record=None, latest=None):
             unpinned = True
     if not repo and not isinstance(src, dict):
         said.append("nothing in the project pins the kit yet")
+    changed, why = (dirty or kit_dirty)(root)
+    said += [f"{f} differs from the commit (modified or untracked): a clone reads its committed pin" for f in changed or ()]
+    if why:
+        said.append(f"whether the pin files differ from the commit is unread ({why})")
     enabled = st.get("enabledPlugins") if isinstance(st.get("enabledPlugins"), dict) else {}
     inst, me, runs_installed = kit_installed(root, record), Path(__file__).resolve(), False
     if inst is None:
@@ -3335,7 +3538,9 @@ def probe(root):
         proj.append({"item": "flow.toml [evidence]", "need": "required", "ok": bound,
                      "detail": f"manifest {ev.get('manifest')} bound" if bound else "the flow resolves no declaration evidence yet; bind `manifest`, `manifest_roots` and `manifest_extension = \"lean\"`"})
     else:
-        proj.append({"item": "flow.toml", "need": "required", "ok": False, "detail": "no flow.toml at the root; the research plugin's init comes first"})
+        proj.append({"item": "flow.toml", "need": "absent", "ok": True,
+                     "detail": "no flow.toml at the root: the research setup is not there, and the prover side works on its own; "
+                               "`formal init` leaves the records bindings empty, and the research plugin's init binds the flow's evidence to the manifests later"})
     mcp = root / ".mcp.json"
     lsp = False
     if mcp.is_file():
@@ -3357,10 +3562,11 @@ def probe(root):
     proj.append({"item": "documents", "need": "present" if (root / "papers").is_dir() else "absent", "ok": True,
                  "detail": "papers/ exists, the default `[documents] scan`" if (root / "papers").is_dir() else "no papers/ directory; `[documents] scan` names the documents' globs"})
     # the hooks' rev, the marketplace's ref and the installed research-kit plugins, against this plugin's version
-    pins = kit_pins(root, skill_version(Path(__file__).resolve().parent.parent / "SKILL.md"))
+    version = skill_version(Path(__file__).resolve().parent.parent / "SKILL.md")
+    pins = kit_pins(root, version)
     proj.append(pins)
     proposals = []
-    if not pins["ok"]:
+    if not pins["ok"]:  # the two plugins are kept at one version by the pins, whatever the research setup's marker says
         proposals.append({"item": "pins", "need": "recommended", "commands": ([pins["releases"]] if pins["releases"] else []) + pins["commands"]})
     if not shutil.which("lake") or not shutil.which("lean"):
         proposals.append({"item": "lean and lake", "need": "required", "commands": ["elan, from https://github.com/leanprover/elan, then `elan toolchain install $(cat lean-toolchain)` in the workspace"]})
@@ -3465,6 +3671,8 @@ def _main(argv=None):
         return sp.add_parser(name, parents=[rooted], **kw)
 
     p = sub("init"); p.add_argument("--workspace", default="formal"); p.add_argument("--force", action="store_true")
+    p.add_argument("--print-instructions", action="store_true", dest="print_instructions",
+                   help="print the paragraphs for the instructions file, for the bindings as they stand, and write nothing")
     sub("check")
     p = sub("handoffcheck"); p.add_argument("draft", nargs="?")
     p = sub("handback"); p.add_argument("--base", default="HEAD"); p.add_argument("--handoff")
@@ -3495,6 +3703,9 @@ def _main(argv=None):
         return 0
     root = Path(a.root).resolve() if a.root else find_root()
     try:
+        if a.cmd == "init" and a.print_instructions:  # the paragraphs to compare an instructions file with
+            print(print_instructions(root, a.workspace), end="")
+            return 0
         if a.cmd == "init":
             do_init(root, a.workspace, a.force)
             return 0

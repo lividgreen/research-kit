@@ -1,7 +1,7 @@
 # The formal setup
 
 `/formal:formal-init` sets the prover side up for a project with a Lean 4 workspace and checks an existing setup: it probes the workspaces, the project and the machine with `formal probe`, proposes what is missing, installs nothing without your word, re-checks what exists against the workspace as it stands and adds what is missing, rewriting nothing without your word, and reports.
-It needs the `research` plugin's setup first ([The research setup](../research/research-init.md)), since the findings and the records are the flow's; the probe and `formal init` are commands of the `formal` script, which lives in the `land` skill, and the [`formal-init`](../../plugins/formal/skills/formal-init/SKILL.md) skill is the procedure around them.
+It runs on its own: with no research setup the handoff and the landing work from the document rows and the commit, and where the `research` plugin is set up ([The research setup](../research/research-init.md)) the setup reads its bindings to fill its own; the probe and `formal init` are commands of the `formal` script, which lives in the `land` skill, and the [`formal-init`](../../plugins/formal/skills/formal-init/SKILL.md) skill is the procedure around them.
 
 ## What a setup is
 
@@ -11,7 +11,7 @@ Required, since a handoff or a landing does not run without it:
 - `formal.toml`, written by `formal init --workspace DIR`, its `[packages]` naming each library root the probe found, one manifest per package and `[manifest] generate` the command that writes each;
 - `DeclManifest.lean` in the workspace, copied from the `land` skill's `scripts/`, and the manifest it writes after a build, since `formal check`, the landing and the flow's declaration evidence read it ([The landing](land.md) has the generator and the manifest's grammar);
 - the prover session's standing instructions at the path `formal.toml` names, written from the `handoff` skill's template with its slots filled ([The handoff](handoff.md));
-- `flow.toml`'s `[evidence]` bound to the manifest, with `manifest_roots` and `manifest_extension = "lean"`;
+- where the project has the research setup (`flow.toml`), its `[evidence]` bound to the manifest, with `manifest_roots` and `manifest_extension = "lean"`;
 - the `formal-check` hook beside the flow's and the library's, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
 
 Recommended: the prover's language server registered in the project's `.mcp.json`, since the prover agent uses whatever prover tools are registered and works blind without them; `elan`, which installs `lean` and `lake` at the workspace's pin.
@@ -20,15 +20,16 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 
 1. Probes: `formal probe` reports the tools on PATH, each workspace with its package, roots, toolchain and generator (`DeclManifest.lean` present, absent, or stale where it differs from the skill's copy, with the copy as a proposal), the project's bindings, the pins, the proposals and a coverage line, and writes nothing.
    The pins are the hooks' `rev`, the marketplace's `ref` in `.claude/settings.json`, to be `latest` ([Install](../install.md#following-the-releases)), the version of each research-kit plugin Claude Code installed for the project and the `formal` plugin's own version, held to the kit's latest release, which the probe asks GitHub for, as [The research setup](../research/research-init.md#the-pins-and-the-upgrade-steps) says; where one is off, the proposal `pins` names the releases from the oldest pin up to the latest whose **Upgrading** paragraphs to read and the steps that move every pin to it.
-   Where the latest release cannot be read, offline or refused, the item says so and compares the pins among themselves, against the newest of them.
+   It asks with one retry after a timeout; where the latest release cannot be read, offline or refused, the item says so and compares the pins among themselves, against the newest of them; a pin file with uncommitted changes is named, since a clone reads its committed pin.
+   The item `flow.toml` says whether the research setup is there, as information and never a refusal; the marker `[kit] release` is the research setup's, read by its own probe, and the two plugins are kept at one version by the pins.
    A lakefile under a workspace's directory, or one it requires by path, is a package of that workspace and never a workspace of its own: the generator goes into the workspace once and runs there for every package.
 2. Plans in one message and asks once: which workspace to bind where the probe found several, which proposals to install, and the slots of the instructions the probe cannot fill (the commands that re-verify a module, the build time, where the audit modules live).
 3. Installs what was chosen and probes again.
-4. Writes `formal.toml` where it is absent, `[packages]` and the package order filled from the lakefiles, the instructions file, the manifests and the handoff's record bindings taken from the workspace, `flow.toml` and `library.toml` where they say them, and binds `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them.
+4. Writes `formal.toml` where it is absent, `[packages]` and the package order filled from the lakefiles, the instructions file, the manifests and the handoff's record bindings taken from the workspace, `flow.toml` and `library.toml` only where they exist and say them (left empty otherwise, and proposed for filling on a later run when the files have come), and binds `[documents]`, `[anchors]` and `[register]` from the project's own gates where it has them.
 5. Places the generator in the workspace where it is absent, never into a package inside it, and leaves the manifests to the prover's first run after a genuine build.
-6. Writes the instructions file from the template where the file `formal.toml` names is absent, and where it exists re-reads it against the template, adding what it lacks on your word.
-7. Binds the flow's declaration evidence in `flow.toml` and adds the hooks to the kit's block.
-8. Runs `formal check` and `flow check`, and reports what was written, installed and declined, with the first handoff as the next step; a manifest not yet generated is named as the prover's first move with its generate command.
+6. Writes the instructions file from the template where the file `formal.toml` names is absent, and where it exists re-reads it against the template, adding what it lacks on your word; the paragraphs for the project's own instructions file are compared with what `formal init --print-instructions` prints for `formal.toml` as it stands, which writes nothing.
+7. Binds the flow's declaration evidence in `flow.toml` where it exists (the research setup, finding `formal.toml`, binds it to the manifests or proposes running this setup again) and adds the hooks to the kit's block.
+8. Runs `formal check`, and `flow check` where the research plugin is set up, and reports what was written, installed and declined, with the first handoff as the next step; a manifest not yet generated is named as the prover's first move with its generate command.
    Where the plugin was installed in the same session, the report says the `formal:prover` agent type appears after a restart, since an agent type is loaded when a session starts.
 
 A workspace never learns of the project's records through the setup: the instructions file carries the prover session's rules and nothing of the records or the documents beyond the bans `formal.toml` names.
@@ -38,7 +39,7 @@ A workspace never learns of the project's records through the setup: the instruc
 `formal init --workspace lean` writes the bindings file at the project root, with the bindings filled in and the optional ones commented; it is the schema, with every binding explained where it stands, and the kit's tests hold this page to what `init` writes.
 The file below is written for a workspace `lean/` with no lakefile yet, in a project whose `flow.toml` and `library.toml` are as their own `init` writes them with the log `WORKLOG.md`.
 Where the workspace has its lakefiles, `init` fills `[packages]` with every root of the workspace and of each package under it or required by path, one manifest and one command per package, and the package order from the requirements.
-It takes what the project already says rather than a default: the instructions file the workspace has (`AGENTS.md`, else `CLAUDE.md`), the manifests `flow.toml`'s `[evidence] manifest` binds, one per package, with the generate commands writing them, and `[handoff]`'s `records`, `id_prefixes` and `meta_names` from `flow.toml`'s `[paths]` and `[prefixes]` and `key_patterns` from `library.toml`'s cite prefix.
+It takes what the project already says rather than a default: the instructions file the workspace has (`AGENTS.md`, else `CLAUDE.md`), the manifests `flow.toml`'s `[evidence] manifest` binds, one per package, with the generate commands writing them, and `[handoff]`'s `records`, `id_prefixes` and `meta_names` from `flow.toml`'s `[paths]` and `[prefixes]` and `key_patterns` from `library.toml`'s cite prefix, each only where that file exists and binds it, and empty otherwise.
 
 ```toml
 # formal.toml — the prover side's bindings for THIS project.  Every path is relative to this
@@ -121,7 +122,8 @@ banned = []
 # What names a record as a source, so the prompt must carry the docstring-register warning, since
 # a docstring renders into the public artifact: the records' path prefixes, the id prefixes, the
 # file names of the log and the registry, and regular expressions for reference keys; `init` takes
-# them from flow.toml's [paths] and [prefixes] and library.toml's cite prefix where those exist.
+# them from flow.toml's [paths] and [prefixes] and library.toml's cite prefix where those exist, and
+# leaves them empty where the project has neither (the formal plugin works without the research setup).
 records = ["records", "WORKLOG-archive"]
 id_prefixes = ["idea", "question", "task", "finding"]
 meta_names = ["WORKLOG.md"]

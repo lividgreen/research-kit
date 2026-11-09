@@ -20,6 +20,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -141,6 +142,105 @@ def runs_hooks(make, target="check"):
     return target in rs and (hooks(target) or any(hooks(t) for t in rs[target][0]))
 
 
+HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
+# the heading of the section holding the records rules: the data and how the project works with it; a trailing
+# parenthesis such as "(author, 2026-09-14)" is allowed.  `Research records` is what earlier setups wrote.
+SECTION = "Records and method"
+LEGACY_SECTION = "Research records"
+
+
+def headings(text):
+    """A Markdown file's ATX headings outside its code fences, as (line index, level, text)."""
+    out, fence = [], None
+    for i, l in enumerate(text.split("\n")):
+        m = re.match(r"^ {0,3}(`{3,}|~{3,})", l)
+        if m:
+            if fence is None:
+                fence = m.group(1)
+            elif m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                fence = None
+            continue
+        h = HEADING.match(l) if fence is None else None
+        if h:
+            out.append((i, len(h.group(1)), h.group(2).strip()))
+    return out
+
+
+def heading_is(words, name):
+    """Whether a heading's text is `name`, a trailing parenthesis allowed."""
+    return re.fullmatch(re.escape(name) + r"(?:\s*\(.*\))?", words.strip()) is not None
+
+
+def instructions_parts(root, files):
+    """Where the instructions files hold the records rules and the reviews part, read from their headings, exactly:
+    a dict of lists of places.  `sections` are headings whose text is `Records and method` (a trailing parenthesis
+    allowed), at any level; `legacy` those whose text is `Research records`, what earlier setups wrote; `reviews` the
+    `Reviews` headings standing in the part of one of them (to the next heading of its level or above), with the
+    heading above; `stray` the `Reviews` headings standing in none.  A project keeping the rules under another heading
+    is read by the agent, not here."""
+    out = {"sections": [], "legacy": [], "reviews": [], "stray": []}
+    for f in files:
+        try:
+            text = (Path(root) / f).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        lines, hs = text.split("\n"), headings(text)
+        spans = [(i, next((j for j, l2, _ in hs[k + 1:] if l2 <= lvl), len(lines)), lvl, words) for k, (i, lvl, words) in enumerate(hs)]
+        place = lambda i, lvl, words: {"file": f, "line": i + 1, "heading": f"{'#' * lvl} {words}"}
+        named = [s for s in spans if heading_is(s[3], SECTION)]
+        legacy = [s for s in spans if heading_is(s[3], LEGACY_SECTION)]
+        out["sections"] += [place(i, lvl, words) for i, _, lvl, words in named]
+        out["legacy"] += [place(i, lvl, words) for i, _, lvl, words in legacy]
+        for i, _, lvl, words in (s for s in spans if heading_is(s[3], "Reviews")):
+            above = next((f"{'#' * l2} {w2}" for i2, e2, l2, w2 in reversed(spans) if i2 < i < e2 and l2 < lvl), None)
+            inside = any(a < i < b for a, b, *_ in named + legacy)
+            out["reviews" if inside else "stray"].append({**place(i, lvl, words), "under": above})
+    return out
+
+
+def reference_dirs(root):
+    """The directories holding documents with a References section, each with its files' names."""
+    refs = {}
+    for f in md_files(root):
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if re.search(r"^## References\s*$", text, re.M):
+            refs.setdefault(f.parent.relative_to(root).as_posix(), []).append(f.name)
+    return refs
+
+
+def instructions_items(root, found, refs):
+    """The two project items read from what the instructions file holds, not from its existence alone."""
+    parts = instructions_parts(root, found)
+    sections, legacy, reviews, stray = parts["sections"], parts["legacy"], parts["reviews"], parts["stray"]
+    place = lambda x: f"`{x['heading']}` in {x['file']}:{x['line']}"
+    if sections:
+        sec = "; ".join(place(s) for s in sections)
+        if legacy:
+            sec += f"; and the earlier `{LEGACY_SECTION}` at {', '.join(place(x) for x in legacy)}, which holds the records rules twice"
+    elif legacy:
+        sec = (f"{'; '.join(place(x) for x in legacy)}, the name earlier setups wrote; the section is `## {SECTION}`, "
+               "and the setup's step 5 renames it on the person's word")
+    elif found:
+        sec = (f"no `## {SECTION}` heading in {', '.join(found)}; a project keeping the records rules under a heading of its own "
+               "has the agent find it by reading the file, and the setup's step 5 proposes once, on the person's word, to rename or move it into place; "
+               "otherwise step 5 writes the section")
+    else:
+        sec = "no instructions file; the setup's step 5 writes the section into a new one"
+    why = ("; it matters here, the project having documents with a References section, which the review skills hold to what the part says"
+           if refs else "; it is formed once the project has documents with a References section")
+    if reviews:
+        rev = "; ".join(place(r) + (f", under `{r['under']}`" if r["under"] else "") for r in reviews)
+    else:
+        rev = (f"no `Reviews` heading inside the records section of {', '.join(found)}" if found else "no instructions file") + why
+        if stray:
+            rev += f"; one stands outside it, {'; '.join(place(r) for r in stray)}, which the setup's step 5 moves inside on the person's word"
+    return parts, [{"item": "instructions section", "need": "present" if sections or legacy else "absent", "ok": True, "detail": sec},
+                   {"item": "reviews part", "need": "present" if reviews else "absent", "ok": True, "detail": rev}]
+
+
 def project(root):
     """The project: its repository, its bindings files, its instructions, its documents, a prover."""
     items = []
@@ -158,17 +258,12 @@ def project(root):
     found = [f for f in INSTRUCTION_FILES if (root / f).is_file()]
     items.append({"item": "instructions file", "need": "present" if found else "absent", "ok": True,
                   "detail": ", ".join(found) if found else "none of " + ", ".join(INSTRUCTION_FILES) + "; the paragraphs `init` prints go into a new one"})
+    refs = reference_dirs(root)
+    parts, part_items = instructions_items(root, found, refs)
+    items += part_items
     logs = [f for f in LOG_NAMES if (root / f).is_file()]
     items.append({"item": "log", "need": "present" if logs else "absent", "ok": True,
                   "detail": f"{logs[0]} exists and would be bound as the log" if logs else "none of " + ", ".join(LOG_NAMES[:2]) + "; `flow init --log WORKLOG.md` starts one"})
-    refs = {}
-    for f in md_files(root):
-        try:
-            text = f.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if re.search(r"^## References\s*$", text, re.M):
-            refs.setdefault(f.parent.relative_to(root).as_posix(), []).append(f.name)
     globs = [f"{d}/*.md" if d != "." else "*.md" for d in sorted(refs)]
     items.append({"item": "documents with a References section", "need": "found" if refs else "none", "ok": True,
                   "detail": "; ".join(f"{g} ({len(refs[d])} file(s))" for g, d in zip(globs, sorted(refs))) if refs else "none; `library init --documents` binds them when they exist"})
@@ -205,7 +300,8 @@ def project(root):
     items.append({"item": "Makefile", "need": "present" if make is not None else "absent", "ok": True,
                   "detail": "its `check` target runs the hooks" if runs else f"found no `check` target running the hooks; {could}" if make is not None else f"none; {could}"})
     items.append(kit_pins(root, kit_version()))
-    return items, {"globs": globs, "logs": logs, "instructions": found, "lake": lake, "git_root": str(git_root) if git_root else None}
+    return items, {"globs": globs, "logs": logs, "instructions": found, "lake": lake, "git_root": str(git_root) if git_root else None,
+                   "instructions_parts": parts}
 
 
 def externally_managed():
@@ -373,22 +469,45 @@ def kit_tag(tag):
 
 
 def kit_latest():
-    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s at most): (tag, None), or
-    (None, why) where it could not be read — offline, a refusal, an answer naming no release tag, or
-    `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
+    """The tag of the kit's latest release, asked of GitHub's API (`tag_name`, 5 s, and once more at 10 s after a
+    timeout): (tag, None), or (None, why) where it could not be read — offline, a refusal, an answer naming no release
+    tag, or `RESEARCH_KIT_OFFLINE` set, which skips the request (the kit's tests set it)."""
     if os.environ.get("RESEARCH_KIT_OFFLINE", "") not in ("", "0"):
         return None, "RESEARCH_KIT_OFFLINE is set"
     req = urllib.request.Request(KIT_LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "research-kit-probe"})
-    try:
-        with urllib.request.urlopen(req, timeout=5) as r:
-            tag = json.loads(r.read().decode("utf-8")).get("tag_name")
-    except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
-        why = e.reason if type(e) is urllib.error.URLError else e
-        return None, str(why) or type(e).__name__
+    for timeout in (5, 10):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                tag = json.loads(r.read().decode("utf-8")).get("tag_name")
+            break
+        except Exception as e:  # no network, a timeout, an HTTP refusal (a rate limit), an answer that is no JSON object
+            why = e.reason if type(e) is urllib.error.URLError else e
+            if isinstance(why, TimeoutError) and timeout == 5:  # a slow answer is asked once more, with longer to come
+                continue
+            return None, str(why) or type(e).__name__
     return (tag, None) if kit_tag(tag) else (None, f"the latest release names no release tag ({tag!r})")
 
 
-def kit_pins(root, version, record=None, latest=None):
+def kit_dirty(root):
+    """The pin files, `.claude/settings.json` and `.pre-commit-config.yaml`, that differ from the commit, by `git status
+    --porcelain`: (paths, None), the paths from the root; or (None, why) where git is not on PATH, and (None, None)
+    where the root is in no work tree, which holds no commit to differ from."""
+    if not shutil.which("git"):
+        return None, "git is not on PATH"
+    files = (".claude/settings.json", ".pre-commit-config.yaml")
+    try:
+        prefix = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-prefix"], capture_output=True, text=True, timeout=30)
+        st = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--", *files], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)
+    if prefix.returncode or st.returncode:
+        return None, None
+    pre = prefix.stdout.strip()
+    paths = [l[3:].split(" -> ")[-1].strip('"') for l in st.stdout.splitlines() if len(l) > 3]
+    return sorted({q[len(pre):] if q.startswith(pre) else q for q in paths}), None
+
+
+def kit_pins(root, version, record=None, latest=None, dirty=None):
     """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
     settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
     install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
@@ -396,7 +515,9 @@ def kit_pins(root, version, record=None, latest=None):
     defaults to `kit_latest`), or, where that could not be read, to the newest of them: whether every pin is at
     that tag and, where one is not, the steps that move every pin to it and the releases whose upgrading
     paragraphs lie between.  A marketplace at `ref` KIT_FOLLOW follows the releases and is no pin to compare; one
-    at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  It writes nothing."""
+    at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  A pin file with uncommitted
+    changes is named (`dirty`, a callable answering as `kit_dirty`, defaults to it), since a clone reads its committed
+    pin.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
     newest, unread = (latest or kit_latest)()
@@ -439,6 +560,10 @@ def kit_pins(root, version, record=None, latest=None):
             unpinned = True
     if not repo and not isinstance(src, dict):
         said.append("nothing in the project pins the kit yet")
+    changed, why = (dirty or kit_dirty)(root)
+    said += [f"{f} differs from the commit (modified or untracked): a clone reads its committed pin" for f in changed or ()]
+    if why:
+        said.append(f"whether the pin files differ from the commit is unread ({why})")
     enabled = st.get("enabledPlugins") if isinstance(st.get("enabledPlugins"), dict) else {}
     inst, me, runs_installed = kit_installed(root, record), Path(__file__).resolve(), False
     if inst is None:
@@ -489,6 +614,42 @@ def kit_pins(root, version, record=None, latest=None):
             "latest": newest, "latest_unread": unread, "commands": steps, "releases": releases}
 
 
+def kit_setup(root, version):
+    """The release the project's setup was last brought to, `[kit] release` in its flow.toml, against the release
+    `version` (the plugin this runs from, the installed one): an upgrade step, `ok` where they are one; `pending` where
+    the marker is behind, its commands the releases whose upgrading paragraphs to read and the setup, whose verify
+    step moves the marker, or where it is ahead, the project brought further on another machine, its commands the
+    moves of this plugin; `none` where flow.toml or its line is absent (written before v0.7.0), the pins' oldest tag
+    standing in; `not run` where this script's release is unknown.  `release` is the marker read, or None."""
+    step = lambda state, detail, commands=(), release=None: {"item": "setup", "state": state, "detail": detail, "commands": list(commands), "release": release}
+    try:
+        kit = tomllib.loads((Path(root) / "flow.toml").read_text(encoding="utf-8")).get("kit", {})
+    except OSError:
+        return step("none", "no flow.toml, so no `[kit] release`; the research plugin's `flow init` writes it")
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        return step("not run", f"flow.toml does not parse ({e}), so `[kit] release` is unread")
+    marker = kit.get("release") if isinstance(kit, dict) else None
+    me = f"v{version}" if version else None
+    if marker is None:
+        return step("none", "flow.toml has no `[kit] release` (written before v0.7.0), so the releases to read are counted from the oldest pin; "
+                    "`flow doctor` names the line, and the setup's verify step writes it")
+    if not kit_tag(marker):
+        return step("pending", f"`[kit] release` reads {marker!r}, which is no release tag",
+                    [f"write `[kit] release = \"{me or 'vX.Y.Z'}\"` in flow.toml once the setup's steps up to it are taken"])
+    if not me:
+        return step("not run", f"the setup was last brought to {marker}; this script's release is unknown, so it is not compared", release=marker)
+    if kit_tag(marker) == kit_tag(me):
+        return step("ok", f"the setup was last brought to {marker}, the installed release", release=marker)
+    if kit_tag(marker) < kit_tag(me):
+        return step("pending", f"the setup was last brought to {marker}; the installed release is {me}",
+                    [f"read the Upgrading paragraph of each release after {marker} up to {me}, in {KIT_CHANGELOG}",
+                     f"run `/research:research-init`, whose verify step moves `[kit] release` to {me}"], marker)
+    return step("pending", f"the project was brought to {marker} on another machine or checkout, and this plugin is {me}, behind it: "
+                "the flow's scripts refuse to write until it moves",
+                ["claude plugin marketplace update research-kit", "claude plugin update research@research-kit --scope project",
+                 "restart the session", "for remote hooks, `prek autoupdate` (or `pre-commit autoupdate`)"], marker)
+
+
 def flow_answer(flow, root, *argv):
     """The flow script's `--json` answer to a command that writes nothing, or (None, why) where it gave none:
     a refusal (a flow.toml it cannot read), a crash, no answer in time."""
@@ -505,33 +666,79 @@ def flow_answer(flow, root, *argv):
     return (None, "; ".join(refused)) if refused else (out, None)
 
 
-def upgrade(root, pins, flow=FLOW):
+def instructions_step(found, refs, parts, set_up):
+    """The upgrade step for the instructions file: pending while the section of the records rules is not under its
+    name (`Records and method`; earlier setups wrote `Research records`, and a project may keep it under a heading of
+    its own, which the setup's step 5 moves into place on the person's word) in a project already set up, and while the
+    reviews part is absent from it or stands outside it where documents exist."""
+    sections, legacy, reviews, stray = parts["sections"], parts["legacy"], parts["reviews"], parts["stray"]
+    asks, cmds = [], []
+    if legacy:
+        asks.append(f"the section is still named `{LEGACY_SECTION}`, which is `{SECTION}` now")
+        cmds.append(f"run `/research:research-init`, step 5: rename `## {LEGACY_SECTION}` to `## {SECTION}`")
+    elif not sections and set_up:
+        asks.append(f"no `## {SECTION}` heading in {', '.join(found)}" if found else "no instructions file")
+        cmds.append(f"run `/research:research-init`, step 5: find the section holding the records rules by reading the file and rename or move it to `## {SECTION}`, or write it")
+    if refs and not reviews:
+        asks.append("the project has documents with a References section and " +
+                    (f"no `### Reviews` part inside the section of {', '.join(found)}" if found else "no instructions file"))
+        cmds.append("run `/research:research-init`, step 5: the `### Reviews` part formed with the person" +
+                    (f", or the one standing at {stray[0]['file']}:{stray[0]['line']} moved inside the section" if stray else ""))
+    if asks:
+        return {"item": "instructions", "state": "pending", "detail": "; ".join(asks), "commands": cmds}
+    if reviews:
+        return {"item": "instructions", "state": "ok", "detail": f"the reviews part stands in {reviews[0]['file']}:{reviews[0]['line']}", "commands": []}
+    return {"item": "instructions", "state": "none", "detail": "no document with a References section, so no reviews part is asked yet", "commands": []}
+
+
+def beyond(installed, target):
+    """Where `[kit] release` is read, the pins' reading of the upgrading paragraphs: those of each release after the
+    installed one up to the pins' target, the setup step naming the ones from the marker up to the installed; none
+    where the target is not past the installed release."""
+    if kit_tag(installed) and kit_tag(target) and kit_tag(target) > kit_tag(installed):
+        return [f"read the Upgrading paragraph of each release after {installed} up to {target}, in {KIT_CHANGELOG}"]
+    return []
+
+
+def upgrade(root, pins, flow=FLOW, facts=None):
     """The upgrade steps the probe can see, each with its command, in the order an upgrade takes them: the pins
-    off one tag, with the releases between whose upgrading paragraphs to read; the records and bindings an older
-    model wrote, which the flow skill's `flow doctor` beside this skill names; a stale index, which `flow index
-    --check` names.  The two flow commands write nothing; a step is `pending`, `ok`, `none` (no flow.toml) or
-    `not run` (it could not be checked)."""
+    off one tag; the release the setup was last brought to (`[kit] release`), with the releases after it whose
+    upgrading paragraphs to read, or, where flow.toml has no such line, the pins' releases between; the records and
+    bindings an older model wrote, which the flow skill's `flow doctor` beside this skill names; a stale index, which
+    `flow index --check` names; the instructions file's section and reviews part, where it lacks its name or the part and documents exist.  The two
+    flow commands write nothing; a step is `pending`, `ok`, `none` (nothing to bring) or `not run` (it could not be
+    checked)."""
     latest = ", the latest release" if pins["latest"] else ""
     unread = "" if pins["latest"] else "; the latest release could not be read, so this is the newest the pins name"
+    setup = kit_setup(root, kit_version())
+    releases = [pins["releases"]] if pins["releases"] else []
+    if setup["release"] is not None:  # the marker read: the setup step names the releases up to the installed one, this those beyond it
+        releases = beyond(f"v{kit_version()}" if kit_version() else None, pins["target"])
     steps = [{"item": "pins", "state": "ok" if pins["ok"] else "pending",
               "detail": f"at one tag, {pins['target']}{latest or unread}" if pins["ok"] and pins["target"] else "nothing pins the kit yet" if pins["ok"] else
               f"every pin moves to {pins['target'] or '<tag>'}{latest}, in the order of the steps below",
-              "commands": ([pins["releases"]] if pins["releases"] else []) + pins["commands"]}]
+              "commands": releases + pins["commands"]},
+             {k: v for k, v in setup.items() if k != "release"}]
+    if facts is None:
+        found = [f for f in INSTRUCTION_FILES if (root / f).is_file()]
+        facts = {"instructions": found, "globs": sorted(reference_dirs(root)), "instructions_parts": instructions_parts(root, found)}
+    last = instructions_step(facts["instructions"], facts["globs"], facts["instructions_parts"], (root / "flow.toml").is_file())
     if not (root / "flow.toml").is_file():
-        return steps + [{"item": "records", "state": "none", "detail": "no flow.toml; `flow init` writes the current model", "commands": []}]
+        return steps + [{"item": "records", "state": "none", "detail": "no flow.toml; `flow init` writes the current model", "commands": []}, last]
     if not Path(flow).is_file():
         why = f"the flow skill's script is not beside this skill ({flow}), so the records' model could not be checked"
-        return steps + [{"item": "records", "state": "not run", "detail": why, "commands": ["flow doctor", "flow index --check"]}]
+        return steps + [{"item": "records", "state": "not run", "detail": why, "commands": ["flow doctor", "flow index --check"]}, last]
     doc, why = flow_answer(flow, root, "doctor")
     mech = []
     if doc is None:
         steps.append({"item": "records", "state": "not run", "detail": f"`flow doctor` gave no answer: {why}", "commands": ["flow doctor"]})
     else:
-        mech, hand = doc.get("mechanical") or [], doc.get("problems") or []
+        mech, hand, notes = doc.get("mechanical") or [], doc.get("problems") or [], doc.get("notes") or []
         by = ", ".join(f"{n} {c}" for c, n in sorted((doc.get("summary") or {}).items(), key=lambda x: (-x[1], x[0])))
+        noted = f", and {len(notes)} optional key(s) the current init writes, noted" if notes else ""
         steps.append({"item": "records", "state": "pending" if mech or hand else "ok",
-                      "detail": f"`flow doctor` names {len(mech)} mechanical edit(s)" + (f" ({by})" if by else "") + f" and {len(hand)} thing(s) for the hand"
-                      if mech or hand else "`flow doctor` finds nothing an older model wrote",
+                      "detail": (f"`flow doctor` names {len(mech)} mechanical edit(s)" + (f" ({by})" if by else "") + f" and {len(hand)} thing(s) for the hand"
+                                 if mech or hand else "`flow doctor` finds nothing an older model wrote") + noted,
                       "commands": ([f"flow doctor --fix   # writes the {len(mech)} mechanical edit(s) in place and refreshes the index"] if mech else [])
                       + ([f"flow doctor   # lists the {len(hand)} thing(s) for the hand, each settled from its line"] if hand else [])})
     idx, why = flow_answer(flow, root, "index", "--check")
@@ -542,7 +749,7 @@ def upgrade(root, pins, flow=FLOW):
         steps.append({"item": "index", "state": "pending" if stale else "ok",
                       "detail": "stale: it is not what this release renders" + ("; `flow doctor --fix` refreshes it" if mech else "") if stale else "fresh",
                       "commands": ["flow index"] if stale else []})
-    return steps
+    return steps + [last]
 
 
 def probe(root, flow=FLOW):
@@ -554,7 +761,7 @@ def probe(root, flow=FLOW):
     return {"root": str(root), "environment": env, "project": proj, "facts": facts,
             "kit": {"version": version, "tag": f"v{version}" if version else None, "layout": kind, "path": where},
             "proposals": proposals(env, hook_runner, installers),
-            "upgrade": {"flow": str(flow), "steps": upgrade(root, pins, flow)}}
+            "upgrade": {"flow": str(flow), "steps": upgrade(root, pins, flow, facts)}}
 
 
 def mark(it):
@@ -730,8 +937,26 @@ def latest_scenarios(tmp, v, expect):
         urllib.request.urlopen = answering(b'{"tag_name": "v1.2.3", "name": "v1.2.3"}')
         expect("the latest release is read from GitHub's API, its tag_name, with a generic User-Agent and a short timeout",
                kit_latest() == ("v1.2.3", None) and asked == [(KIT_LATEST, "research-kit-probe", 5)], str(asked))
+        slow = []
+
+        def timing_out(times, body=b'{"tag_name": "v1.2.4"}'):
+            def fake(req, timeout=None):
+                slow.append(timeout)
+                if len(slow) <= times:
+                    raise TimeoutError("The read operation timed out")
+                return Answer(body)
+            return fake
+        urllib.request.urlopen = timing_out(1)
+        expect("a timeout is asked once more, at ten seconds, and the second answer read", kit_latest() == ("v1.2.4", None) and slow == [5, 10], str(slow))
+        slow.clear()
+        urllib.request.urlopen = timing_out(2)
+        expect("two timeouts give up with the reason, after one retry", kit_latest() == (None, "The read operation timed out") and slow == [5, 10], str(slow))
+        slow.clear()
+        urllib.request.urlopen = lambda req, timeout=None: (slow.append(timeout), (_ for _ in ()).throw(urllib.error.URLError(TimeoutError("timed out"))))[1]
+        expect("a timeout wrapped as a URLError is retried too", kit_latest() == (None, "timed out") and slow == [5, 10], str(slow))
+        asked.clear()
         urllib.request.urlopen = answering(error=urllib.error.URLError("[Errno -3] Temporary failure in name resolution"))
-        expect("no network is said by its reason", kit_latest() == (None, "[Errno -3] Temporary failure in name resolution"))
+        expect("no network is said by its reason, and not asked again", kit_latest() == (None, "[Errno -3] Temporary failure in name resolution") and len(asked) == 1)
         urllib.request.urlopen = answering(error=urllib.error.HTTPError(KIT_LATEST, 403, "rate limit exceeded", {}, None))
         expect("an HTTP refusal is said with its code", kit_latest()[1] == "HTTP Error 403: rate limit exceeded")
         urllib.request.urlopen = answering(b'{"message": "Not Found"}')
@@ -787,6 +1012,122 @@ def upgrade_scenarios(tmp, v, expect):
     expect("a flow.toml the flow cannot read leaves the steps not run, with the flow's words",
            s["records"]["state"] == "not run" and "gave no answer: " in s["records"]["detail"] and "could not run" not in s["records"]["detail"]
            and "NOT RUN" in render(probe(u)), s["records"]["detail"])
+
+
+def marker_scenarios(tmp, v, expect):
+    """The pins read from files with uncommitted changes, the release the setup last brought the project to, and the
+    instructions file read for its section and its reviews part."""
+    p = tmp / "marker"
+    p.mkdir()
+    kit_hooks(p, f"v{v}")
+    kit_settings(p, KIT_FOLLOW)
+    clean = lambda root: ([], None)
+    r = kit_pins(p, v, tmp / "none.json", dirty=lambda root: ([".claude/settings.json", ".pre-commit-config.yaml"], None))
+    expect("a pin file with uncommitted changes is named, since a clone reads its committed pin",
+           ".claude/settings.json differs from the commit (modified or untracked): a clone reads its committed pin" in r["detail"]
+           and ".pre-commit-config.yaml differs from the commit" in r["detail"])
+    expect("where git is not on PATH the uncommitted changes are said unread",
+           "is unread (git is not on PATH)" in kit_pins(p, v, tmp / "none.json", dirty=lambda root: (None, "git is not on PATH"))["detail"])
+    expect("committed pin files, or a root in no work tree, say nothing of it",
+           "uncommitted" not in kit_pins(p, v, tmp / "none.json", dirty=clean)["detail"]
+           and "uncommitted" not in kit_pins(p, v, tmp / "none.json", dirty=lambda root: (None, None))["detail"])
+    if shutil.which("git"):
+        g = tmp / "dirty"
+        g.mkdir()
+        run = lambda *a: subprocess.run(["git", "-C", str(g), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True)
+        run("init", "-q")
+        kit_hooks(g, "v0.0.1")
+        run("add", "-A")
+        run("commit", "-q", "-m", "hooks")
+        expect("kit_dirty reads a committed pin file as clean", kit_dirty(g) == ([], None))
+        kit_hooks(g, "v0.0.2")
+        kit_settings(g, KIT_FOLLOW)
+        (g / "sub").mkdir()
+        kit_hooks(g / "sub", "v0.0.1")
+        expect("kit_dirty names a modified and an untracked pin file by its path from the project root, a subdirectory's its own",
+               kit_dirty(g) == ([".claude/settings.json", ".pre-commit-config.yaml"], None) and kit_dirty(g / "sub") == ([".pre-commit-config.yaml"], None),
+               str(kit_dirty(g / "sub")))
+    # the release the setup last brought the project to
+    toml = lambda text: (p / "flow.toml").write_text(text, encoding="utf-8")
+    expect("no flow.toml is no marker", kit_setup(p, v)["state"] == "none")
+    toml("[paths]\nrecords = \"records\"\n")
+    expect("a flow.toml without [kit] release stands the pins' reading in, and says the doctor names the line",
+           kit_setup(p, v)["state"] == "none" and "written before v0.7.0" in kit_setup(p, v)["detail"] and kit_setup(p, v)["release"] is None)
+    toml(f'[kit]\nrelease = "v{v}"\n')
+    expect("a marker at the installed release is ok", kit_setup(p, v)["state"] == "ok" and kit_setup(p, v)["release"] == f"v{v}")
+    toml('[kit]\nrelease = "v0.0.1"\n')
+    s = kit_setup(p, v)
+    expect("a marker behind names the paragraphs to read after it, then the setup whose verify step moves it",
+           s["state"] == "pending" and s["commands"][0] == f"read the Upgrading paragraph of each release after v0.0.1 up to v{v}, in {KIT_CHANGELOG}"
+           and s["commands"][1] == f"run `/research:research-init`, whose verify step moves `[kit] release` to v{v}", str(s))
+    kit_hooks(p, "v0.0.1")
+    pins = kit_pins(p, v, tmp / "none.json", latest=lambda: (f"v{v}", None), dirty=clean)
+    steps = {x["item"]: x for x in upgrade(p, pins, tmp / "nowhere.py")}
+    expect("with a marker read, the pins' oldest-tag reading of the paragraphs gives way to the setup step's",
+           pins["releases"] and pins["releases"] not in steps["pins"]["commands"] and not any(c.startswith("read the") for c in steps["pins"]["commands"])
+           and steps["setup"]["state"] == "pending", str(steps["pins"]))
+    pins = kit_pins(p, v, tmp / "none.json", latest=lambda: ("v99.0.0", None), dirty=clean)
+    steps = {x["item"]: x for x in upgrade(p, pins, tmp / "nowhere.py")}
+    expect("with a marker read and a latest release past the installed one, the pins step names the paragraphs after the installed release",
+           steps["pins"]["commands"][0] == f"read the Upgrading paragraph of each release after v{v} up to v99.0.0, in {KIT_CHANGELOG}"
+           and steps["setup"]["commands"][0].startswith("read the Upgrading paragraph of each release after v0.0.1 up to"), str(steps["pins"]["commands"]))
+    kit_hooks(p, f"v{v}")
+    expect("the report counts the setup step among the pending ones",
+           "setup" in render({"root": str(p), "environment": [], "project": [], "kit": {"version": v, "tag": f"v{v}", "layout": "copy", "path": "x"},
+                              "proposals": [], "upgrade": {"flow": "x", "steps": list(steps.values())}}).splitlines()[-1])
+    toml('[kit]\nrelease = "v99.0.0"\n')
+    s = kit_setup(p, v)
+    expect("a marker ahead of this plugin says the project was brought further elsewhere, with the moves of the plugin",
+           s["state"] == "pending" and "another machine" in s["detail"] and "claude plugin update research@research-kit --scope project" in s["commands"]
+           and any("prek autoupdate" in c for c in s["commands"]), str(s))
+    toml('[kit]\nrelease = "0.7"\n')
+    expect("a marker that is no release tag is pending, its line to write", kit_setup(p, v)["state"] == "pending" and "no release tag" in kit_setup(p, v)["detail"])
+    expect("an unknown release of this script compares nothing", kit_setup(p, None)["state"] in ("not run", "pending"))
+    # the instructions file read for what it holds
+    (p / "papers").mkdir()
+    (p / "papers" / "a.md").write_text("# A\n\n## References\n\n- X.\n", encoding="utf-8")
+    md = p / "CLAUDE.md"
+
+    def read(text, set_up=True):
+        md.write_text(text, encoding="utf-8")
+        parts, items = instructions_items(p, ["CLAUDE.md"], reference_dirs(p))
+        by = {x["item"]: x for x in items}
+        return by["instructions section"], by["reviews part"], instructions_step(["CLAUDE.md"], reference_dirs(p), parts, set_up)
+    sec, rev, step = read("# P\n\n## Records and method\n\n- `flow state` prints the bundle.\n")
+    expect("a section and no `### Reviews`: the section found, the part absent with why it matters, the upgrade step pending",
+           sec["need"] == "present" and "`## Records and method` in CLAUDE.md:3" in sec["detail"] and rev["need"] == "absent"
+           and "documents with a References section" in rev["detail"] and step["state"] == "pending" and "step 5" in step["commands"][0]
+           and sec["ok"] and rev["ok"], f"{sec} {rev} {step}")
+    sec, rev, step = read("# P\n\n## Records and method\n\n- `flow state`.\n\n### Reviews\n\n- the corpus.\n")
+    expect("a section with its reviews part: both present, the part's place and the heading above it said, no step pending",
+           sec["need"] == "present" and rev["need"] == "present" and "`### Reviews` in CLAUDE.md:7, under `## Records and method`" in rev["detail"]
+           and step["state"] == "ok", rev["detail"])
+    sec, rev, step = read("# P\n\n### Records and method (author, 2026-09-14)\n\n- x.\n\n#### Reviews\n\n- the corpus.\n")
+    expect("a trailing parenthesis is allowed, at any level",
+           sec["need"] == "present" and rev["need"] == "present" and step["state"] == "ok", f"{sec} {rev}")
+    sec, rev, step = read("# P\n\n## Research records\n\n- `flow state`.\n\n### Reviews\n\n- the corpus.\n")
+    expect("the earlier name is found exactly and named as a step to rename, its reviews part still found inside it",
+           sec["need"] == "present" and "`## Research records`" in sec["detail"] and "step 5 renames" in sec["detail"] and rev["need"] == "present"
+           and step["state"] == "pending" and "rename `## Research records` to `## Records and method`" in step["commands"][0], f"{sec} {step}")
+    sec, rev, step = read("# P\n\n## Structure\n\n### Records and method\n\n- `flow state`.\n\n### Reviews\n\n- the corpus.\n")
+    expect("a Reviews heading beside the section, not inside it, is not the part: named as standing outside, to move in",
+           sec["need"] == "present" and rev["need"] == "absent" and "one stands outside it" in rev["detail"] and "CLAUDE.md:9" in rev["detail"]
+           and step["state"] == "pending" and "moved inside the section" in step["commands"][-1], f"{rev} {step}")
+    sec, rev, step = read("# P\n\nNothing of the kit.\n\n```md\n## Records and method\n### Reviews\n```\n")
+    expect("neither, a heading in a code fence not read", sec["need"] == "absent" and rev["need"] == "absent" and step["state"] == "pending")
+    sec, rev, step = read("# P\n\n## How we work\n\nIntro.\n\n### Records\n\n- `flow state` first, `flow check` before a commit, `whatsnext` and `freeze`.\n\n"
+                          "#### Reviews\n\n- the corpus.\n\n## Other\n\nx\n")
+    expect("a section under the project's own heading is not guessed from its words: absent, the agent's to find at step 5, the step asked of a project set up",
+           sec["need"] == "absent" and "heading of its own" in sec["detail"] and "reading the file" in sec["detail"] and rev["need"] == "absent"
+           and step["state"] == "pending" and "rename or move it to `## Records and method`" in step["commands"][0], f"{sec['detail']} | {step}")
+    _, _, step = read("# P\n\nx\n", set_up=False)
+    expect("a project not yet set up is asked the reviews part only, its section being written by the setup",
+           step["state"] == "pending" and "Reviews" in step["detail"] and "no `## Records and method`" not in step["detail"])
+    (p / "papers" / "a.md").unlink()
+    _, rev, step = read("# P\n\n## Records and method\n\nx\n")
+    expect("with no documents, an absent part is asked of no step", step["state"] == "none" and "once the project has documents" in rev["detail"])
+    _, rev, step = read("# P\n", set_up=False)
+    expect("with no documents and no setup, nothing is asked", step["state"] == "none")
 
 
 def selftest():
@@ -939,10 +1280,12 @@ def selftest():
             f.unlink()
         r = subprocess.run([sys.executable, __file__, "probe", "--root", str(bare), "--json"], capture_output=True, text=True)
         expect("probe --json is one JSON document", r.returncode == 0 and json.loads(r.stdout)["root"] == str(bare))
-        expect("probe --json carries the upgrade steps", r.returncode == 0 and [s["item"] for s in json.loads(r.stdout)["upgrade"]["steps"]] == ["pins", "records"])
+        expect("probe --json carries the upgrade steps", r.returncode == 0
+               and [s["item"] for s in json.loads(r.stdout)["upgrade"]["steps"]] == ["pins", "setup", "records", "instructions"])
         installed_scenarios(Path(tmp), v, expect)
         upgrade_scenarios(Path(tmp), v, expect)
         latest_scenarios(Path(tmp), v, expect)
+        marker_scenarios(Path(tmp), v, expect)
     for k, was in saved.items():
         if was is None:
             os.environ.pop(k, None)

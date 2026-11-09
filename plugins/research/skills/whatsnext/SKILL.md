@@ -1,6 +1,6 @@
 ---
 name: whatsnext
-description: What we do next, for the whole project — read the inbox and propose what to make of each item, rank the next list under the focus the person gives, draw the top work into the agent's hand under its limit and return what no longer fits, and write the log entry. Use as `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the research tasks`), at a session's start, when the person asks what is on the table or what is next, or when the ranked list is empty. Runs the `flow` skill's commands and decides nothing the person has not.
+description: What we do next, for the whole project — read the inbox and propose what to make of each item, rank the next list under the focus the person gives, draw the top work into the agent's hand under its limit and return what no longer fits, and write the log entry. Use as `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the research tasks`), at a session's start, or when the ranked list is empty. Runs the `flow` skill's commands and decides nothing the person has not. When the person says 'what's next' or 'whatsnext', they mean this skill — call it every time, even if it ran earlier in the session, and take every step.
 license: Apache-2.0
 compatibility: The `flow` skill beside this one, whose script it runs; git for the commit.
 metadata:
@@ -35,12 +35,13 @@ A focus the person gives with the command, "let's focus on the research tasks", 
 4. **Write the ranks.**
    For each item `flow rank ID N --why "…" --first-move "…" [--direction D] [--serves G]` — a pointer by ID, never a restatement; why now, one clause; the first move, or "none yet"; a question's direction and goal by their ids.
    A rank another record holds is refused; `--insert` takes it, moving that record and the ones below it down by one: `flow rank ID 1 --insert --why "…" --first-move "…"`.
-   `flow rank --set ID …` fixes the whole order at once: it clears every other rank and refreshes the ranked questions' checked dates; every record it names already carries its why-now and first move.
+   `flow rank --set ID …` fixes the whole order at once: it clears every other rank and writes an order only, refreshing no question's checked date; every record it names already carries its why-now and first move.
+   A list whose ranked records have not changed since its last refresh is left as it is, and the log entry says so with that refresh's date.
    Draft long why-now or first-move text in a scratch file and pass it through the project's text gates before writing it.
 5. **Intake.**
    Park or unpark only for a reason the record carries with a date — `flow park ID --reason "…" --revival "…"`, `flow unpark ID` — never "no route"; a task waiting on the person's decision is parked with a reason naming the decision.
    Mint newly seen residues: `flow capture` for an idea, `flow frame IDEA… --summary "…" --criterion "…"` for a question, or `flow frame FINDING …` from the finding that exposed it — a question of its own, never a line added to the question it came from.
-   Refresh each touched question's checked date with `flow checked ID …`.
+   Record the read of each question the session opened in step 2 or touched here with `flow checked ID …`, where no `flow rank ID N` refreshed it already; `--set` asserts no read.
    Goals and directions are the person's: propose in the log entry, and mint or close one (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal given up or a direction dropped prints the questions it released, which are re-ranked here.
 6. **Draw.**
    Draw the top work into the agent's hand under its limit, `flow draw ID --owner agent` (`agent` is the agent's name as `[hand]` names it by default, and a project that names its hands otherwise uses its own name here and below), a task or an idea; a parked or blocked one is refused, and is unparked or unblocked first only with a reason.

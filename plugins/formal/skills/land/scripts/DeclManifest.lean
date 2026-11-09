@@ -174,6 +174,35 @@ head is — is what this section records.  Unlike a named condition, a
 binder's arity is not checked: an instance-implicit binder's type is the
 class fully applied by construction, never a partial application used as
 data.
+
+## The uses section
+
+A trailing `uses <module> <declaration> <constant>` row names, for a counted declaration, one
+project declaration its ELABORATED statement refers to — the answer to "what does this statement
+mean", read from the compiled environment and not guessed from the source text.  `formal readback`
+takes what a read-back packet shows from these rows, and reads the source only to display each block.
+
+The rule, mechanically.  The constants a declaration refers to are read off `Expr.getUsedConstants`
+of its type; of its value too when it is a definition (a `def`, an `abbrev`, an `instance`, an
+`opaque`), because a definition's body is part of what it means and a theorem's proof is not; and of
+the types of the constructors when it is an inductive type or a structure, which is where its
+fields' types stand.  Each constant found is mapped to the counted declaration it stands for, by the
+environment and never by the shape of its name: a structure projection to its structure
+(`getProjectionFnInfo?`, so `L.missCount`, an inherited field, a class method and `toParent` all
+reach a structure), a constructor or a recursor to its inductive type, and a helper Lean generated
+(`casesOn`, `injEq`, `match_1`, `eq_1`, `_proof_1`, …) to the counted declaration it hangs off, by the
+counting rule above; a constant outside the own roots (an upstream name: `Nat.succ`, `Fintype.card`)
+is dropped.  A definition also takes the constants its generated helpers refer to (a `match`
+compiles to a matcher, whose arms live in the helper), a structure those of its fields' default
+values (`getDefaultFnForField?`), and a theorem takes none: the helpers of a theorem are its
+proof.  A declaration's reference to itself is dropped.  The section lists a
+declaration under its source-level name, a `private` one included.
+
+What it does not say: a dependency on a theorem by name in a proof, which is a proof and not a
+statement; an instance the elaborator synthesizes for a binder that is not written in the statement
+and appears only in a value.  The line `# uses rows: N` in the header says the section was written,
+so a package whose declarations refer to none of each other is not mistaken for a manifest of an
+older generator.
 -/
 
 open Lean
@@ -342,6 +371,87 @@ def theoremInstances : Expr → Array Name
       else rest
   | _ => #[]
 
+/-- Does the module defining `n` lie under one of the `own` roots? -/
+def inOwn (own : List Name) (env : Environment) (n : Name) : Bool :=
+  match env.getModuleIdxFor? n with
+  | some idx =>
+      match env.header.moduleNames[idx]? with
+      | some m => inRoots own m
+      | none => false
+  | none => false
+
+/-- The counted declaration a constant stands for, if it stands for one under the own roots — see
+the module docstring's "uses section".  A structure projection stands for its structure (read from
+the environment's projection info, a constructor's inductive type), a constructor or a recursor for
+its inductive type, a counted declaration for itself, and a generated helper for the declaration it
+hangs off. -/
+partial def standsFor (own : List Name) (env : Environment) (c : Name) : Option Name :=
+  if !inOwn own env c then none else
+  match env.find? c with
+  | none => none
+  | some ci =>
+      match env.getProjectionFnInfo? c with
+      | some info =>
+          match env.find? info.ctorName with
+          | some (.ctorInfo cv) => standsFor own env cv.induct
+          | _ => none
+      | none =>
+          match ci with
+          | .ctorInfo cv => standsFor own env cv.induct
+          | .recInfo rv => standsFor own env rv.getMajorInduct
+          | _ =>
+              if counts env c ci then some c
+              else
+                match c with
+                | .str p _ | .num p _ => standsFor own env p
+                | .anonymous => none
+
+/-- The declaration a helper Lean generated hangs off: for a constant the counting rule leaves
+out that is no projection, constructor or recursor, the counted declaration its name's parents
+reach (`foo.match_1` → `foo`, `foo._proof_1` → `foo`); `none` for a counted declaration. -/
+def hangsOff (own : List Name) (env : Environment) (n : Name) (ci : ConstantInfo) : Option Name :=
+  if counts env n ci || (env.getProjectionFnInfo? n).isSome then none else
+  match ci with
+  | .ctorInfo _ | .recInfo _ => none
+  | _ =>
+      match n with
+      | .str p _ | .num p _ => standsFor own env p
+      | .anonymous => none
+
+/-- The constants a declaration (or a helper of it) refers to: its type, its value when it is
+a definition, the types of its constructors when it is an inductive type. -/
+def usedConstants (env : Environment) (ci : ConstantInfo) : Array Name :=
+  let val : Array Name :=
+    match ci with
+    | .defnInfo v => v.value.getUsedConstants
+    | .opaqueInfo v => v.value.getUsedConstants
+    | _ => #[]
+  let ctors : Array Name :=
+    match ci with
+    | .inductInfo v =>
+        v.ctors.foldl (init := #[]) fun acc c =>
+          match env.find? c with
+          | some cc => acc ++ cc.type.getUsedConstants
+          | none => acc
+    | _ => #[]
+  ci.type.getUsedConstants ++ val ++ ctors
+
+/-- The constants the default values of a structure's fields refer to (each default is a
+definition the environment records against its field; none for an inductive type that is no
+structure). -/
+def defaultConstants (env : Environment) (n : Name) : Array Name :=
+  if !isStructure env n then #[] else
+  (getStructureFields env n).foldl (init := #[]) fun acc f =>
+    match getDefaultFnForField? env n f >>= env.find? with
+    | some d => acc ++ (usedConstants env d)
+    | none => acc
+
+/-- The counted declarations a declaration's statement refers to, own roots only, the declaration
+itself left out. -/
+def usesOf (own : List Name) (env : Environment) (self : Name) (ci : ConstantInfo) : Array Name :=
+  (usedConstants env ci ++ defaultConstants env self).filterMap (standsFor own env)
+    |>.filter (· != self)
+
 /-- Every `(module, declaration)` pair of the package recorded in `env`, split
 into the public pairs and the `private` pairs (see the module docstring's
 "private section"); every `(module, field)` pair (citable, not counted — see
@@ -350,10 +460,11 @@ that declares nothing still counts as a module, and is emitted with a count
 of 0); every `(module, theorem, condition)` triple a PUBLIC theorem's
 binders carry (see "the hypothesis section"); and every `(module, theorem,
 class)` triple a PUBLIC theorem's instance binders carry (see "the instance
-section"). -/
+section"); and every `(module, declaration, constant)` triple of the declarations a counted
+declaration's elaborated statement refers to (see "the uses section"). -/
 def packagePairs (roots own : List Name) (env : Environment) :
     Array (Name × Name) × Array (Name × Name) × Array (Name × Name) × Array Name ×
-      Array (Name × Name × Name) × Array (Name × Name × Name) := Id.run do
+      Array (Name × Name × Name) × Array (Name × Name × Name) × Array (Name × Name × Name) := Id.run do
   let mods := env.header.moduleNames
   let data := env.header.moduleData
   let mut pubPairs := #[]
@@ -362,6 +473,7 @@ def packagePairs (roots own : List Name) (env : Environment) :
   let mut seen := #[]
   let mut hyps := #[]
   let mut insts := #[]
+  let mut uses := #[]
   for i in [0 : mods.size] do
     let m := mods[i]!
     if inRoots roots m then
@@ -380,7 +492,21 @@ def packagePairs (roots own : List Name) (env : Environment) :
                   insts := insts.push (m, userName n, cls)
           else if isField env n then
             fields := fields.push (m, userName n)
-  return (pubPairs, privPairs, fields, seen, hyps, insts)
+          -- the declarations this one's statement refers to, and those its generated
+          -- helpers do for it (a theorem's helpers are its proof, which is no statement)
+          if counts env n ci then
+            for c in usesOf own env n ci do
+              uses := uses.push (m, userName n, userName c)
+          else if let some o := hangsOff own env n ci then
+            -- only a definition takes its helpers' references: the helpers of an inductive
+            -- type are the recursors' machinery, which refer to nothing its constructors do not
+            if let some (.defnInfo _) := env.find? o then
+              for c in usesOf own env o ci do
+                uses := uses.push (m, userName o, userName c)
+            else if let some (.opaqueInfo _) := env.find? o then
+              for c in usesOf own env o ci do
+                uses := uses.push (m, userName o, userName c)
+  return (pubPairs, privPairs, fields, seen, hyps, insts, uses)
 
 /-- Sort the lines and drop adjacent duplicates. -/
 def sortedNub (xs : Array String) : Array String := Id.run do
@@ -414,7 +540,7 @@ environment imported without them answers `false` to all three — the filter
 would silently stop filtering rather than fail. -/
 unsafe def scanRoots (roots own : List Name) :
     IO (List Name × Array (Name × Name) × Array (Name × Name) × Array (Name × Name) × Array Name ×
-      Array (Name × Name × Name) × Array (Name × Name × Name)) := do
+      Array (Name × Name × Name) × Array (Name × Name × Name) × Array (Name × Name × Name)) := do
   enableInitializersExecution
   let env ← importModules (roots.toArray.map ({ module := · })) {} (loadExts := true)
   let own ← if own.isEmpty then workspaceRoots env roots else pure own
@@ -448,7 +574,7 @@ unsafe def main (args : List String) : IO Unit := do
     unless ← dir.pathExists do
       throw <| IO.userError s!"output directory does not exist: {dir}"
 
-  let (own, pubPairs, privPairs, fields, mods, hyps, insts) ← scanRoots roots own
+  let (own, pubPairs, privPairs, fields, mods, hyps, insts, uses) ← scanRoots roots own
 
   let pubDeclLines := sortedNub <| pubPairs.map fun (m, n) => s!"{m} {n}"
   let privDeclLines := sortedNub <| privPairs.map fun (m, n) => s!"{m} {n}"
@@ -456,11 +582,12 @@ unsafe def main (args : List String) : IO Unit := do
   let modules := sortedNub <| mods.map toString
   let hypLines := sortedNub <| hyps.map fun (m, thm, cond) => s!"{m} {thm} {cond}"
   let instLines := sortedNub <| insts.map fun (m, thm, cls) => s!"{m} {thm} {cls}"
+  let useLines := sortedNub <| uses.map fun (m, d, c) => s!"{m} {d} {c}"
 
   -- The combined public+private set, kept purely for counting: module counts
   -- and the header total must not move when a declaration is privatized,
   -- only its section does (see the module docstring's "private section").
-  -- Hypothesis and instance rows are NOT part of this count either — they
+  -- Hypothesis, instance and uses rows are NOT part of this count either — they
   -- are a citable fact about an already-counted theorem, not a fifth or
   -- sixth kind of declaration, and the header below is left untouched by
   -- them for the same reason.
@@ -475,16 +602,19 @@ unsafe def main (args : List String) : IO Unit := do
        fields: {fieldLines.size} (structure projections: citable, NOT counted)"
   -- the roots whose Prop-valued definitions were read as named conditions, for `formal check`
   let ownLine := s!"# own roots: {String.intercalate "," (own.map toString)}"
+  -- says the uses section was written, so an empty one is no older generator's manifest
+  let usesLine := s!"# uses rows: {useLines.size}"
   let moduleLines := counted.map fun (m, c) => s!"module {m} {c}"
   let fieldSection := fieldLines.map fun l => s!"field {l}"
   let privSection := privDeclLines.map fun l => s!"private {l}"
   let hypSection := hypLines.map fun l => s!"hypothesis {l}"
   let instSection := instLines.map fun l => s!"instance {l}"
+  let usesSection := useLines.map fun l => s!"uses {l}"
   IO.FS.writeFile out <|
     String.intercalate "\n"
-      (header :: ownLine :: (moduleLines ++ pubDeclLines ++ fieldSection ++ privSection
-                    ++ hypSection ++ instSection).toList) ++ "\n"
+      (header :: ownLine :: usesLine :: (moduleLines ++ pubDeclLines ++ fieldSection ++ privSection
+                    ++ hypSection ++ instSection ++ usesSection).toList) ++ "\n"
 
   IO.eprintln s!"wrote {out}: {modules.size} modules, {declLines.size} declarations \
     ({privDeclLines.size} private), {fieldLines.size} fields, {hypLines.size} hypothesis rows, \
-    {instLines.size} instance rows"
+    {instLines.size} instance rows, {useLines.size} uses rows"

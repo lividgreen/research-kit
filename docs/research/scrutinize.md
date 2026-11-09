@@ -17,11 +17,11 @@ The target is read whole, with every section, lemma or assumption it invokes ope
 
 The report is a numbered list with the caveat that it is checking; the target is not edited, and an uncertain gap is marked as needing your judgment rather than guessed.
 Then a sentence found false of the artifact is corrected in the same session at its own size, at every summary site that restates it; a gap is not a false sentence, and what to do about one is yours, asked with a recommendation or captured as a record on your word.
-A project whose instructions file says you are asked before any correction gets the sentence, its evidence and the correction put to it instead.
+A document the project's part names as one a review reports and asks you about first gets the sentence, its evidence and the correction put to you instead.
 
 ## What the project tells it
 
-[The research setup](research-init.md) forms with you the conventions an argument is held to and writes them into the instructions file under `### Reviews` in its `## Research records` section, since no script reads them: how a regime condition is written, which objects form an abstract class and which are its instances, the status labels the project uses.
+[The research setup](research-init.md) forms with you the conventions an argument is held to and writes them into the instructions file under a `### Reviews` heading, inside its `## Records and method` section, since no script reads them: how a regime condition is written, which objects form an abstract class and which are its instances, the status labels the project uses, and which documents a review may correct in the session and which it reports and asks you about first.
 Where it is missing, or does not say what the review needs, the review says so and advises the [setup](research-init.md), which forms it in a project set up before as well; where only this review's part is missing and a full setup is not needed, it asks you for that part in place and, on your word, writes it where the setup would.
 
 ## Words

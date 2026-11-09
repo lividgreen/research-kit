@@ -77,7 +77,7 @@ It refuses an empty `## Unreleased`, a version not above the last release, an ex
 The tests hold the version fields equal to each other and to the changelog's last release, and every changelog heading to `## Unreleased` or `## vX.Y.Z — YYYY-MM-DD`.
 The marketplace entry carries no version of its own.
 The release workflow then moves the branch `latest` to the tag, by a fast-forward, so a marketplace at `latest` follows the releases ([Install](install.md#following-the-releases)); a resend for an older tag leaves it where it is.
-The tag is what a project's remote hooks pin (pre-commit's `rev`) and what Zenodo archives; no file in the repository names a version other than those version fields and the changelog's headings.
+The tag is what a project's remote hooks pin (pre-commit's `rev`) and what Zenodo archives; no file names the current version outside those version fields and the changelog's headings; a past release named as history is allowed.
 
 The pushed tag starts `.github/workflows/release.yml`, which does the rest: it runs the tests at the tag, refuses a tag that is not the version the manifests carry, creates the GitHub Release titled with the tag and with the tag's section of `CHANGELOG.md` as its notes (no section, no release), and tells the website's repository, which records the release on the project card and publishes the documentation at the tag.
 Run by hand with a tag, the workflow creates a Release that is missing and resends the announcement for one that exists.

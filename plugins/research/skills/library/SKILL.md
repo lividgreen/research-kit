@@ -68,7 +68,7 @@ Where a key is cited is computed from the files the project binds and never stor
 | `library citecheck [DOC…]` | each document's text against its own reference entries, the bound documents where none is given: every author-year citation answered by an entry, every entry cited; exit 1 with the file and line of each that is not |
 | `library keys` | every key with its state and grade, as JSON: what a consumer's check reads |
 | `library index`, `library check` | the generated index (`--check` reports drift and writes nothing); every rule, with a coverage line |
-| `library init` | a project's `library.toml`, directories and index under `library/` (`--dir DIR` for another); `--kept` turns on the tracked kept directory (`<dir>/kept`), `--scan`, `--documents`, `--internal` name the paths, `--force` overwrites |
+| `library init` | a project's `library.toml`, directories and index under `library/` (`--dir DIR` for another); `--kept` turns on the tracked kept directory (`<dir>/kept`), `--scan`, `--documents`, `--internal` name the paths, `--force` overwrites; `--print-instructions` prints the paragraphs for the instructions file for `library.toml` as it stands and writes nothing |
 | `library pages` | the page manifest the `dashboard` skill renders |
 
 A card is named by its key or by any of its identifiers wherever a command takes `REF`.

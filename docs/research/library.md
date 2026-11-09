@@ -30,7 +30,7 @@ Online lookups — arXiv, Crossref, OpenAlex and others — fill in a card's fie
 | a copy, a re-check, a lost copy back | `library fetch KEY`, `library verify KEY`, `library restore` |
 | works citing a card, a saved query | `library watch --add NAME --citing KEY`, `library watch`, `library candidates` |
 
-A card is named by its key or by any of its identifiers wherever a command takes `REF`; every command takes `--json`; `library init` is the write behind the setup; `library --help` lists every command and `library <command> --help` its flags, and neither needs a bindings file.
+A card is named by its key or by any of its identifiers wherever a command takes `REF`; every command takes `--json`; `library init` is the write behind the setup, and `library init --print-instructions` prints the paragraphs for the instructions file for the bindings as they stand, writing nothing and refusing nothing; `library --help` lists every command and `library <command> --help` its flags, and neither needs a bindings file.
 The [skill](../../plugins/research/skills/library/SKILL.md) names every flag, and the kit's tests hold it to the script.
 
 ## The files it keeps

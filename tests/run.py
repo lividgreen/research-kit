@@ -27,7 +27,7 @@ SCRIPTS = {"flow": SKILLS / "flow/scripts/flow.py", "library": SKILLS / "library
 SHARED = ("_SENT", "BUILTIN_ABBREVIATIONS", "FENCE_RUN", "fence_after", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
 # the pins' helpers, duplicated into the two setup probes (research's setup.py, formal's `formal probe`)
 PINS = ("KIT_REPO", "KIT_CHANGELOG", "KIT_LATEST", "KIT_FOLLOW", "skill_version", "hooks_pin", "install_record", "kit_installed", "kit_tag",
-        "kit_latest", "kit_pins")
+        "kit_latest", "kit_dirty", "kit_pins")
 # the probes ask GitHub for the kit's latest release; nothing these tests run asks the network
 os.environ["RESEARCH_KIT_OFFLINE"] = "1"
 failures = []
@@ -284,7 +284,9 @@ def main():
         for page, names in pages.items():
             shown = re.findall(r"```toml\n(.*?)```", (ROOT / page).read_text(encoding="utf-8"), re.S)
             for i, name in enumerate(names):
-                check(f"{page} shows {name} as init writes it", len(shown) == len(names) and shown[i] == (proj / name).read_text(encoding="utf-8"))
+                # the release `flow init` writes into [kit] is shown as vX.Y.Z: no page names a version
+                written = re.sub(r'(?m)^release = "v\d+\.\d+\.\d+"$', 'release = "vX.Y.Z"', (proj / name).read_text(encoding="utf-8"))
+                check(f"{page} shows {name} as init writes it", len(shown) == len(names) and shown[i] == written)
         lite = Path(tmp) / "lite"
         lite.mkdir()
         for argv in (["init", "--log", "WORKLOG.md"], ["capture", "A might imply B", "--source", "a talk"],
