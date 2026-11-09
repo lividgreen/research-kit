@@ -3,7 +3,7 @@
 The prover side of research-kit: the harness of a prover session for a project that pairs its documents with a machine-checked library.
 It is built for Lean 4, the only prover it has run with: the manifest generator is a Lean program, and the agent's tools are Lean's language server.
 The bar it assumes is no `sorry`, `admit` or `native_decide` behind a landed declaration; `formal.toml`'s `banned` is another list, the phrases a handoff prompt may not carry.
-Another prover would need its own generator writing the same six row kinds, and none is written.
+Another prover would need its own generator writing the same seven row kinds, and none is written.
 It needs the `research` plugin; nothing in `research` needs it.
 
 In Claude Code 2.1.275 or later it installs in one step, after the `research` plugin; [Install](../../docs/install.md) covers every other agent:
@@ -29,7 +29,7 @@ Before any document changes, what the prover session reports is checked against 
 The document's rows are written from the landed proof, the summary sites swept, the records closed, and the commit names its paths.
 `formal handback` prints the manifest diff, the instantiations, the witnesses owed, the guard delta with the live total, the document sites to re-read and the commission against the manifest; `formal readback NAME…` builds the docstring-stripped packet a cold reader writes each statement out from; `formal check` confirms the manifests parse and are the tree's, each root's umbrella imports its modules, the packages import in order and the bindings resolve.
 Three gates read what a landing touches: `formal cite` resolves every declaration name the documents cite, `formal anchors` every `[Key] §N` of the Lean files against the document the key names, and `formal register` holds what ships to the public register; `formal hypotheses` fails where a shipped theorem gained a named condition, and `formal witnesses` reports the theorems owing a joint-satisfiability witness.
-[`DeclManifest.lean`](skills/land/scripts/DeclManifest.lean), beside the script, generates a Lean package's declaration manifest after a genuine build, writing the six row kinds `formal` and `flow` read.
+[`DeclManifest.lean`](skills/land/scripts/DeclManifest.lean), beside the script, generates a Lean package's declaration manifest after a genuine build, writing the seven row kinds `formal` and `flow` read.
 
 The [`land`](skills/land/SKILL.md) skill, `/formal:land` in Claude Code; [The landing](../../docs/formal/land.md) is its page: the commands, the manifest's grammar and the checks.
 

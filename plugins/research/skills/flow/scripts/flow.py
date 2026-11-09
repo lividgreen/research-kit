@@ -159,6 +159,60 @@ class NotRun(Refused):
     """A check that could not run — a file it was given is missing, an owner not named — exits 2, never 1."""
 
 
+# --- the release the setup last brought the project to ([kit] release) -------
+
+RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+# how an older plugin, or an older hooks' pin, is moved to the release a project was brought to elsewhere
+KIT_MOVE = ("`claude plugin marketplace update research-kit`, then `claude plugin update research@research-kit --scope project` "
+            "and a restart of the session; for remote hooks, `prek autoupdate` (or `pre-commit autoupdate`)")
+
+
+def release_key(tag):
+    """A release tag as a tuple to order by (`v0.7.0` -> (0, 7, 0)); None for anything else."""
+    m = RELEASE_TAG.match(str(tag or ""))
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def script_version():
+    """This script's release: `v` + the `metadata.version` of the flow skill's SKILL.md beside it, or of the
+    research-kit package the remote hooks install it in; None for a copy of the script alone, which then refuses
+    nothing on the project's `[kit] release`."""
+    try:
+        fm = (Path(__file__).resolve().parent.parent / "SKILL.md").read_text(encoding="utf-8").split("---")[1]
+        m = re.search(r'^\s+version: "([^"]+)"', fm, re.M)
+        if m:
+            return "v" + m.group(1)
+    except (OSError, IndexError):
+        pass
+    if __package__ == "research_kit":
+        try:
+            from importlib import metadata
+            return "v" + metadata.version("research-kit")
+        except Exception:  # an install with no metadata: no version to hold the project to
+            return None
+    return None
+
+
+def kit_ahead(cfg):
+    """Where flow.toml's `[kit] release` is newer than this script, the refusal's words: the project was brought to
+    that release on another machine or checkout, this plugin (or this hook's pin) is behind it, and an older script
+    over newer records and bindings misreads them.  None otherwise, and where either version is unknown."""
+    mine, theirs = release_key(cfg.script_version), release_key(cfg.kit_release)
+    if not mine or not theirs or theirs <= mine:
+        return None
+    return (f"flow.toml's [kit] release is {cfg.kit_release} and this flow script is {cfg.script_version}: the project was brought to "
+            f"{cfg.kit_release} on another machine or checkout, and an older script misreads newer records and bindings; "
+            f"move this plugin to {cfg.kit_release}: {KIT_MOVE}")
+
+
+def kit_behind(cfg):
+    """Where flow.toml's `[kit] release` is older than this script, the line `flow state` prints first; None otherwise."""
+    mine, theirs = release_key(cfg.script_version), release_key(cfg.kit_release)
+    if not mine or not theirs or theirs >= mine:
+        return None
+    return f"the setup was last brought to {cfg.kit_release}; this is {cfg.script_version}: run `/research:research-init`"
+
+
 # --- configuration -----------------------------------------------------------
 
 def find_root(start):
@@ -199,6 +253,13 @@ class Config:
             except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
                 raise Refused(f"{self.root / 'flow.toml'} does not parse: {e}")
         self.raw = raw
+        # the research-kit release the setup last brought the project to, and this script's own
+        kit = raw.get("kit", {})
+        self.kit_release = kit.get("release") if isinstance(kit, dict) else None
+        if self.kit_release is not None and not (isinstance(self.kit_release, str) and release_key(self.kit_release)):
+            raise Refused(f"flow.toml: [kit] release {self.kit_release!r} is no release tag (vN.N.N): it names the release "
+                          "the setup last brought the project to, which the setup's verify step writes")
+        self.script_version = script_version()
         paths = raw.get("paths", {})
         self.kinds = TYPES
         rec_dir = paths.get("records", "records")
@@ -326,7 +387,7 @@ class Config:
                 names, modules, in_module = set(), set(), defaultdict(set)
                 for line in (ln for f in files for ln in f.read_text(encoding="utf-8").splitlines()):
                     t = MANIFEST_FIELD.findall(line)  # a «…» name may hold spaces
-                    if not t or t[0].startswith("#") or t[0] == "hypothesis":
+                    if not t or t[0].startswith("#") or t[0] in ("hypothesis", "uses"):
                         continue
                     if len(t) < (3 if t[0] in ("private", "field", "instance") else 2):
                         continue
@@ -861,9 +922,16 @@ def move_to_archive(cfg, rec):
     rec.path = dest
 
 
+BODY_HELP = "a file whose text is the body; `-` reads it from the standard input"
+RESOLUTION_HELP = "a file whose text is appended under the date as the resolution; `-` reads it from the standard input"
+
+
 def read_body(path):
+    """A body's text from the file named, or from the standard input for `-`, so a one-off body needs no scratch file."""
     if not path:
         return ""
+    if path == "-":
+        return sys.stdin.read()
     p = Path(path)
     if not p.is_file():
         raise Refused(f"body file not found: {path}")
@@ -2107,10 +2175,8 @@ def cmd_rank(cfg, recs, a, today):
                 r.fm["rank"] = None
                 save(cfg, r)
                 changed.append(r)
-        for n, r in enumerate(rs, 1):
+        for n, r in enumerate(rs, 1):  # an order only: no question's checked date moves (`flow checked` records a read)
             r.fm["rank"] = n
-            if r.type == "question":
-                r.fm["checked"] = today
             save(cfg, r)
             changed.append(r)
         return [], changed
@@ -2788,6 +2854,13 @@ def cmd_touched(cfg, recs, a, today):
 # paragraph.  `flow log add` writes one at the top, reflowed and linted as a record is;
 # `flow log archive` moves the old ones verbatim into one file per month beside the log.
 
+# What a freeze holds that no machine sees: `flow state --check` prints them as the checklist the freeze's report answers.
+SESSION_STEPS = (
+    "the conversation's inventory, item by item: what it held, and the record, document or log entry each went to",
+    "the sweep by meaning over the documents the session's records touch: every site a change reaches says the same",
+    "the agent's memory checked: a note the session made stale is corrected or removed",
+    "the gates by exit code: `flow check` and the project's hooks (`prek run --all-files` or `pre-commit run --all-files`)",
+)
 LOG_ENTRY = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — \S")
 STATE_LABEL = re.compile(r"^\*\*State(?: \([^()\n]*\))?\.\*\*")  # **State.**, or **State (…).** with a parenthesis of the project's
 LOG_POINTER = re.compile(r"^Entries dated before (\d{4}-\d{2}-\d{2}) are archived ")
@@ -3121,6 +3194,11 @@ def doctor(cfg, today):
     if "forms" not in ev:
         out.append(_item("flow.toml", "no [evidence] forms", f"forms = [{', '.join(json.dumps(f) for f in SHIPPED_FORMS)}]: "
                          "the forms the project accepts, of the five the kit ships and its own"))
+    if cfg.kit_release is None:  # never mechanical: the machine does not know which release the project stood at
+        now = cfg.script_version or "the release installed"
+        out.append(_item("flow.toml", "no [kit] release", f"add `[kit] release = \"{cfg.script_version or 'vX.Y.Z'}\"` once the setup's steps up to "
+                         f"{now} are taken: the release the setup last brought the project to; the setup's verify step "
+                         "(`/research:research-init`) writes it"))
     if len(cfg.hand) > 2:
         out.append(_item("flow.toml", f"[hand] names {len(cfg.hand)} owners ({', '.join(cfg.hand)})",
                          "two hands, the agent's and the person's: a prover's task stays active in the agent's hand, the handoff's log entry "
@@ -3308,6 +3386,68 @@ def doctor(cfg, today):
     return out
 
 
+# What reads each binding `flow init` writes, for `flow doctor`'s notes on a key a flow.toml written earlier lacks.
+BINDING_READERS = {
+    "paths.records": "every command: the records' directory", "paths.index": "`flow index` and `flow check`: the generated index",
+    "paths.archive": "the closing transitions: where a closed task moves", "paths.inbox": "`flow state` and the `whatsnext` skill: the person's inbox",
+    "paths.log": "`flow log add`, `flow state` and `flow state --check`: the dated log",
+    "paths.log_archive": "`flow log archive`: where the log's old entries move, beside the log unless bound",
+    "paths.reflow_module": "every write and `flow reflow`: the project's own sentence splitter",
+    "paths.markdownlint_config": "every write: the markdownlint configuration a new violation is read by",
+    "question.sizes": "`flow frame` and `flow set … size`: the sizes a question takes",
+    "evidence.statement_words": "`flow check` and the evidence mints: the words a numbered statement's anchor takes",
+    "evidence.row_id": "`flow check` and the evidence mints: the pattern a table row's id matches",
+    "evidence.manifest": "`flow check`: the declaration manifest formal evidence resolves against",
+    "evidence.manifest_roots": "`flow check`: the directories a declaration's path is looked up under",
+    "evidence.manifest_extension": "`flow check`: the extension a declaration's path carries",
+    "evidence.probes": "`flow check`: the probes register statistical evidence resolves against",
+    "library.command": "`flow check`: the command that answers the library's keys",
+    "index.recent_findings": "`flow index`: how many recent findings the index lists",
+    "index.oldest_ideas": "`flow index`: how many of the oldest ideas the index lists",
+    "index.due_within": "`flow state`: how far ahead the due list reaches",
+}
+
+
+def doctor_notes(cfg):
+    """The keys `flow init` writes now, set or commented, that the project's flow.toml has neither set nor commented
+    (a file written by an earlier init): each with the default the template carries and what reads it.  Never a
+    failure; `[kit] release` is a thing for the hand instead, `[evidence] forms` too, and `[hand]`'s keys are owners."""
+    try:
+        text = (cfg.root / "flow.toml").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    def toml_value(v):
+        try:
+            tomllib.loads(f"k = {v}")
+            return True
+        except tomllib.TOMLDecodeError:
+            return False
+    key_line = re.compile(r"^\s*#?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*(?:#\s.*)?$")
+
+    def keys(src):
+        out, section = {}, None
+        for line in src.split("\n"):
+            m = re.match(r"^\s*#?\s*\[([A-Za-z_][A-Za-z0-9_]*)\]\s*$", line)
+            if m:
+                section = m.group(1)
+                continue
+            m = key_line.match(line)
+            # a commented line is a key only when its value reads as TOML: a prose comment is not
+            if m and section and (not line.lstrip().startswith("#") or toml_value(m.group(2))):
+                out.setdefault(f"{section}.{m.group(1)}", m.group(2))
+        return out
+    have = keys(text)
+    notes = []
+    log = cfg.raw.get("paths", {}).get("log") if isinstance(cfg.raw.get("paths"), dict) else None
+    for k, default in keys(init_text(cfg.records_name, log, release=cfg.script_version)).items():
+        section, key = k.split(".", 1)
+        if k in have or section in ("hand", "kit") or k == "evidence.forms":
+            continue
+        notes.append({"key": f"[{section}] {key}", "default": default,
+                      "reads": BINDING_READERS.get(k, "the record ids of that type" if section == "prefixes" else "the flow's commands")})
+    return notes
+
+
 def doctor_fix(cfg, items):
     """Apply every mechanical item: each record's edits together, its front matter re-ordered to the schema, written
     without the lint and the reflow (nothing of the body changes), then moved where an item says; the index refreshed.
@@ -3384,6 +3524,12 @@ id_width = 4
 recent_findings = 10
 oldest_ideas = 5
 # due_within = 14   # `flow state` lists the tasks due within this many days, and every passed date; unset, all
+
+[kit]
+# The research-kit release the setup last brought this project to: written by `flow init`, moved by the
+# setup's verify step (`/research:research-init`) once every step up to the installed release is taken.  A flow
+# script older than it refuses to write, the project having been brought further on another machine.
+{kit}
 """
 
 INIT_RESEARCH = """[question]
@@ -3434,6 +3580,9 @@ INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should 
 - `flow state` prints the cold-start bundle: the inbox, the ranked list, the hands and the log's top entry.
 - A session starts with the `whatsnext` skill (the inbox read, the list ranked, the top work drawn)
   and ends with the `freeze` skill (what the conversation holds saved, `flow state --check`, a commit).
+  When the person says "whatsnext" or "freeze", they mean these skills: each is called every time, even if it
+  ran earlier in the session, and every step is taken; a request ending "… and freeze" is two requests, the work
+  and then the `freeze` skill.
 The `flow`, `whatsnext` and `freeze` skills are installed for the project's agent as well (the `research`
 plugin, or `npx skills add`).
 """
@@ -3447,25 +3596,56 @@ LOG_UNBOUND = """- The log is not bound yet: `[paths] log` in `flow.toml` names 
 """
 
 
+def init_text(records="records", log=None, owners=("agent", "owner"), release=None):
+    """The flow.toml `flow init` writes, `release` this script's (a commented line where it is unknown)."""
+    return INIT_TOML.format(
+        dir=records,
+        log=(f'log = "{log}"                 # the dated log whose top entry `flow state` prints\n'
+             f'log_archive = "{Path(log).with_name(Path(log).stem + "-archive").as_posix()}"   '
+             '# `flow log archive` moves the old entries here verbatim, one file per month\n') if log else
+            '# log = "WORKLOG.md"             # the dated log whose top entry `flow state` prints\n'
+            '# log_archive = "WORKLOG-archive"   # `flow log archive` moves the old entries here verbatim, one file per month\n',
+        owners="\n".join(f"{o} = {0 if o == owners[-1] and len(owners) > 1 else 4}" for o in owners),
+        research=INIT_RESEARCH,
+        kit=f'release = "{release}"' if release else '# release = "vX.Y.Z"   # unknown: written by the setup\'s verify step')
+
+
+def init_instructions(root):
+    """The paragraphs `flow init` prints, for the bindings as they stand: the records directory and the log read from
+    the project's flow.toml where one stands and reads, the defaults otherwise.  It writes nothing and refuses nothing."""
+    try:
+        paths = tomllib.loads((root / "flow.toml").read_text(encoding="utf-8")).get("paths", {})
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        paths = {}
+    paths = paths if isinstance(paths, dict) else {}
+    records, log = str(paths.get("records") or "records"), paths.get("log")
+    return INSTRUCTIONS.format(records=records, log_line=LOG_BOUND.format(log=log) if log else LOG_UNBOUND)
+
+
 def do_init(root, a):
-    """Write flow.toml, the record directories and the index; refuse over an existing flow.toml."""
+    """Write flow.toml, the record directories and the index; refuse over an existing flow.toml, and with --force
+    over one whose `[kit] release` is newer than this script."""
     toml = root / "flow.toml"
     if toml.is_file() and not a.force:
         raise Refused(f"{toml} exists (use --force to overwrite the bindings file alone)")
+    mine, theirs, release = script_version(), None, script_version()
+    if toml.is_file():
+        try:
+            theirs = tomllib.loads(toml.read_text(encoding="utf-8")).get("kit", {}).get("release")
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError, AttributeError):
+            theirs = None
+        # a rewrite keeps the release the setup last brought the project to: only the setup's verify step moves it,
+        # and a file with none gets the commented line, which `flow doctor` names until the setup writes it
+        release = theirs if release_key(theirs) else None
+        if release_key(mine) and release_key(theirs) and release_key(theirs) > release_key(mine):
+            raise Refused(f"{toml}'s [kit] release is {theirs} and this flow script is {mine}: the project was brought to {theirs} "
+                          f"on another machine or checkout; move this plugin to {theirs} first: {KIT_MOVE}")
     kinds = list(TYPES)
     owners = a.owner or ["agent", "owner"]
     for o in owners:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", o):
             raise Refused(f"--owner {o!r}: an owner is one word of letters, digits, `_` and `-` (it is a key of flow.toml)")
-    text = INIT_TOML.format(
-        dir=a.records,
-        log=(f'log = "{a.log}"                 # the dated log whose top entry `flow state` prints\n'
-             f'log_archive = "{Path(a.log).with_name(Path(a.log).stem + "-archive").as_posix()}"   '
-             '# `flow log archive` moves the old entries here verbatim, one file per month\n') if a.log else
-            '# log = "WORKLOG.md"             # the dated log whose top entry `flow state` prints\n'
-            '# log_archive = "WORKLOG-archive"   # `flow log archive` moves the old entries here verbatim, one file per month\n',
-        owners="\n".join(f"{o} = {0 if o == owners[-1] and len(owners) > 1 else 4}" for o in owners),
-        research=INIT_RESEARCH)
+    text = init_text(a.records, a.log, owners, release)
     written = []
     toml.write_text(text, encoding="utf-8")
     written.append("flow.toml")
@@ -3538,7 +3718,7 @@ def selftest():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "flow.toml").write_text(SELFTEST_TOML)
-        (root / "decls.txt").write_text("module Lib.Foo 1\nmodule Lib.Bar 1\nLib.Foo lemma_L\nLib.Bar lemma_B\nprivate Lib.Foo helper\n")
+        (root / "decls.txt").write_text("module Lib.Foo 1\nmodule Lib.Bar 1\nLib.Foo lemma_L\nLib.Bar lemma_B\nprivate Lib.Foo helper\nuses Lib.Bar lemma_B lemma_L\n")
         (root / "lean" / "Lib").mkdir(parents=True)
         (root / "lean" / "Lib" / "Foo.lean").write_text("theorem lemma_L : True := trivial\n")
         (root / "lean" / "Lib" / "Bar.lean").write_text("theorem lemma_B : True := trivial\n")
@@ -3552,6 +3732,8 @@ def selftest():
         (root / "research").mkdir()
         cfg = Config(root)
         today = "2026-09-25"
+        expect("a `uses` row of the manifest is no declaration: its module field names none",
+               "lemma_B" in cfg.manifest_names() and "Bar" not in cfg.manifest_names() and "Lib.Bar" not in cfg.manifest_names())
 
         def run(argv, ok=True):
             rc, payload = dispatch(cfg, argv, today=today, as_json=True, quiet=True)
@@ -3708,6 +3890,22 @@ def selftest():
         expect("note appends a file's text to the body under the date", load_all(cfg)[tz].body.endswith(f"{today} — note:\n\nA remark on it.\nIt has two sentences.\n"))
         (root / "note.md").write_text("\n")
         run(["note", tz, "--body", str(root / "note.md")], ok=False)  # an empty note
+        # `-` reads a body from the standard input, so a one-off body needs no scratch file
+        with contextlib.redirect_stdout(io.StringIO()):
+            saved_in, sys.stdin = sys.stdin, io.StringIO("Read from the standard input.\n")
+            try:
+                run(["note", tz, "--body", "-"])
+                sys.stdin = io.StringIO("An idea's body from a pipe.\n")
+                piped = new(["capture", "an idea with a piped body", "--body", "-"])
+            finally:
+                sys.stdin = saved_in
+        expect("--body - reads the body from the standard input, a note's and a mint's",
+               load_all(cfg)[tz].body.endswith("note:\n\nRead from the standard input.\n")
+               and "An idea's body from a pipe." in load_all(cfg)[piped].body)
+        run(["capture", "an idea whose body is words", "--body", "words, not a file"], ok=False)
+        expect("every --body that reads a file says FILE in its help, and `-`",
+               all(act.metavar == "FILE" and "-" in (act.help or "") for sub in build_parser()._subparsers._group_actions[0].choices.values()
+                   for act in sub._actions if "--body" in act.option_strings or "--resolution" in act.option_strings))
         run(["set", tz, "rider", "true"])
         expect("set rider takes the words the record stores", load_all(cfg)[tz]["rider"] is True)
         run(["set", tz, "rider", "false"])
@@ -4045,6 +4243,17 @@ def selftest():
         expect("rank --insert moves a ranked record up, the rest closing round it",
                [load_all(cfg)[i]["rank"] for i in (q3, q7, q4)] == [1, 2, 3] and not validate(cfg, load_all(cfg), today)[0])
         run(["rank", q7, "4", "--insert"], ok=False)  # past the end of the ranks
+        # --set writes an order and asserts no read: no question's checked date moves; a rank given to one record refreshes it
+        later = "2026-09-20"  # another day than the one the questions were checked on (a later one would be in the future)
+        was = {i: load_all(cfg)[i]["checked"] for i in (q3, q7, q4)}
+        rc, _ = dispatch(cfg, ["rank", "--set", q4, q3, q7], today=later, as_json=True, quiet=True)
+        expect("rank --set orders the list and leaves every question's checked date as it was",
+               rc == 0 and [load_all(cfg)[i]["rank"] for i in (q4, q3, q7)] == [1, 2, 3]
+               and {i: load_all(cfg)[i]["checked"] for i in was} == was and later not in was.values())
+        rc, _ = dispatch(cfg, ["rank", q3, "1", "--insert"], today=later, as_json=True, quiet=True)
+        expect("rank ID N on a question still refreshes its checked date, the records it moved keeping theirs",
+               rc == 0 and load_all(cfg)[q3]["checked"] == later and load_all(cfg)[q4]["checked"] == was[q4])
+        run(["rank", "--set", q3, q7, q4])
         run(["rank", q7, "--clear", "--insert"], ok=False)  # --insert takes a rank
         run(["rank", q7, "--clear"])
         run(["rank", idea, "1", "--why", "w", "--first-move", "m"], ok=False)  # an idea is never ranked
@@ -4508,6 +4717,9 @@ def selftest():
                 subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
             p = go(["state", "--check"])
             expect("state --check passes a clean freeze and says what it checked", not p["problems"] and len(p["checked"]) == 2 and not p["undecided"])
+            expect("state --check lists the steps that are the session's own, the checklist the freeze's report answers",
+                   p["session_steps"] == list(SESSION_STEPS) and len(SESSION_STEPS) == 4
+                   and all(f"  [ ] {s}" in text_of(cfg, ["state", "--check"]) for s in SESSION_STEPS))
             idea = go(["capture", "an idea"])["records"][0]["path"]
             p = go(["state", "--check"], ok=False)
             expect("planted: a record changed since the top entry's commit that no entry names fails the freeze",
@@ -4584,6 +4796,18 @@ def selftest():
             expect("planted: a record whose rank did not change is not labelled re-ranked only",
                    go(["touched"])["reranked_only"] == [t1] and t2 in [x["id"] for x in go(["touched"])["touched"]])
             p2.write_text(moved2, encoding="utf-8")
+            # a question `rank --set` only moved is re-ranked only: an order asserts no read, so its checked date stands
+            qx = go(["frame", go(["capture", "an idea behind a ranked question"])["created"][0], "--summary", "a ranked question",
+                     "--criterion", "k"], day="2026-10-26")["created"][0]
+            go(["rank", qx, "4", "--why", "w", "--first-move", "f"], day="2026-10-26")
+            entry.write_text(f"## 2026-10-27 — a ranked question\n\n**State.** The question {qx} and the chore {t3} are ranked.\n", encoding="utf-8")
+            go(["log", "add", str(entry)])
+            for argv in (["add", "-A"], ["commit", "-q", "--no-verify", "-m", "a ranked question"]):
+                subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
+            go(["rank", "--set", qx, t3, t1, t2])
+            p = go(["touched"])
+            expect("a question `rank --set` only moved keeps its checked date and reads as re-ranked only in touched",
+                   load_all(cfg)[qx]["checked"] == "2026-10-26" and qx in p["reranked_only"] and qx not in [x["id"] for x in p["touched"]])
             # a range in the log's entry names every id of its prefix within it
             expect("an entry's range of ids (an ellipsis, an en dash or three dots, written with no spaces) names the ids within it and not outside",
                    all(names_id(f"The findings finding-0015{sep}0035 are in.", f"finding-{n:04d}") for sep in ("…", "–", "...")
@@ -4599,6 +4823,104 @@ def selftest():
             expect("git is on PATH in CI, where the freeze's log part is tested", False)
         else:
             print("  --  the freeze's log part not tested: no git on PATH")
+
+        # the release the setup last brought the project to: init writes it; an older script refuses to write over a newer one
+        with tempfile.TemporaryDirectory() as t3:
+            r3 = Path(t3)
+            do_init(r3, build_parser().parse_args(["init", "--log", "LOG.md"]))
+            toml3 = (r3 / "flow.toml").read_text(encoding="utf-8")
+            mine = script_version()
+            expect("init writes [kit] release at this script's release, or a commented line where it is unknown",
+                   (f'\nrelease = "{mine}"\n' in toml3) if mine else '\n# release = "vX.Y.Z"' in toml3)
+
+            def at(release, version="v1.2.0"):
+                (r3 / "flow.toml").write_text(re.sub(r"(?m)^#? ?release = .*$", release, toml3), encoding="utf-8")
+                c = Config(r3)
+                c.script_version = version
+                return c
+
+            def answer(c, argv):
+                return dispatch(c, argv, today=today, as_json=True, quiet=True)
+            c3 = at('release = "v1.3.0"')
+            (r3 / "entry.md").write_text(f"## {today} — x\n\n**State.** X.\n", encoding="utf-8")
+            refusals = {" ".join(argv): answer(c3, argv) for argv in (["capture", "an idea"], ["doctor", "--fix"], ["log", "add", str(r3 / "entry.md")], ["index"])}
+            expect("a newer [kit] release refuses every write, naming both releases and the commands that move the plugin",
+                   all(rc == 1 and "v1.3.0" in pl["problems"][0]["msg"] and "this flow script is v1.2.0" in pl["problems"][0]["msg"]
+                       and "claude plugin update research@research-kit --scope project" in pl["problems"][0]["msg"]
+                       and "prek autoupdate" in pl["problems"][0]["msg"] for rc, pl in refusals.values())
+                   and not list((r3 / "records" / "ideas").glob("idea-*.md")))
+            rc, pl = answer(c3, ["check"])
+            expect("a newer [kit] release makes `flow check` report the mismatch as a problem, exit 1, with the same words", rc == 1 and "v1.3.0" in pl["problems"][0]["msg"])
+            reads = [answer(c3, argv) for argv in (["state"], ["find", "--type", "idea"], ["index", "--check"], ["doctor"])]
+            expect("a newer [kit] release lets the reads answer, each with the warning",
+                   all(rc == 0 and "v1.3.0" in pl.get("kit_ahead", "") for rc, pl in reads))
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf), contextlib.redirect_stdout(io.StringIO()):
+                dispatch(c3, ["state"], today=today)
+            expect("the warning is printed first, on the standard error, so a read's output stays as it is", buf.getvalue().startswith("flow: warning — "))
+            expect("a script of unknown release refuses nothing on the marker", answer(at('release = "v1.3.0"', None), ["capture", "an idea"])[0] == 0)
+            c3 = at('release = "v1.1.0"')
+            rc, pl = answer(c3, ["state"])
+            expect("an older [kit] release has `flow state` say so first, and `flow check` say nothing",
+                   rc == 0 and pl["lines"][0] == "the setup was last brought to v1.1.0; this is v1.2.0: run `/research:research-init`"
+                   and answer(c3, ["check"])[0] == 0 and "v1.1.0" not in text_of(c3, ["check"]))
+            expect("the same release asks nothing", answer(at('release = "v1.2.0"'), ["state"])[1]["kit_behind"] is None)
+            c3 = at("")
+            rc, pl = answer(c3, ["doctor"])
+            expect("a flow.toml without [kit] release is a thing for the hand, never a mechanical edit",
+                   rc == 1 and any("no [kit] release" in x["msg"] and 'add `[kit] release = "v1.2.0"`' in x["msg"] for x in pl["problems"])
+                   and not pl["mechanical"])
+            for bad in ('release = "0.7.0"', 'release = "latest"', "release = 7"):
+                (r3 / "flow.toml").write_text(re.sub(r"(?m)^#? ?release = .*$", bad, toml3), encoding="utf-8")
+                try:
+                    Config(r3)
+                    expect(f"planted: [kit] {bad} is refused when flow.toml is read", False)
+                except Refused as e:
+                    expect(f"planted: [kit] {bad} is refused when flow.toml is read", "no release tag" in str(e))
+            if mine:
+                (r3 / "flow.toml").write_text(re.sub(r"(?m)^release = .*$", 'release = "v99.0.0"', toml3), encoding="utf-8")
+                try:
+                    do_init(r3, build_parser().parse_args(["init", "--force"]))
+                    expect("init --force over a newer [kit] release is refused", False)
+                except Refused as e:
+                    expect("init --force over a newer [kit] release is refused", "v99.0.0" in str(e) and "flow.toml" in (r3 / "flow.toml").read_text())
+            (r3 / "flow.toml").write_text(re.sub(r"(?m)^#? ?release = .*$", 'release = "v0.0.1"', toml3), encoding="utf-8")
+            do_init(r3, build_parser().parse_args(["init", "--force"]))
+            expect("init --force keeps an older [kit] release: only the setup's verify step moves it",
+                   '\nrelease = "v0.0.1"\n' in (r3 / "flow.toml").read_text(encoding="utf-8"))
+            (r3 / "flow.toml").write_text(re.sub(r"(?m)^#? ?release = .*\n", "", toml3), encoding="utf-8")
+            do_init(r3, build_parser().parse_args(["init", "--force"]))
+            expect("init --force over a flow.toml with no [kit] release writes the line commented, for the setup to write",
+                   '\n# release = "vX.Y.Z"' in (r3 / "flow.toml").read_text(encoding="utf-8"))
+            (r3 / "flow.toml").write_text(toml3, encoding="utf-8")
+            # the paragraphs init prints, for the bindings as they stand, with nothing written
+            (r3 / "flow.toml").write_text(toml3.replace('records = "records"', 'records = "notes/records"'), encoding="utf-8")
+            snap = lambda d: {q: q.read_bytes() for q in sorted(Path(d).rglob("*")) if q.is_file()}
+            before = snap(r3)
+            r = subprocess.run([sys.executable, __file__, "init", "--print-instructions"], cwd=r3 / "records", capture_output=True, text=True)
+            expect("init --print-instructions prints the paragraphs for the bindings as they stand, found from a subdirectory, and writes nothing",
+                   r.returncode == 0 and "The records are `notes/records/`" in r.stdout and "The log is `LOG.md`" in r.stdout and snap(r3) == before)
+            with tempfile.TemporaryDirectory() as t4:
+                r = subprocess.run([sys.executable, __file__, "init", "--print-instructions"], cwd=t4, capture_output=True, text=True)
+                expect("init --print-instructions with no flow.toml prints the defaults and writes nothing",
+                       r.returncode == 0 and "The records are `records/`" in r.stdout and "The log is not bound yet" in r.stdout and not any(Path(t4).iterdir()))
+            expect("the paragraphs say the person's bare words mean the session skills, called every time, and a request ending in a freeze is two",
+                   "they mean these skills" in INSTRUCTIONS and "is two requests" in INSTRUCTIONS)
+            # a flow.toml of the v0.5.0 shape: the keys a later init writes are noted, never failed
+            older = re.sub(r"(?m)^(log_archive|# statement_words|# row_id) = .*\n", "", toml3)
+            # a prose comment that reads like `key = words` is no commented key, so the key it resembles is still noted
+            older = older.replace("[evidence]\n", "[evidence]\n# row_id = whatever the project likes, in words\n", 1)
+            (r3 / "flow.toml").write_text(older, encoding="utf-8")
+            c3 = Config(r3)
+            rc, pl = answer(c3, ["doctor"])
+            noted = {n["key"]: n for n in pl["notes"]}
+            expect("the doctor notes each key the current init writes that a flow.toml written earlier lacks, with its default and its reader, failing nothing",
+                   rc == 0 and set(noted) == {"[paths] log_archive", "[evidence] statement_words", "[evidence] row_id"}
+                   and noted["[paths] log_archive"]["default"].startswith('"LOG-archive"') and "flow log archive" in noted["[paths] log_archive"]["reads"]
+                   and not pl["problems"])
+            expect("the doctor's text counts the notes", "3 optional key(s) the current init writes, noted" in text_of(c3, ["doctor"]))
+            (r3 / "flow.toml").write_text(toml3, encoding="utf-8")
+            expect("a key the project keeps commented, as init writes it, is no note", not answer(Config(r3), ["doctor"])[1]["notes"])
 
         # the doctor: the words of the model before 0.3, named with what each reads now
         with tempfile.TemporaryDirectory() as t2:
@@ -4797,35 +5119,35 @@ def build_parser():
     ap.add_argument("--selftest", action="store_true")
     sp = ap.add_subparsers(dest="cmd")
 
-    p = sp.add_parser("capture"); p.add_argument("summary"); p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body")
+    p = sp.add_parser("capture"); p.add_argument("summary"); p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body", metavar="FILE", help=BODY_HELP)
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the record it came from, an idea worked for one; repeatable")
     p = sp.add_parser("task"); p.add_argument("summary")
     p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
     p.add_argument("--after", help="what follows its completion, in words; printed at the close")
-    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable; the usual ones are research and upkeep"); p.add_argument("--body")
+    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable; the usual ones are research and upkeep"); p.add_argument("--body", metavar="FILE", help=BODY_HELP)
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="what it came from: a question, an idea, a task; repeatable")
     p = sp.add_parser("frame"); p.add_argument("ids", nargs="*", help="ideas, or one finding; none with --source PATH"); p.add_argument("--summary", required=True); p.add_argument("--criterion", required=True)
     p.add_argument("--size"); p.add_argument("--kind", default="question", choices=("question", "conjecture")); p.add_argument("--parent")
     p.add_argument("--direction", metavar="D", help="the open direction it leans toward, by its id"); p.add_argument("--serves", metavar="G", help="the open goal it serves, by its id")
-    p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body")
+    p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body", metavar="FILE", help=BODY_HELP)
     p.add_argument("--source", help="where it came from; with no ideas, the repository path of the document it is framed from")
     p = sp.add_parser("refine"); p.add_argument("question"); p.add_argument("--task", action="append", metavar="SUMMARY", help="a task minted from the question; repeatable")
     p.add_argument("--subq", action="append", nargs=2, metavar=("SUMMARY", "CRITERION"), help="repeatable"); p.add_argument("--idea", action="append", help="repeatable")
     p.add_argument("--size"); p.add_argument("--dod"); p.add_argument("--requires", action="append", help="repeatable")
     p.add_argument("--tag", action="append", help="on every task minted; repeatable")
-    p.add_argument("--body", help="appended to the question's body under the date, never to a task's: a task's own body is "
-                                  "`flow task SUMMARY --from Q --body FILE`")
+    p.add_argument("--body", metavar="FILE", help="a file, or `-` for the standard input, appended to the question's body under the "
+                                                  "date, never to a task's: a task's own body is `flow task SUMMARY --from Q --body FILE`")
     p = sp.add_parser("draw"); p.add_argument("id"); p.add_argument("--owner", required=True)
     p = sp.add_parser("return"); p.add_argument("id"); p.add_argument("--note")
     p = sp.add_parser("make"); p.add_argument("task")
     p.add_argument("--task", action="append", metavar="SUMMARY", dest="task_out", help="a follow-up task; repeatable")
     p.add_argument("--question", action="append", nargs=2, metavar=("SUMMARY", "CRITERION"), help="repeatable"); p.add_argument("--idea", action="append", help="repeatable")
-    p.add_argument("--tag", action="append", help="on every task minted; repeatable"); p.add_argument("--resolution")
-    p = sp.add_parser("abort"); p.add_argument("task"); p.add_argument("--reason", required=True); p.add_argument("--resolution")
+    p.add_argument("--tag", action="append", help="on every task minted; repeatable"); p.add_argument("--resolution", metavar="FILE", help=RESOLUTION_HELP)
+    p = sp.add_parser("abort"); p.add_argument("task"); p.add_argument("--reason", required=True); p.add_argument("--resolution", metavar="FILE", help=RESOLUTION_HELP)
     p = sp.add_parser("finding"); p.add_argument("summary"); p.add_argument("evidence", nargs="+", metavar="FORM:TARGET")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="what it came from: a done or aborted task, an idea, a question; repeatable")
     p.add_argument("--answers", metavar="Q", help="the one question it settles, which closes answered")
-    p.add_argument("--depends-on", action="append", help="repeatable", dest="depends_on"); p.add_argument("--tag", action="append", help="repeatable; refuted for a disproof"); p.add_argument("--body")
+    p.add_argument("--depends-on", action="append", help="repeatable", dest="depends_on"); p.add_argument("--tag", action="append", help="repeatable; refuted for a disproof"); p.add_argument("--body", metavar="FILE", help=BODY_HELP)
     p = sp.add_parser("evidence"); p.add_argument("finding"); p.add_argument("evidence", nargs="*", metavar="FORM:TARGET", help="added: how a finding's trust is raised")
     p.add_argument("--replace", nargs=2, metavar=("OLD", "NEW"), help="the item OLD, as written, swapped for NEW, resolved as an added item is; a dated note in the body")
     p.add_argument("--retire", metavar="OLD", help="the item OLD removed, with --reason; a dated note in the body")
@@ -4833,12 +5155,12 @@ def build_parser():
     p = sp.add_parser("goal"); p.add_argument("summary"); p.add_argument("--criterion", required=True, help="what reached means")
     p.add_argument("--horizon", help="how far out the destination lies, in words")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the direction it was produced along, which stays open, or the idea it came from; repeatable")
-    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body")
+    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body", metavar="FILE", help=BODY_HELP)
     p = sp.add_parser("reach"); p.add_argument("goal"); p.add_argument("--reason", required=True, help="what shows it reached")
     p = sp.add_parser("giveup"); p.add_argument("goal"); p.add_argument("--reason", required=True)
     p = sp.add_parser("direction"); p.add_argument("summary", help="its name")
     p.add_argument("--from", action="append", dest="from_", metavar="ID", help="the idea it came from; repeatable")
-    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body", help="the owner's words, a file")
+    p.add_argument("--source"); p.add_argument("--tag", action="append", help="repeatable"); p.add_argument("--body", metavar="FILE", help="the owner's words, a file; `-` reads the standard input")
     p = sp.add_parser("drop"); p.add_argument("direction"); p.add_argument("--reason", required=True)
     p = sp.add_parser("consume"); p.add_argument("idea")
     p = sp.add_parser("remove"); p.add_argument("id"); p.add_argument("--reason", required=True)
@@ -4858,7 +5180,7 @@ def build_parser():
     p = sp.add_parser("tag", help="+T adds a tag, -T removes one"); p.add_argument("id")
     p.add_argument("changes", nargs=argparse.REMAINDER, metavar="+T|-T", help="each +T adds a tag and -T removes one, the others kept")
     p = sp.add_parser("note", help="a file's text appended to a record's body under today's date"); p.add_argument("id")
-    p.add_argument("--body", required=True, metavar="FILE", help="the text appended, set apart under the date")
+    p.add_argument("--body", required=True, metavar="FILE", help="a file, or `-` for the standard input, whose text is appended, set apart under the date")
     p = sp.add_parser("find")
     for f in ("type", "state", "tag", "owner", "requires", "grep"):
         p.add_argument("--" + f)
@@ -4879,7 +5201,7 @@ def build_parser():
     p.add_argument("--check", action="store_true", help="what a machine can see of a freeze; exit 1 on a failure, "
                                                          "2 where a part could not be decided")
     p = sp.add_parser("log"); lp = p.add_subparsers(dest="log_cmd", required=True, metavar="{add,archive}")
-    lp.add_parser("add", help="FILE: one entry, written at the top of the log").add_argument("file")
+    lp.add_parser("add", help="FILE: one entry, written at the top of the log; `-` reads it from the standard input").add_argument("file")
     lp.add_parser("archive", help="--before DATE: the older entries moved, one file per month").add_argument("--before", required=True)
     p = sp.add_parser("reflow"); g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--check", nargs="+", metavar="PATH", help="exit 1 on a line the reflow changes, each printed")
@@ -4897,6 +5219,8 @@ def build_parser():
     sp.add_parser("pages")
     p = sp.add_parser("init"); p.add_argument("--records", default="records")
     p.add_argument("--log"); p.add_argument("--owner", action="append", help="repeatable"); p.add_argument("--force", action="store_true")
+    p.add_argument("--print-instructions", action="store_true", dest="print_instructions",
+                   help="print the paragraphs for the instructions file, for the bindings as they stand, and write nothing")
     return ap
 
 
@@ -4984,6 +5308,13 @@ def _dispatch(cfg, a, today, as_json, quiet):
             print(text)
 
     try:
+        ahead = kit_ahead(cfg)  # the project was brought to a newer release elsewhere: no write, a check that reports it, a warning on a read
+        if ahead and (a.cmd in TRANSITIONS or a.cmd == "log" or a.cmd == "check" or a.cmd == "index" and not (a.print_ or a.check) or a.cmd == "doctor" and a.fix):
+            raise Refused(ahead)  # `check` too: the mismatch is a problem found, exit 1, never "could not run"
+        if ahead:
+            out["kit_ahead"] = ahead
+            if not quiet and not as_json:
+                print(f"flow: warning — {ahead}", file=sys.stderr)
         broken = []
         recs = load_all(cfg, broken) if a.cmd == "check" else {} if a.cmd in ("log", "reflow", "doctor") else load_all(cfg)
         if a.cmd in TRANSITIONS:
@@ -5020,7 +5351,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
                      + ("they serve nothing now and keep their ranks; re-rank them" if a.cmd == "giveup" else "they carry no direction now"))
             if a.cmd == "refine" and a.body:  # the body is the question's, not a minted task's: said, so it is not looked for there
                 out["body_appended_to"] = a.question
-                emit(f"the body of {a.body} appended to {a.question} under {today}")
+                emit(f"the body of {'the standard input' if a.body == '-' else a.body} appended to {a.question} under {today}")
             recs = load_all(cfg)
             cfg.index.parent.mkdir(parents=True, exist_ok=True)
             write_whole(cfg.index, render_index(cfg, recs))
@@ -5048,9 +5379,13 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 emit(f"{p['path']}: {p['msg']}")
             for u in undecided:
                 emit(f"undecided: {u}")
+            out["session_steps"] = list(SESSION_STEPS)
+            emit("the session's own, which this command cannot see; the freeze's report answers each:")
+            for s in SESSION_STEPS:
+                emit(f"  [ ] {s}")
             emit(f"flow state --check: {len(problems)} failure(s); checked {', '.join(checked)}"
                  + (f"; {len(undecided)} not decided" if undecided else "")
-                 + "; the conversation's inventory and the sweep by meaning are the session's own")
+                 + f"; {len(SESSION_STEPS)} step(s) above are the session's own")
             if problems or undecided:  # a failure exits 1; else a part not decided exits 2, never read as clean
                 out["ok"], not_run = False, not problems
         elif a.cmd == "doctor":
@@ -5081,13 +5416,20 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["problems"] = [{"code": "DOCTOR", "id": None, "path": it["path"], "msg": f"{it['was']} — {it['now']}"} for it in hand]
             for it in hand:
                 emit(f"{it['path']}: {it['was']} — {it['now']}")
+            out["notes"] = doctor_notes(cfg)  # never a failure: a key an earlier init did not write, and its default
+            for n in out["notes"]:
+                emit(f"note: flow.toml has no {n['key']}, which `flow init` writes now ({n['default']}); read by {n['reads']}")
             emit(f"flow doctor: {len(hand)} thing(s) for the hand" + (f" and {len(mech)} mechanical edit(s)" if mech and not a.fix else "")
+                 + (f"; {len(out['notes'])} optional key(s) the current init writes, noted" if out["notes"] else "")
                  + ("; settle each by hand from its line, then `flow index` and `flow check`" if hand else
                     "; then `flow check`" if a.fix else ""))
             if hand or (mech and not a.fix):
                 out["ok"] = False
         elif a.cmd == "state":
             lines, more = state_lines(cfg, a.frm, a.budget, recs, today)
+            behind = kit_behind(cfg) if not a.frm else None
+            out["kit_behind"] = behind
+            lines = ([behind] if behind else []) + lines
             out["lines"], out["next_from"] = lines, more
             for ln in lines:
                 emit(ln)
@@ -5265,6 +5607,14 @@ def _main():
         return 0
     if rest and rest[0] == "init":
         a = build_parser().parse_args(["init"] + rest[1:])
+        if a.print_instructions:  # the paragraphs to compare an instructions file with: nothing written, nothing refused
+            try:  # the project's root, found upward as every command finds it; the working directory where none stands
+                where = Path(known.root).resolve() if known.root else find_root(os.getcwd())
+            except Refused:
+                where = Path(os.getcwd()).resolve()
+            text = init_instructions(where)
+            print(json.dumps({"ok": True, "command": "init", "instructions": text}, indent=1) if known.json else text, end="" if not known.json else "\n")
+            return 0
         try:
             root = Path(known.root).resolve() if known.root else Path(os.getcwd()).resolve()
             written = do_init(root, a)

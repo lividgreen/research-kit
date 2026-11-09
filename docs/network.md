@@ -10,7 +10,7 @@ They call arXiv, DOI content negotiation at doi.org, Crossref, OpenAlex, the Ope
 `fetch --url` and `resolve --url` fetch the address given, whatever host it names.
 Only an http or https address is fetched, a redirect to any other scheme is not followed, and an answer past 256 MiB, or a source that unpacks past it, is not kept.
 
-The probes ask `https://api.github.com/repos/lividgreen/research-kit/releases/latest` alone, with the User-Agent `research-kit-probe` and a 5-second timeout; where the answer does not come, they say so and compare the pins among themselves, and `RESEARCH_KIT_OFFLINE=1` skips the request.
+The probes ask `https://api.github.com/repos/lividgreen/research-kit/releases/latest` alone, with the User-Agent `research-kit-probe` and a 5-second timeout, asked once more with 10 seconds after a timeout; where the answer does not come, they say so and compare the pins among themselves, and `RESEARCH_KIT_OFFLINE=1` skips the request.
 
 ## The environment variables
 

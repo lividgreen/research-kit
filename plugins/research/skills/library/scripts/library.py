@@ -3095,6 +3095,16 @@ The `library` skill is installed for the project's agent as well (the `research`
 """
 
 
+def init_instructions(root):
+    """The paragraphs `library init` prints, for the bindings as they stand: the library's directory read from the
+    project's library.toml where one stands and reads, the default otherwise.  It writes nothing and refuses nothing."""
+    try:
+        paths = tomllib.loads((root / "library.toml").read_text(encoding="utf-8")).get("paths", {})
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        paths = {}
+    return INSTRUCTIONS.format(dir=str((paths if isinstance(paths, dict) else {}).get("library") or "library"))
+
+
 def do_init(root, a):
     """Write library.toml and the library's directories; refuse over an existing library.toml."""
     toml = root / "library.toml"
@@ -4035,6 +4045,17 @@ def selftest():
         expect("init: a tree that checks green, with the store ignored and the kept directory tracked",
                not problems and "library.toml" in written and (root / "library" / ".gitignore").read_text() == ".store/\n"
                and cfg.kept_name == "library/kept" and (root / "library" / "kept").is_dir() and cfg.internal_dirs == ("reports",))
+        (root / "library.toml").write_text((root / "library.toml").read_text(encoding="utf-8").replace('library = "library"', 'library = "refs"', 1), encoding="utf-8")
+        snap = lambda d: {q: q.read_bytes() for q in sorted(Path(d).rglob("*")) if q.is_file()}
+        before = snap(root)
+        r = subprocess.run([sys.executable, __file__, "init", "--print-instructions"], cwd=root / "library", capture_output=True, text=True)
+        expect("init --print-instructions prints the paragraphs for library.toml as it stands, found from a subdirectory, and writes nothing",
+               r.returncode == 0 and "The reference library is `refs/`" in r.stdout and snap(root) == before)
+        with tempfile.TemporaryDirectory() as t2:
+            r = subprocess.run([sys.executable, __file__, "init", "--print-instructions"], cwd=t2, capture_output=True, text=True)
+            expect("init --print-instructions with no library.toml prints the default and writes nothing",
+                   r.returncode == 0 and "The reference library is `library/`" in r.stdout and not any(Path(t2).iterdir()))
+        (root / "library.toml").write_text((root / "library.toml").read_text(encoding="utf-8").replace('library = "refs"', 'library = "library"', 1), encoding="utf-8")
         rc, pl = dispatch(cfg, ["register", "A first work", "--kind", "book", "--author", "Hand, B.", "--year", "1980"], today="2026-10-23", as_json=True, quiet=True)
         expect("init: the first register lands", rc == 0 and pl["created"] == ["hand1980"])
         try:
@@ -4119,6 +4140,8 @@ def build_parser():
     p = sp.add_parser("init"); p.add_argument("--dir", default="library"); p.add_argument("--kept", action="store_true")
     p.add_argument("--scan", action="append", help="repeatable"); p.add_argument("--documents", action="append", help="repeatable"); p.add_argument("--internal", action="append", help="repeatable")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--print-instructions", action="store_true", dest="print_instructions",
+                   help="print the paragraphs for the instructions file, for the bindings as they stand, and write nothing")
     return ap
 
 
@@ -4422,6 +4445,14 @@ def _main():
         return 0
     if rest and rest[0] == "init":
         a = build_parser().parse_args(["init"] + rest[1:])
+        if a.print_instructions:  # the paragraphs to compare an instructions file with: nothing written, nothing refused
+            try:  # the project's root, found upward as every command finds it; the working directory where none stands
+                where = Path(known.root).resolve() if known.root else find_root(os.getcwd())
+            except Refused:
+                where = Path(os.getcwd()).resolve()
+            text = init_instructions(where)
+            print(json.dumps({"ok": True, "command": "init", "instructions": text}, indent=1) if known.json else text, end="" if not known.json else "\n")
+            return 0
         try:
             root = Path(known.root).resolve() if known.root else Path(os.getcwd()).resolve()
             written = do_init(root, a)

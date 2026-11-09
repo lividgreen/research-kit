@@ -15,14 +15,15 @@ This page is what it does, what the project tells it, and its words.
 4. Every verdict is written on the work's card: faithful or OVERCLAIM as the extract it was compared with or that was written for it, UNVERIFIABLE as a dated note, since no place was read; a re-check replaces the extract and a dated note says what changed.
    `library claims --uncovered` lists only the works whose card carries no extract, so a sentence at a work with one is still compared with it.
 5. Then each overclaim is corrected in the same session at its own size, at every summary site that restates it, and the check runs again over the corrected sentences, with `library check`; the [audit](audit.md) runs too where the reframe changed a statement other documents cite.
-   A project whose instructions file says you are asked before any correction gets the sentence, its evidence and the reframe put to it instead.
+   A document the project's part names as one a review reports and asks you about first gets the sentence, its evidence and the reframe put to you instead.
 
 Where the works are many, they may be checked in parallel, each by one fresh subagent reading its own primary source, whose verdict returns with the place and the quotation; the session sees them in the kept copy before the extract is written, since a subagent's report is never a read.
+A claim that a result is absent from an upstream library, or present in it, is checked at the upstream's committed state (`git show HEAD:<path>`, or the tag the document cites) or at the live upstream, never at a working tree, which may carry the project's own uncommitted patch and read the claim's negation.
 
 ## What the project tells it
 
 The shapes `library claims` matches are `[claims] shapes` in `library.toml`, where a project with a prover adds its own words, such as `first formalization` or `machine-checked`.
-[The research setup](research-init.md) forms with you the documents a reader sees that `library.toml` does not bind, a blog or a front page, and writes them into the instructions file under `### Reviews` in its `## Research records` section.
+[The research setup](research-init.md) forms with you the documents a reader sees that `library.toml` does not bind, a blog or a front page, and which documents a review may correct in the session and which it reports and asks you about first, and writes them into the instructions file under a `### Reviews` heading, inside its `## Records and method` section.
 Where it is missing, or does not say what the review needs, the review says so and advises the [setup](research-init.md), which forms it in a project set up before as well; where only this review's part is missing and a full setup is not needed, it asks you for that part in place and, on your word, writes it where the setup would.
 A run takes the documents you give with the command, and otherwise the bound ones with those, and says which it took.
 

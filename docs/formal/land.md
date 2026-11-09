@@ -1,7 +1,7 @@
 # The landing
 
 The prover session left its work uncommitted and handed back a report; the report is a claim about the tree, and the landing reads the tree: the declaration manifest's diff, a cold read-back of every landed statement, the binders and the guards.
-Then the document's rows are written from the landed proof, the summary sites swept, the records closed and the commit made with named paths.
+Then the document's rows are written from the landed proof, the summary sites swept, the records closed (where the research plugin is set up) and the commit made with named paths.
 The tool is `scripts/formal.py` of the [`land`](../../plugins/formal/skills/land/SKILL.md) skill (`/formal:land` in Claude Code), the one CLI of the `formal` plugin: the handback diff, the read-back packet, the check, the three gates over the documents and what ships, the hypotheses ratchet and the witnesses report, beside `formal probe`, `formal init` and `formal handoffcheck`, which [The formal setup](formal-init.md) and [The handoff](handoff.md) use.
 This page is the tool — its commands, the generator and the manifest it reads, its checks and its words — and the skill is the procedure of a landing.
 
@@ -14,14 +14,14 @@ This page is the tool — its commands, the generator and the manifest it reads,
 4. `formal check`, then the three gates over what the landing touched, and the project's own figure check where it states tree-derived figures, the new total written and never a delta.
 5. The result is registered by the project's rule, else the `method` skill's register test, and the rows and the boundary paragraph are written from the landed proof, each ADAPTER binder named as such and each UNANCHORED one with its reason.
 6. The summary sites are swept — the status label, the abstract, the contributions, the settled-and-open lists, an earlier row's boundary, every negative-coverage sentence about the result's kind — found by the claims' own words.
-7. The flow closes the prover's task with `flow make`, then each finding is minted from the landed proof with `flow finding … --from TASK`, the declaration among its evidence as `formal:Path.lean#decl`, the one that settles the question with `--answers Q`; a failed handoff is `flow abort`, its refuting finding minted after it, tagged `refuted`; and the commit names its paths.
+7. Where the research plugin is set up, the flow closes the prover's task with `flow make`, then each finding is minted from the landed proof with `flow finding … --from TASK`, the declaration among its evidence as `formal:Path.lean#decl`, the one that settles the question with `--answers Q`; a failed handoff is `flow abort`, its refuting finding minted after it, tagged `refuted`; and the commit names its paths.
 
 ## The commands
 
 | Command | What it does |
 | --- | --- |
 | `formal handback [--base REV] [--handoff DRAFT]` | the manifest diff against HEAD: the new public and private declarations, the removals, the visibility flips, the field changes and the per-module counts; the instantiations of an existing generic; the joint-satisfiability witnesses owed; the guards added and removed in the workspace diff with the live total after the change; every document site citing a declaration of a touched module; and the commission, every name of the handoff's `Commissioned:` line sorted into four classes, landed, private (in the tree, not citable), already at base and absent; exit 1 on a document citing a name now private or removed |
-| `formal readback NAME… [-o FILE] [--depth N]` | the packet a cold reader writes each landed statement out from: the statement with its modifiers and scope lines, every project-local definition it names to depth two, docstrings and comments stripped |
+| `formal readback NAME… [-o FILE] [--depth N]` | the packet a cold reader writes each landed statement out from: the statement with its modifiers and scope lines, every project-local definition its elaborated statement refers to, to depth two (a definition's value too), read from the manifests' `uses` rows, so a projection, an inherited field, dot notation and an instance are Lean's and not guessed from the text, docstrings and comments stripped; a manifest without the `uses` section is refused with the command that regenerates it, exit 2 |
 | `formal check` | the manifests parse and are the tree's, each read its named conditions under the project's own roots, the umbrellas import their modules, the packages import in order, the bindings resolve |
 | `formal cite`, `formal anchors`, `formal register` | the three gates over the documents and what ships, each a pre-commit hook |
 | `formal hypotheses [--base REV \| --baseline FILE [--update]]` | no public theorem shipped at the base gained a named condition |
@@ -34,7 +34,7 @@ The [skill](../../plugins/formal/skills/land/SKILL.md) names every flag, and the
 
 `scripts/DeclManifest.lean` beside the CLI generates a Lean package's declaration manifest after a genuine build: from the workspace, `lake env lean --run DeclManifest.lean --roots Root1,Root2 --out ../scripts/decls.txt`, with `--own` naming the roots whose Prop-valued definitions count as named conditions, by default every root built in the workspace's own packages; the roots taken are printed and written as the manifest's second line, `# own roots: A,B`, which `formal check` holds against `[packages]`, so a generate command passes `--own` only where the default is not the project's.
 The setup copies the file into the workspace once and binds one command per package in `formal.toml`'s `[manifest] generate`; the prover session regenerates the manifests after the last declaration change, and the [flow](../research/flow.md) resolves declaration evidence against the same files.
-A manifest is a text file in a row grammar any prover's declaration list may follow, six row kinds:
+A manifest is a text file in a row grammar any prover's declaration list may follow, seven row kinds:
 
 ```text
 module <module> <count>                a module and how many declarations it counts
@@ -43,9 +43,11 @@ private <module> <name>                a private one (counted, not citable from 
 field <module> <name>                  a structure projection (citable, not counted)
 hypothesis <module> <theorem> <cond>   a public theorem's named condition
 instance <module> <theorem> <class>    a class one of its instance binders carries
+uses <module> <decl> <const>           a project declaration the decl's elaborated statement refers to
 ```
 
-The generator walks the compiled environment, so it needs the build current, and its counting rule is stated in its own header; another prover writes the same six row kinds with its own tool.
+The generator walks the compiled environment, so it needs the build current, and its counting rule is stated in its own header; another prover writes the same seven row kinds with its own tool.
+The `uses` rows are the elaborated environment's answer to what a statement refers to: for each counted declaration, the project declarations its type uses and, for a definition, its value too, a structure projection mapped to its structure through the environment's projection info and a constructor, recursor or generated helper to the declaration it belongs to, an upstream name dropped; the header line `# uses rows: N` says the section was written, so `formal readback`, the one command that reads them, refuses a manifest of an older generator and says to copy the generator over and regenerate.
 
 ## The checks
 

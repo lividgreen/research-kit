@@ -16,7 +16,7 @@ Lean, a prover or a build are never needed by the `research` plugin; the declara
 
 ### The `formal` plugin
 
-Everything the `research` plugin needs, with its setup done first, and:
+Python 3.11 or later, standard library only, and git, as the `research` plugin needs; the plugin runs on its own, and where the `research` plugin is set up in the project, the `formal` setup reads its bindings and its records are the flow's. Then:
 
 - **Required**: a Lean 4 project (a Lake workspace with its lakefile) under the project root, with `lean` and `lake` on PATH; the manifest generator, `DeclManifest.lean`, is copied into it by `/formal:formal-init` and run there after a build.
 - **Recommended**: [`elan`](https://github.com/leanprover/elan), which installs `lean` and `lake` at the toolchain the workspace pins; a Lean language server registered for the agent in the project's `.mcp.json`, such as [lean-lsp-mcp](https://github.com/oOo0oOo/lean-lsp-mcp), since the prover agent works with whatever prover tools are registered and is blind without them.
@@ -237,6 +237,14 @@ In Claude Code the marketplace is one per machine, known by its name to every pr
 4. Run the setup probe, which says whether the pins are at the latest release and what of the migration is left (`flow doctor`'s count and a stale index), and restart the session before the next transition.
 
 Editing the `ref` in `.claude/settings.json` alone moves nothing, since `claude plugin marketplace update` refreshes the ref the machine knows.
+The probe also names a pin file with uncommitted changes, since a clone of the project reads the committed pin and not the one in the working tree.
+
+Once the plugins move by `claude plugin update`, an install record outside the repository with no history, the pins no longer say which release the project's setup was last brought to; `[kit] release` in `flow.toml` does, a committed line ([The flow](research/flow.md#the-release-a-project-was-brought-to)).
+`flow init` writes it and the setup's verify step moves it, once the steps up to the installed release are taken, so the order of an upgrade is: the plugins moved and the session restarted, then `/research:research-init`, whose probe names the **Upgrading** paragraphs of each release after the marker up to the installed one and whose last step moves the marker.
+A `flow.toml` written before v0.7.0 has no such line: `flow doctor` names it for the hand, and the probe counts the releases from the oldest pin until the setup writes it.
+On another computer, a checkout of a project migrated elsewhere carries the newer marker while that machine's plugin is older: there the flow's scripts refuse every write and `flow check`, naming both releases and the commands that move the plugin (`claude plugin marketplace update research-kit`, `claude plugin update research@research-kit --scope project`, a restart), since an older script misreads newer records and bindings; the reads still answer, with a warning.
+A remote hook's `rev` is committed, so the checkout gets the tag the migrating commit moved it to and pre-commit installs it; a local hook runs the installed plugin, which refuses as above, so the commit fails with the commands until the plugin moves.
+Where the marker is older than the plugin, nothing refuses: `flow state` says to run `/research:research-init`.
 Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
 Claude Code 2.1.318 behaves so.
 

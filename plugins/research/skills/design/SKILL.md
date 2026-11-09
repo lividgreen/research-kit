@@ -1,6 +1,6 @@
 ---
 name: design
-description: Design pass for any new mechanism, tool, check, document section, or formal target — run BEFORE implementing. Use whenever the user proposes building or changing something ("let's add X", "can we do Y", "should we…", "what about…"), picks up a recorded open question or decision, or asks for a feature.
+description: Design pass for any new mechanism, tool, check, document section, or formal target — run BEFORE implementing. Use whenever the user proposes building or changing something ("let's add X", "can we do Y", "should we…", "what about…"), picks up a recorded open question or decision, or asks for a feature. When the person says 'design' or 'design pass', they mean this skill — call it every time, even if it ran earlier in the session, and take every step.
 license: Apache-2.0
 compatibility: No tooling; read before building or changing anything.
 metadata:

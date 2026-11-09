@@ -2,6 +2,7 @@
 
 `/research:freeze` ends a session so that a cold one, on another machine, can continue it without asking: what the conversation found and no record holds is saved, the records are checked, and the work is committed.
 It is the [`freeze`](../../plugins/research/skills/freeze/SKILL.md) skill, which runs the [flow](flow.md)'s commands and has no script of its own; with another agent, ask it to freeze the session.
+A freeze is a request of its own: when you say "freeze", "save the session" or "park the session" you mean the skill, called every time, even if it ran earlier in the session, with every step taken, so "… and freeze" at the end of another request is two requests, the work and then the skill.
 This page is what it does, the check under it, and its words.
 
 ## What it does
@@ -11,10 +12,11 @@ Its one rule is to save what is important for the work; its test is the clone: c
 1. The records say what the session knows: the log's top State paragraph is current, and its next action names the next session's first move.
 2. What only the conversation holds is flushed, turn by turn, your messages and the replies both: an idea in your words, a ruling where the rules live, a reading into the record it is about, a correction as a dated line, an open question as a question or an idea; then everything the session created is closed or left with a note.
    A freeze ranks nothing; a directive for the next session goes to the inbox, one directive, never a summary.
-3. The surfaces a reader sees are swept for what the session made stale, by meaning, not only in the files it touched.
+3. The surfaces a reader sees are swept for what the session made stale, by meaning, not only in the files it touched; a stale claim the session may not correct, in a document only you change, goes to an idea or a task with the place and the proposed edit, and is named in the log entry.
 4. `flow state --check`, `flow check` and the project's gates run, read by their exit codes.
 5. A commit with named paths, and the push as the backup; steps 2 to 5 run on a clean tree too.
-6. The report: the tree, the gates, the inbox directive or "none", and each inventoried item with where it went.
+   Where the tree holds unstaged changes outside those paths, another session's in a shared tree, the commit is made from a `git worktree` of its own and taken in with `git merge --ff-only` ([Install](../install.md#several-sessions-in-one-tree)), since the hook runner stashes them while the hooks run, or the turn says it is about to.
+6. The report answers the checklist `flow state --check` prints: the inventory item by item with where each went, the sweep, the agent's memory checked, the gates by exit code; then the tree and the inbox directive or "none".
 
 ## The check under it
 
@@ -23,6 +25,7 @@ A record whose only change is its rank, which one renumbering gives every record
 `flow touched --unnamed` lists those records before the entry is written, so it names them without the ids gathered by hand.
 It prints each hand's active tasks and drawn ideas, a task handed to a prover session among them, for the State paragraph, and fails on none, since each hand continues its own work.
 An inbox holding items is no failure: the next session reads it.
+It prints the steps that are the session's own as a checklist the report answers, since a freeze run from memory still calls this command and so still meets the current steps.
 It exits 1 on a failure and 2 where git or a committed log is missing and a part could not be decided, so a freeze it could not see whole is never read as clean.
 
 ## Words

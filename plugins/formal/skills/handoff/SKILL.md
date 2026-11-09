@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compose a prover-session handoff prompt for the formal target(s) named — statement-first from the document's text, with the declarations quoted, a refute-first line, the bundle's shape and the witnesses commissioned — check it with `formal handoffcheck`, and dispatch it to the prover agent or emit it for the owner's own prover session. Use whenever work is handed to the prover, since Lean (or another prover's) work always ships as a checked prompt.
+description: Compose a prover-session handoff prompt for the formal target(s) named — statement-first from the document's text, with the declarations quoted, a refute-first line, the bundle's shape and the witnesses commissioned — check it with `formal handoffcheck`, and dispatch it to the prover agent or emit it for the owner's own prover session. Use whenever work is handed to the prover, since Lean (or another prover's) work always ships as a checked prompt. When the person says 'handoff' or 'hand off to the prover', they mean this skill — call it every time, even if it ran earlier in the session, and take every step.
 license: Apache-2.0
 compatibility: Python 3.11 or later for the check (`scripts/formal.py` of the `land` skill); the prover and its build are the project's. Reads `formal.toml` at the project root where there is one, the default bindings otherwise.
 metadata:
@@ -19,11 +19,11 @@ A design round whose deliverable is a prover prompt hands over to this skill rat
 ## Sequencing
 
 The turn has two parts and nothing after them.
-First the records, the gates and the commit: every tool call that changes the project finishes before the prompt is composed.
+First the records (where the project keeps any), the gates and the commit: every tool call that changes the project finishes before the prompt is composed.
 Then the prompt: the draft written to a scratch file, `formal handoffcheck` re-run to exit 0, and the dispatch as the turn's last tool call, or on the other route the prompt as the turn's last output; nothing follows the dispatch or the closing tag.
-Among the records, mint the work the prompt carries in the flow, in the agent's hand: the task from its question (`flow refine Q --task "…" --tag research`, or `flow task "…" --from Q --tag research`), drawn with `flow draw T --owner agent` (`agent` is the agent's name as `[hand]` names it by default, and a project that names its hands otherwise uses its own); it stays active in the agent's hand while the prover works, counted toward the hand limit as any active task, and the log entry that records the handoff says it went to the prover.
+Where the flow is set up (`flow.toml` at the project root, the research plugin's), mint among the records the work the prompt carries, in the agent's hand: the task from its question (`flow refine Q --task "…" --tag research`, or `flow task "…" --from Q --tag research`), drawn with `flow draw T --owner agent` (`agent` is the agent's name as `[hand]` names it by default, and a project that names its hands otherwise uses its own); it stays active in the agent's hand while the prover works, counted toward the hand limit as any active task, and the log entry that records the handoff says it went to the prover.
 One handoff is in flight at a time, since the prover session leaves its work uncommitted in the shared tree and a second would mix into it: the log's top State paragraph says whether one is, and a handoff waits for the landing of the one before; the `land` skill closes the task, and a handoff withdrawn before it lands is said so in a log entry, the task returned with a note or kept for the next attempt.
-Read the records for riders too: a ready task marked as riding the next handoff is carried as a trailing piece or re-pointed in the same commit, never left.
+Where the flow is set up, read the records for riders too: a ready task marked as riding the next handoff is carried as a trailing piece or re-pointed in the same commit, never left.
 The task's id stands in the log entry that records the handoff and never in the prompt, since a session cites what it was given.
 
 ## The session attribute
