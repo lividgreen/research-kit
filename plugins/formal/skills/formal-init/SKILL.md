@@ -47,6 +47,8 @@ A lakefile under a workspace's directory, or one it requires by path, is a packa
    In `[register]`, a scrub of words that must not ship is a pattern class (`[[register.class]]`), and a check that a lower package names only files of its own or of the packages below it is a file class (`[[register.files]]`), whose `allow` matches another project's files as the mention is written, so a bare name and a path each need their own expression (`^Average\.lean$`, `^Mathlib/`).
 5. Place the generator.
    Copy `scripts/DeclManifest.lean` of the `land` skill into the workspace where it is absent, never into a package inside it, and leave the manifests to the prover's first run after a genuine build, as the report says.
+   Where the probe reports the workspace's generator stale, replace it with the `land` skill's copy on the person's word, as the proposal `generator of DIR` shows, and regenerate each manifest with the project's `[manifest] generate` commands, run in the workspace after a build: a manifest written by the older generator lacks what the new one writes.
+   A difference that is the project's own edit, kept on purpose, is left in place when the person says so.
 6. Write the instructions.
    Where the file `formal.toml` names is absent, write it from `references/workspace-instructions.md` of the `handoff` skill with the slots filled from the probe and the answers; where it exists, re-read it against the template and the workspace, add what it lacks on the person's word, and name what is stale with the edit proposed.
    The paragraphs for the project's own instructions file are compared the same way, against what `formal init --print-instructions` prints for `formal.toml` as it stands, writing nothing.

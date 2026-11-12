@@ -45,6 +45,7 @@ The report's `upgrade` section, in the text and under `--json`, names the steps 
 
 The probe runs the two flow commands, which write nothing, and the probe still writes nothing; a step marked `PENDING` is to take, `NOT RUN` could not be checked and says why (no flow script beside the skill, a `flow.toml` the flow cannot read), and `--` has nothing to bring.
 The pins move to the latest release, so a project whose pins agree on an older tag is shown the upgrade all the same; where the latest release cannot be read, they move to the newest tag among them.
+Where `formal.toml` stands at the project root, the section ends with one more line, no step of its own: the formal plugin is set up here and `/formal:formal-init` is to run too, since the probe reads none of that plugin's files; under `--json` it is `upgrade.formal`, the line or null.
 
 ## What it does
 

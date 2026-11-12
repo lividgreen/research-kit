@@ -752,6 +752,15 @@ def upgrade(root, pins, flow=FLOW, facts=None):
     return steps + [last]
 
 
+FORMAL_LINE = "formal.toml stands here, so the formal plugin is set up: run /formal:formal-init too"
+
+
+def formal_pointer(root):
+    """The one line the upgrade section ends with where `formal.toml` stands at the root, else None: this setup
+    reads none of the formal plugin's files, and its own skill names the Lean step."""
+    return FORMAL_LINE if (root / "formal.toml").is_file() else None
+
+
 def probe(root, flow=FLOW):
     env, hook_runner, installers = environment()
     proj, facts = project(root)
@@ -761,7 +770,7 @@ def probe(root, flow=FLOW):
     return {"root": str(root), "environment": env, "project": proj, "facts": facts,
             "kit": {"version": version, "tag": f"v{version}" if version else None, "layout": kind, "path": where},
             "proposals": proposals(env, hook_runner, installers),
-            "upgrade": {"flow": str(flow), "steps": upgrade(root, pins, flow, facts)}}
+            "upgrade": {"flow": str(flow), "steps": upgrade(root, pins, flow, facts), "formal": formal_pointer(root)}}
 
 
 def mark(it):
@@ -797,6 +806,8 @@ def render(rep):
         lines.append(f"  {UPGRADE_MARK[s['state']]}  {s['item']}: {s['detail']}")
         for c in s["commands"]:
             lines.append(f"    {c}")
+    if up.get("formal"):
+        lines.append(f"  {up['formal']}")
     missing_req = [it["item"] for it in rep["environment"] + rep["project"] if not it["ok"] and it["need"] == REQUIRED]
     pending = [s["item"] for s in up["steps"] if s["state"] == "pending"]
     lines += ["", "setup probe: " + (f"{len(missing_req)} required item(s) missing: {', '.join(missing_req)}" if missing_req else "every required item is present")
@@ -1282,6 +1293,17 @@ def selftest():
         expect("probe --json is one JSON document", r.returncode == 0 and json.loads(r.stdout)["root"] == str(bare))
         expect("probe --json carries the upgrade steps", r.returncode == 0
                and [s["item"] for s in json.loads(r.stdout)["upgrade"]["steps"]] == ["pins", "setup", "records", "instructions"])
+        expect("probe --json carries upgrade.formal as null where no formal.toml stands", json.loads(r.stdout)["upgrade"]["formal"] is None
+               and "formal.toml stands" not in render(probe(bare)))
+        (bare / "formal.toml").write_text("[workspace]\ndir = \"lean\"\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, __file__, "probe", "--root", str(bare), "--json"], capture_output=True, text=True)
+        expect("probe --json carries the line as upgrade.formal where formal.toml stands, after the steps and no step of its own",
+               r.returncode == 0 and json.loads(r.stdout)["upgrade"]["formal"] == FORMAL_LINE
+               and [s["item"] for s in json.loads(r.stdout)["upgrade"]["steps"]] == ["pins", "setup", "records", "instructions"])
+        text = render(probe(bare))
+        expect("the report ends its upgrade section with the one line, which is no pending step",
+               text.count("/formal:formal-init") == 1 and f"\n  {FORMAL_LINE}\n\nsetup probe: " in text and "no upgrade step pending" in text.splitlines()[-1], text[-600:])
+        (bare / "formal.toml").unlink()
         installed_scenarios(Path(tmp), v, expect)
         upgrade_scenarios(Path(tmp), v, expect)
         latest_scenarios(Path(tmp), v, expect)

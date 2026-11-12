@@ -5,6 +5,8 @@ Each release is a tag; the version is read from the tag and the version fields `
 ## Unreleased
 
 The flow's model made robust before v1.0, from a review of every operation and every card's states: five links, `references` the general one with no rule beside `answered_by`, `blocked_by`, `serves` and `consumed_by`, each with its own; one mint per kind, each the kind's name; a question's closing its own act, refused for no task that names it, and undone by `flow reopen`; a finding found false removed; a block calculated from what it waits on; and a transition naming the records that refer to the one it changed, for the session to decide on.
+The flow is freed of the prover as well: it asks the `formal` plugin about its formal evidence over one protocol (`formal resolve`, with `formal rows` the one read of the manifests outside the plugin) where it read the manifests itself.
+And the setups name what an upgrade asks: `/formal:formal-init` takes the Lean step of a stale generator, the research setup points at it where `formal.toml` stands, and a freeze's State paragraph never states the gates or the push.
 
 **Upgrading**: a breaking release.
 Move the plugins as [Install](docs/install.md#following-the-releases) says and restart, then run `flow doctor --fix` before any other flow command: it brings a v0.7.0 tree to this model, renaming `derived_from` to `references` and `blocked` to `blocked_by`, folding a question's `parent`, a task's `requires` and a finding's `depends_on` into `references` and a question's `direction` into `serves`, now a list, appending the words of `criterion`, `dod`, `horizon`, `why_now` and `first_move` to the body as dated lines, making a question's `kind: conjecture` and a task's `rider: true` tags, and giving every finding `state: standing`; then settle the lines it leaves for the hand, run `flow check`, and only then mint, the migration's own task among the mints.
@@ -15,6 +17,7 @@ A project's own scripts that read `derived_from`, `depends_on` or `blocked` read
 `flow.toml` loses `[evidence] manifest`, `manifest_roots` and `manifest_extension`: the manifests are `formal.toml`'s `[manifest] files` alone, `flow doctor` names the three lines to delete by hand, and nothing refuses on them meanwhile.
 The flow no longer reads a text file of `Module.Path name` lines: it asks `formal resolve --protocol` of the `formal` plugin, and a project whose `formal` evidence the flow resolved from a manifest it bound itself, with a prover of its own or no `formal.toml`, binds a command that speaks the protocol under `[evidence.resolvers]` (the flow's page has it), else those items are reported unchecked.
 A project's own script that parses a manifest reads `formal rows --json` instead, and one that checks a list of names runs `formal resolve`.
+A project where the `formal` plugin is set up then runs `/formal:formal-init`: it re-checks the setup and takes the Lean step, replacing the workspace's `DeclManifest.lean` with the release's copy on the person's word where they differ and regenerating each manifest with the project's `generate` commands, and the research setup's upgrade section now says to run it where `formal.toml` stands; the release's generator is the one v0.7.0 shipped, so a project that took that step then has nothing to replace.
 
 The flow:
 
@@ -42,12 +45,25 @@ The flow:
 - `flow.toml` has no `manifest`, `manifest_roots` or `manifest_extension`, and `flow init` writes a commented `[evidence.resolvers]` in their place; `flow doctor` names the three keys for the hand.
   `flow check`'s coverage line says, for each form asked of a resolver, the route that answered or why none did, where it said "declaration evidence via …"; under `--json` `coverage.resolvers` replaces `coverage.manifest`.
 
+The `research` plugin:
+
+- `freeze`'s step 1 says the State paragraph states where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
+
+The setup:
+
+- The probe's `upgrade` section ends, where `formal.toml` stands at the project root, with one line that the `formal` plugin is set up here and `/formal:formal-init` is to run too, no step of its own and nothing of the plugin's files read; under `--json` it is `upgrade.formal`, the line or null.
+
 The `formal` plugin:
 
 - `formal resolve TARGET…` says whether each target, `Path.lean#name`, `Path.lean` (a module) or a name with no path, is a declaration or a module of the manifests, `-` reading the targets from the standard input: a line for each that does not, then the count, exit 0 where all resolve, 1 where one does not and 2 where it could not run; `--public` also fails a name whose every reading is a private declaration.
   It answers `--protocol` for the flow with the rules the flow lost (the path-to-module rule, the names a declaration answers to, the rows that name a declaration), over the strict reader, so a row matching no kind is exit 2 and nothing is absorbed into another kind.
 - `formal rows --json` prints every row of the manifests in their order with its `kind`, `file`, `line` and `module` and the kind's own fields, under a schema number, the one read of the manifests outside the plugin: a new kind is a new value of `kind`, ignored by a reader that does not know it; without `--json` it prints each manifest's count per kind, and a row matching no kind is exit 1 with its file and line.
 - `formal init` and `formal probe` no longer read `flow.toml`'s `[evidence]`: the manifests are named by the kit's defaults, one for a package or `<package>-decls.txt` for several, and the probe has no item on the flow's evidence.
+- `/formal:formal-init` names the Lean step its probe already sees: a workspace's `DeclManifest.lean` that differs from the `land` skill's copy is replaced on the person's word, where it was copied only where absent, and each manifest is regenerated with the project's `generate` commands.
+
+The pages:
+
+- The project card's summary is one quoted value with a colon where a dash stood.
 
 ## v0.7.0 — 2026-11-09
 
