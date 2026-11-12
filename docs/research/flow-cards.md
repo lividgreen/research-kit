@@ -37,11 +37,12 @@ Five fields connect the records, one general and four with a rule.
 | `answered_by` | question | one finding | the finding that settles it, answered or impossible |
 | `blocked_by` | question, task | a map of `date`, `on` (a list) and `reason` | the record is blocked while an item of `on` holds, and `draw` is refused |
 | `serves` | question | a list of goal and direction ids | biases the ranking; the index lists each goal's and direction's questions |
-| `consumed_by` | idea | a list of record ids | the cards a consumed idea was folded into, each naming it in `references` |
+| `consumed_by` | idea | a list of record ids | exactly the records that name the idea in `references`, whatever its state, written with the reference |
 
 `references` is a connection with no obligation in the flow: what a record came from, rests on or is about.
 An entry is a record of any kind in any state, a removed one included, since nothing is deleted; it is written at any mint with `--ref ID` and changed afterwards with `flow ref ID +X -Y`, refused only where the id does not exist, is the record's own or is held already.
 No transition clears it, and nothing is refused, warned of or failed because one exists; the check holds it to the id's existence alone.
+Where the id is an idea, the same command lists the record in the idea's `consumed_by`, and `flow ref ID -X` takes it out; the one refusal is removing the last card a consumed idea lists, which is reopened first.
 
 An item of `blocked_by.on` is one of three kinds, told apart exactly:
 
@@ -67,11 +68,11 @@ Every kind carries these:
 | `type` | `idea`, `question`, `task`, `finding`, `goal` or `direction` | minted |
 | `state` | the kind's states, below | minted; the transitions |
 | `summary` | one line: what the record is; a goal's outcome, a direction's name | minted; `flow set`, which keeps what it read in the body |
-| `references` | the records it references, any kind, any state | minted (`--ref`); `flow ref`; `flow question --consume` names the idea |
+| `references` | the records it references, any kind, any state | minted (`--ref`); `flow ref` |
 | `origin` | `current` for a record the flow minted, `legacy` for one imported from before it and written by hand, which lets an answered question name no finding | minted; hand, for a legacy record alone |
 | `source` | where it came from: a talk, a paper; a repository path of the tree, such as the document a question was minted from, is a reference `flow artifacts` and `flow find --refers` read; a source with a path's shape (no space, no URL, a `/` or an extension) is held to the tree when the record is minted, so one in words takes a space (`arXiv 2301.12345`), and one outside the tree is words | minted (`--source`) |
 | `created` | the ISO date of the minting; a direction's date | minted |
-| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `rider` marks a task riding the next hand-over, `conjecture` a question that is one, `refuted` a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open" and refuses `flow reopen`; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
+| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `rider` marks a task riding the next hand-over, `conjecture` a question that is one, `refuted` a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open" and on a question or an idea refuses `flow reopen`; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
 
 The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a removed finding, a reached or given-up goal, a closed direction, and no other.
 
@@ -81,10 +82,10 @@ The closed records carry a map of `date` and `reason` in `closed`: a removed ide
 
 | Field | Holds | Written by |
 | --- | --- | --- |
-| `state` | `open`, `consumed` or `removed` | minted; `question --consume`, `consume`, `remove` |
-| `owner` | the owner whose hand it is drawn into, or `null` | `draw`; cleared by `return`, `consume`, `question --consume` and `remove` |
+| `state` | `open`, `consumed` or `removed` | minted; `consume`, `reopen`, `remove` |
+| `owner` | the owner whose hand it is drawn into, or `null` | `draw`; cleared by `return`, `consume` and `remove` |
 | `drawn` | the ISO date it was drawn | `draw`; cleared with the owner |
-| `consumed_by` | the list of the cards it was consumed into, each naming it in `references` | `question --consume`, `consume` |
+| `consumed_by` | the list of the cards that name it in `references`, in the order the references were written; empty while the idea is fresh | any mint with `--ref IDEA`; `flow ref` |
 | `closed` | `date` and `reason` once removed | `remove` |
 
 ### A question
@@ -187,17 +188,20 @@ A transition that changes a record's state, or parks, unparks, blocks or unblock
 | — | `open` | `idea` | `summary`, `source`, `references`, `tags`, a body where `--body` gives one |
 | `open` | `open`, in a hand | `draw --owner`, refused when the owner's hand is full or the idea is in a hand already | `owner`, `drawn` |
 | `open`, in a hand | `open` | `return` | `owner` and `drawn` cleared; a `returned:` note where `--note` gives one or the idea produced cards, which the note lists as produced so far |
-| `open` | `consumed` | `question --consume`, into the question minted and every other card that names it; or `consume`, into every card that names it in `references`, refused when none does | `consumed_by`, the list of those cards; `owner` and `drawn` cleared |
-| `open` | `removed` | `remove` | `closed` with its date and reason; `owner` and `drawn` cleared |
+| `open` | `consumed` | `consume`, once the idea is fully processed, refused when `consumed_by` is empty | `owner` and `drawn` cleared; `consumed_by` stays as it is |
+| `consumed` | `open` | `reopen --reason`, refused on an idea tagged `do-not-reopen` | a `reopened:` note keeping that it was consumed; `consumed_by` stays as it is |
+| `open` | `removed` | `remove` | `closed` with its date and reason; `owner` and `drawn` cleared; `consumed_by` stays as it is |
 
-Drawn, an idea is worked: what it produces — ideas, questions, tasks, findings, goals and directions, on the owner's word for the last two — references it (`--ref`), until it is consumed into them, one or many of any kind, or removed.
+A fresh idea is an open one whose `consumed_by` is empty, calculated and never stored.
+Drawn, an idea is worked: what it produces — ideas, questions, tasks, findings, goals and directions, on the owner's word for the last two — references it (`--ref`) and is listed in its `consumed_by`, until the idea is fully processed and consumed, or removed.
+No mint closes an idea, and a removed idea stays final: it is restored from git where it was removed by mistake.
 A drawn idea counts toward its owner's hand limit as an active task does.
 
 ### A question's
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `question`, standing alone or `--consume IDEA`, `--ref` for a finding or a question it comes from, `--source PATH` for a document | `references`, `serves`, `size`, `checked` set to today |
+| — | `open` | `question`, standing alone, `--ref` for an idea, a finding or a question it comes from, `--source PATH` for a document | `references`, `serves`, `size`, `checked` set to today |
 | `open` | `open`, parked | `park` | `parked` with its date, reason and revival, `checked` set to today; the rank stays |
 | `open`, parked | `open` | `unpark` | `parked` cleared, `checked` set to today, an `unparked:` note |
 | `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason, `checked` set to today; the rank stays |

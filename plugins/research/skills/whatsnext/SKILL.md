@@ -40,7 +40,7 @@ A focus the person gives with the command, "let's focus on the research tasks", 
    Draft the entry in a scratch file and pass it through the project's text gates before writing it.
 5. **Intake.**
    Park or unpark only for a reason the record carries with a date — `flow park ID --reason "…" --revival "…"`, `flow unpark ID` — never "no route"; a task waiting on the person's decision is parked with a reason naming the decision.
-   Mint newly seen residues: `flow idea "…"` for an idea, `flow question "…" --consume IDEA` for a question from one, or `flow question "…" --ref FINDING` from the finding that exposed it — a question of its own, its body saying what counts as an answer, never a line added to the question it came from.
+   Mint newly seen residues: `flow idea "…"` for an idea, `flow question "…" --ref IDEA` for a question from one (`flow consume IDEA` once the idea is fully processed), or `flow question "…" --ref FINDING` from the finding that exposed it — a question of its own, its body saying what counts as an answer, never a line added to the question it came from.
    Record the read of each question the session opened in step 2 or touched here with `flow checked ID …`, where no `flow rank ID N` refreshed it already; `--set` asserts no read.
    Goals and directions are the person's: propose in the log entry, and mint or close one (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal reached or given up, or a direction dropped, clears nothing on its questions, and the notice it prints names them: each is decided on here, re-ranked, given another goal or direction with `flow serves`, or left.
 6. **Draw.**

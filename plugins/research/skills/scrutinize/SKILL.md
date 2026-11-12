@@ -35,6 +35,6 @@ The target is what the person names with the command; read it whole, and every s
    A numbered list the person can act on, with the caveat that this is checking; an uncertain gap is marked "uncertain: needs the person's judgment", never guessed either way.
 7. **Then the corrections.**
    After the report, a sentence found false of the artifact is corrected in this session at its own size, and reaches every summary site that restates it; a document the project's part names as one a review reports and asks about first gets the sentence, its evidence and the correction put to the person instead.
-   A gap is not a false sentence: what to do about one is the person's, put as a question with a recommendation or captured on their word (`flow idea` of the gap where the project runs the flow, then a question minted from that idea, `flow question … --consume IDEA`, where the gap is sharp enough to say what would answer it).
+   A gap is not a false sentence: what to do about one is the person's, put as a question with a recommendation or captured on their word (`flow idea` of the gap where the project runs the flow, then a question minted from that idea, `flow question … --ref IDEA`, where the gap is sharp enough to say what would answer it).
 
 **Output.** The caveat, the numbered findings, the corrections made, and what was asked or captured.

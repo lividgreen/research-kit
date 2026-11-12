@@ -17,7 +17,9 @@ directory `flow.toml` names.  Six kinds:
 
 Five links: `references` on every kind, the general one with no rule; a question's `answered_by` (the finding
 that settles it), `blocked_by` on a question or a task (a map of date, on and reason: blocked while an item of
-`on` holds) and `serves` (goals and directions); an idea's `consumed_by` (the cards it was folded into).
+`on` holds) and `serves` (goals and directions); an idea's `consumed_by` (the cards that name it in `references`).
+An idea's `consumed_by` fills while the idea is open: the script writes it with the reference, at a mint with
+`--ref IDEA` and by `flow ref`, and `flow consume IDEA` closes the idea once it is fully processed.
 A ready task or an open question may be parked (by decision) and blocked (by what it waits on), both at once;
 it keeps its rank, and the lists mark the wait.
 
@@ -25,7 +27,7 @@ Transitions (the only writers of state and links).  Every mint takes --ref ID (r
 (repeatable), --source S and --body FILE:
 
   flow idea SUMMARY                                            an open idea
-  flow question SUMMARY [--consume IDEA]... [--serves ID]... [--size s]   an open question, the ideas consumed
+  flow question SUMMARY [--serves ID]... [--size s]            an open question
   flow task SUMMARY [--size s] [--due YYYY-MM-DD] [--after A]  a ready task
   flow finding SUMMARY --evidence FORM:TARGET... [--answers Q] a standing finding; --answers Q closes Q answered by it
   flow goal SUMMARY  |  flow direction SUMMARY                 the owner's, minted and closed on the owner's word
@@ -36,9 +38,9 @@ Transitions (the only writers of state and links).  Every mint takes --ref ID (r
   flow answer Q --by F           question(open) -> answered by F
   flow impossible Q --by F       question(open) -> impossible, F the finding that shows it
   flow wrong Q --reason R        question(open) -> wrong
-  flow reopen Q --reason R       a closed question -> open, a dated note keeping what it was
+  flow reopen ID --reason R      a closed question, or a consumed idea -> open, a dated note keeping what it was
   flow remove ID --reason R      idea(open) | question(open) | task(ready) | finding(standing) -> removed
-  flow consume IDEA              an open idea -> consumed into every card that names it in references
+  flow consume IDEA              an open idea whose consumed_by lists a card -> consumed: fully processed
   flow reach G --reason R  |  flow giveup G --reason R  |  flow drop D --reason R
   flow evidence F FORM:TARGET... evidence added to a standing finding: its trust raised
   flow evidence F --replace OLD NEW  |  flow evidence F --retire OLD --reason R    an item whose file is gone, swapped
@@ -1337,6 +1339,17 @@ def in_references(r, id_):
     return isinstance(r["references"], list) and id_ in r["references"]
 
 
+def consumed_list(r):
+    """An idea's consumed_by as a list: the cards that name it in references (one id from an older model read as a list of one)."""
+    v = r["consumed_by"]
+    return list(v) if isinstance(v, list) else [v] if v else []
+
+
+def kind_word(t):
+    """A kind with its article: `a task`, `an idea`."""
+    return ("an " if t[:1] in "aeiou" else "a ") + t
+
+
 LIVE = {"idea": ("open",), "question": ("open",), "task": ("ready", "active"), "goal": ("open",), "direction": ("open",),
         "finding": ("standing",)}
 
@@ -1517,14 +1530,17 @@ def validate(cfg, recs, today):
                 if ts and all(x["state"] in CLOSED_TASK for x in ts):
                     warnings.append(f"{r.id}: needs refine or answer (every task closed)")
         if t == "idea":
-            if r["state"] == "consumed":
-                into = r["consumed_by"] if isinstance(r["consumed_by"], list) else [r["consumed_by"]] if r["consumed_by"] else []
-                if not isinstance(r["consumed_by"], list) and r["consumed_by"]:
-                    bad("V17", r, "consumed_by lists the cards it was folded into, not one id (`flow doctor`)")
-                elif not into or any(x not in named_by.get(r.id, set()) for x in into):
-                    bad("V17", r, "consumed without the cards it was folded into, each naming it in references")
-            elif r["consumed_by"]:
-                bad("V17", r, f"consumed_by on an idea that is {r['state']}")
+            into = consumed_list(r)
+            if not isinstance(r["consumed_by"], list) and r["consumed_by"]:
+                bad("V17", r, "consumed_by lists the cards that name the idea in references, not one id (`flow doctor`)")
+            else:
+                for x in into:
+                    if x not in named_by.get(r.id, set()):
+                        bad("V17", r, f"consumed_by lists {x}, which does not name {r.id} in references")
+                for x in sorted(named_by.get(r.id, set()) - set(into)):
+                    bad("V17", r, f"consumed_by lacks {x}, which names {r.id} in references")
+                if r["state"] == "consumed" and not into:
+                    bad("V17", r, "consumed with no card in consumed_by: an idea that produced nothing is removed")
             if r["owner"]:
                 if r["state"] != "open" or not r["drawn"]:
                     bad("V9", r, "an idea in a hand is open and carries its drawn date")
@@ -1693,7 +1709,9 @@ def render_index(cfg, recs):
 
     ideas = [r for r in R if r.type == "idea" and r["state"] == "open" and not r["owner"]]
     ideas.sort(key=lambda r: (str(r["created"]), r.id))
-    rows = [f"{len(ideas)} open ideas; oldest:", ""] + [_line(r, f"{r['created']}, {r['source'] or 'no source'}") for r in ideas[:cfg.oldest_ideas]]
+    made = lambda r: f"produced {len(consumed_list(r))}" if consumed_list(r) else "fresh"  # a fresh idea produced nothing yet
+    rows = [f"{len(ideas)} open ideas, {sum(not consumed_list(r) for r in ideas)} fresh; oldest:", ""] \
+        + [_line(r, f"{r['created']}, {r['source'] or 'no source'}, {made(r)}") for r in ideas[:cfg.oldest_ideas]]
     section("Heap", rows if ideas else [])
     return "\n".join(out).rstrip("\n") + "\n"
 
@@ -1705,7 +1723,7 @@ def get(recs, id_, type_=None, states=None):
     if not r:
         raise Refused(f"{id_} does not exist")
     if type_ and r.type != type_:
-        raise Refused(f"{id_} is a {r.type}, not a {type_}")
+        raise Refused(f"{id_} is {kind_word(r.type)}, not {kind_word(type_)}")
     if states and r["state"] not in states:
         raise Refused(f"{id_} is {r['state']}, not {' or '.join(states)}"
                       + (f": draw it first (`flow draw {id_} --owner O`)" if r.type == "task" and r["state"] == "ready" and "active" in states else ""))
@@ -1759,7 +1777,7 @@ def check_serves(recs, ids):
     for i in ids or []:
         r = get(recs, i)
         if r.type not in ("goal", "direction"):
-            raise Refused(f"{i} is a {r.type}: a question serves a goal or a direction")
+            raise Refused(f"{i} is {kind_word(r.type)}: a question serves a goal or a direction")
         if r["state"] != "open":
             raise Refused(f"{i} is {r['state']}: a question is given an open {r.type} to serve")
         if i in out:
@@ -1776,13 +1794,19 @@ def check_due(due):
     return due
 
 
-def consume(recs, rec, also=()):
-    """The idea consumed into every card that names it in references, `also` the ones a transition is minting."""
-    into = sorted({r.id for r in recs.values() if in_references(r, rec.id)} | set(also))
-    if not into:
-        raise Refused(f"no card names {rec.id} in references: an idea is consumed into the cards it was folded into; "
-                      f"name it with `--ref {rec.id}` as each is minted (`flow ref ID +{rec.id}` after), or remove the idea")
-    rec.fm.update({"state": "consumed", "consumed_by": into, "owner": None, "drawn": None})
+def mirror_add(cfg, recs, rec, ids):
+    """The mirror of a reference written: `rec` appended to the consumed_by of each idea among `ids`, in any state, and
+    saved.  Returns the ideas changed, which the command reports beside the record it wrote."""
+    out = []
+    for i in ids or []:
+        x = recs.get(i)
+        if x is not None and x.type == "idea":
+            held = consumed_list(x)
+            if rec.id not in held:
+                x.fm["consumed_by"] = held + [rec.id]
+                save(cfg, x)
+            out.append(x)
+    return out
 
 
 def path_source(src):
@@ -1816,33 +1840,22 @@ def mint_source(cfg, src):
 
 def cmd_idea(cfg, recs, a, today):
     r = new_record(cfg, "idea", {"summary": a.summary, **mint_common(cfg, recs, a)}, read_body(a.body), today)
-    return [r], []
+    return [r], mirror_add(cfg, recs, r, r["references"])
 
 
 def cmd_question(cfg, recs, a, today):
-    """A question, standing alone or not: --consume IDEA consumes an open idea into it (and every other card naming
-    it), named in its references; what else it comes from is a --ref, a document its --source."""
+    """A question, standing alone or not: an idea, a finding or a question it comes from is a --ref (an idea then lists it
+    in consumed_by, whatever its state), a document its --source."""
     common = mint_common(cfg, recs, a)
-    ideas = []
-    for i in a.consume or []:
-        x = get(recs, i, "idea", ("open",))
-        if x in ideas:
-            raise Refused(f"{i} is named twice")
-        ideas.append(x)
-        if i not in common["references"]:
-            common["references"].append(i)
     q = new_record(cfg, "question", {"summary": a.summary, "size": a.size, "serves": check_serves(recs, a.serves), **common},
                    read_body(a.body), today)
-    for x in ideas:
-        consume(recs, x, [q.id])
-        save(cfg, x)
-    return [q], ideas
+    return [q], mirror_add(cfg, recs, q, q["references"])
 
 
 def cmd_task(cfg, recs, a, today):
     r = new_record(cfg, "task", {"summary": a.summary, "size": a.size, "due": check_due(a.due), "after": a.after, **mint_common(cfg, recs, a)},
                    read_body(a.body), today)
-    return [r], []
+    return [r], mirror_add(cfg, recs, r, r["references"])
 
 
 def answerable(recs, qid):
@@ -1875,10 +1888,11 @@ def cmd_finding(cfg, recs, a, today):
         raise Refused("a finding takes --evidence FORM:TARGET, one item or more")
     resolve_items(cfg, items)
     f = new_record(cfg, "finding", {"summary": a.summary, "evidence": items, **common}, read_body(a.body), today)
+    ideas = mirror_add(cfg, recs, f, f["references"])
     if q is None:
-        return [f], []
+        return [f], ideas
     close_question(cfg, recs, q, "answered", today, by=f.id)
-    return [f], [q]
+    return [f], [q] + ideas
 
 
 def cmd_evidence(cfg, recs, a, today):
@@ -1922,13 +1936,13 @@ def cmd_evidence(cfg, recs, a, today):
 def cmd_goal(cfg, recs, a, today):
     """A goal the owner forms: the summary names the outcome, the body what reached means and how far out it lies."""
     r = new_record(cfg, "goal", {"summary": a.summary, **mint_common(cfg, recs, a)}, read_body(a.body), today)
-    return [r], []
+    return [r], mirror_add(cfg, recs, r, r["references"])
 
 
 def cmd_direction(cfg, recs, a, today):
     """A direction the owner opens: its name the summary, the owner's words its body, dated by `created`."""
     r = new_record(cfg, "direction", {"summary": a.summary, **mint_common(cfg, recs, a)}, read_body(a.body), today)
-    return [r], []
+    return [r], mirror_add(cfg, recs, r, r["references"])
 
 
 # --- the hands, and the closings -----------------------------------------------------
@@ -1955,7 +1969,7 @@ def cmd_draw(cfg, recs, a, today):
         if r["owner"]:
             raise Refused(f"{r.id} is in {r['owner']}'s hand already")
     else:
-        raise Refused(f"{r.id} is a {r.type}: a task or an idea is drawn into a hand")
+        raise Refused(f"{r.id} is {kind_word(r.type)}: a task or an idea is drawn into a hand")
     if a.owner not in cfg.owners:
         raise Refused(f"owner {a.owner!r} not in {cfg.owners}")
     lim = int(cfg.hand.get(a.owner, 0) or 0)
@@ -1979,7 +1993,7 @@ def cmd_return(cfg, recs, a, today):
         raise Refused(f"{r.id} is ready, in no hand")
     else:
         raise Refused(f"{r.id} is in no hand")
-    made = sorted(x.id for x in recs.values() if in_references(x, r.id)) if r.type == "idea" else []
+    made = consumed_list(r) if r.type == "idea" else []
     if a.note or made:  # an idea put back partly worked lists what it produced so far
         append_note(r, today, "returned" + (f": {a.note}" if a.note else "") + (f"; produced so far: {', '.join(made)}" if made else ""))
     save(cfg, r)
@@ -2049,13 +2063,23 @@ def cmd_wrong(cfg, recs, a, today):
 
 def cmd_reopen(cfg, recs, a, today):
     """A closed question back to open, whatever closed it: its answer and its closing cleared, a dated note keeping what
-    it was.  The tag do-not-reopen, the person's mark, is refused on; the agent asks the person and never lifts it unasked."""
-    q = get(recs, a.question, "question")
+    it was; or a consumed idea back to open, its consumed_by kept.  The tag do-not-reopen, the person's mark, is refused
+    on; the agent asks the person and never lifts it unasked."""
+    q = get(recs, a.id)
+    if q.type not in ("question", "idea"):
+        raise Refused(f"{q.id} is {kind_word(q.type)}, not a question or an idea: reopen takes a closed question or a consumed idea")
     if q["state"] == "open":
         raise Refused(f"{q.id} is open already")
+    if q.type == "idea" and q["state"] != "consumed":
+        raise Refused(f"{q.id} is {q['state']}: a removed idea stays final, restored from git where it was removed by mistake")
     if "do-not-reopen" in (q["tags"] or []):
         raise Refused(f"{q.id} carries the tag do-not-reopen, the person's mark that it stays settled: ask the person; "
                       f"`flow tag {q.id} -do-not-reopen` lifts it, on their word")
+    if q.type == "idea":
+        q.fm["state"] = "open"
+        append_note(q, today, f"reopened: {a.reason.strip()}; it was consumed")
+        save(cfg, q)
+        return [], [q]
     was, by, c = q["state"], q["answered_by"], q["closed"]
     note = (f"reopened: {a.reason.strip()}; it was {was}" + (f" by {by}" if by else "")
             + (f" ({c.get('date')}: {c.get('reason')})" if isinstance(c, dict) and c.get("reason") else ""))
@@ -2089,9 +2113,13 @@ def cmd_drop(cfg, recs, a, today):
 
 
 def cmd_consume(cfg, recs, a, today):
-    """An idea whose whole content is folded into other cards, one or many of any kind, each naming it in references."""
+    """An idea fully processed: everything in it is folded into the cards that name it, which consumed_by lists already.
+    The closing is the idea's own act, no mint's; it writes the state and clears the hand, nothing else."""
     i = get(recs, a.idea, "idea", ("open",))
-    consume(recs, i)
+    if not consumed_list(i):
+        raise Refused(f"{i.id} lists no card in consumed_by: an idea that produced nothing is removed with a reason "
+                      f"(`flow remove {i.id} --reason R`), and one that produces something names it with `--ref {i.id}` as each card is minted")
+    i.fm.update({"state": "consumed", "owner": None, "drawn": None})
     save(cfg, i)
     return [], [i]
 
@@ -2111,7 +2139,7 @@ def cmd_remove(cfg, recs, a, today):
         save(cfg, r)
         return [], [r]
     if r.type not in ("idea", "question"):
-        raise Refused(f"{r.id} is a {r.type}: remove takes an open idea, an open question, a ready task or a standing finding")
+        raise Refused(f"{r.id} is {kind_word(r.type)}: remove takes an open idea, an open question, a ready task or a standing finding")
     if r["state"] != "open":
         raise Refused(f"{r.id} is {r['state']} already")
     if r.type == "idea":
@@ -2178,7 +2206,7 @@ def cmd_block(cfg, recs, a, today):
         if kind == "record":
             w = get(recs, on)
             if w.type not in ("task", "question"):
-                raise Refused(f"{on} is a {w.type}: a record waits on a task or a question, a date or words")
+                raise Refused(f"{on} is {kind_word(w.type)}: a record waits on a task or a question, a date or words")
             if w.id == r.id:
                 raise Refused(f"{r.id} cannot wait on itself")
             if w["state"] in SETTLED:
@@ -2245,7 +2273,7 @@ def cmd_rank(cfg, recs, a, today):
         return [], changed
     r = get(recs, a.id)
     if r.type not in ("question", "task"):
-        raise Refused(f"{r.id} is a {r.type}: only questions and tasks are ranked")
+        raise Refused(f"{r.id} is {kind_word(r.type)}: only questions and tasks are ranked")
     if a.clear:
         had_rank = r["rank"] is not None
         r.fm["rank"] = None
@@ -2309,7 +2337,7 @@ def cmd_set(cfg, recs, a, today):
         raise Refused(f"set takes one of {', '.join(SETTABLE)}; {a.field!r} is a transition's or no field"
                       + (f": {SET_GONE[a.field]}" if a.field in SET_GONE else ""))
     if r.type not in SETTABLE[a.field]:
-        raise Refused(f"{r.id} is a {r.type}; {a.field} is a field of {', '.join(SETTABLE[a.field])}")
+        raise Refused(f"{r.id} is {kind_word(r.type)}; {a.field} is a field of {', '.join(SETTABLE[a.field])}")
     v = a.value.strip()
     if a.field == "size":
         if v not in (*cfg.sizes, "none"):
@@ -2356,7 +2384,8 @@ def plus_minus(changes, usage):
 
 def cmd_ref(cfg, recs, a, today):
     """A record's references after its mint, any record in any state: an entry added is an id that exists, never the
-    record's own and never one it holds; an entry removed is one it holds, never the card a consumed idea was folded into."""
+    record's own and never one it holds; an entry removed is one it holds.  An idea among them lists the record in its
+    consumed_by, written with the reference, whatever the idea's state; the last card a consumed idea lists is not removed."""
     r = get(recs, a.id)
     add, drop = plus_minus(a.changes, f"ref takes +X and -Y: flow ref {r.id} +X -Y")
     held = list(r["references"] or [])
@@ -2364,15 +2393,21 @@ def cmd_ref(cfg, recs, a, today):
     if lacks:
         raise Refused(f"{r.id} references no {', '.join(lacks)}; its references: {', '.join(map(str, held)) or 'none'}")
     for x in drop:
-        if x in recs and recs[x].type == "idea" and r.id in (recs[x]["consumed_by"] or []):
-            raise Refused(f"{x} is consumed into {r.id}, which names it while it stands so")
+        if x in recs and recs[x].type == "idea" and recs[x]["state"] == "consumed" and consumed_list(recs[x]) == [r.id]:
+            raise Refused(f"{x} is consumed and {r.id} is the last card it lists: `flow reopen {x} --reason R` first")
     there = [x for x in add if x in held]
     if there:
         raise Refused(f"{r.id} references {', '.join(there)} already")
     mint_refs(recs, add, r.id)
     r.fm["references"] = [x for x in held if x not in drop] + add
     save(cfg, r)
-    return [], [r]
+    ideas = mirror_add(cfg, recs, r, add)
+    for x in drop:
+        if x in recs and recs[x].type == "idea":
+            recs[x].fm["consumed_by"] = [c for c in consumed_list(recs[x]) if c != r.id]
+            save(cfg, recs[x])
+            ideas.append(recs[x])
+    return [], [r] + ideas
 
 
 def cmd_serves(cfg, recs, a, today):
@@ -3223,6 +3258,7 @@ DOCTOR_CLASSES = {
     "shard": "a finding moved out of its shard into findings/",
     "answered-by": "`answered_by` as a list of one or none made one value",
     "consumed-by": "`consumed_by` as one id made a list",
+    "consumed-mirror": "an idea's `consumed_by` given the records that name it in `references`, as the fix leaves them, the missing ones appended",
     "blocked-on": "a block's `on` as one value made a list",
     "direction": "a question's `direction` by name deleted, the direction record's id named in `serves`",
     "ready-hand": "an owner or a drawn date on a ready task cleared",
@@ -3346,6 +3382,29 @@ def doctor(cfg, today):
                 fm["tags"] = list(fm.get("tags") or []) + [str(tag)]
         return go
 
+    def question_named(r):
+        """Whether a task's or a finding's `question` is named in references once folded in: not where the finding or task answers it."""
+        q = r["question"]
+        by = recs[q]["answered_by"] if q in recs else None
+        return bool(q) and not (q in recs and r.id in (by if isinstance(by, list) else [by]))
+
+    def folded_refs(r):
+        """What r's references hold once this run's fixes have folded the older fields into them."""
+        as_list = lambda v: [str(x) for x in v] if isinstance(v, list) else [str(v)] if v else []
+        out = as_list(r.fm.get("references")) + as_list(r.fm.get("derived_from"))
+        for k in ("parent", "requires", "depends_on"):
+            if k in r.fm and k in DROPPED_FIELDS.get(r.type, ()):
+                out += as_list(r.fm[k])
+        if "question" in r.fm and "question" in DROPPED_FIELDS.get(r.type, ()) and question_named(r):
+            out.append(str(r["question"]))
+        return set(out)
+
+    named_after = defaultdict(set)  # an id to the records naming it in references as the fixes leave them: an idea's consumed_by
+    for r in recs.values():
+        if r.type in SCHEMA:
+            for x in folded_refs(r):
+                named_after[x].add(r.id)
+
     docs = {}  # the documents read while anchors are resolved
 
     for r in sorted(recs.values(), key=lambda r: r.id or ""):
@@ -3394,6 +3453,21 @@ def doctor(cfg, today):
         if t == "idea" and r["consumed_by"] and not isinstance(r["consumed_by"], list):
             add(f"consumed_by: {r['consumed_by']}", f"consumed_by as a list, `- {r['consumed_by']}` (every card it was folded into)", "consumed-by",
                 setter(fm, consumed_by=[r["consumed_by"]]))
+        if t == "idea":  # consumed_by is exactly the records naming the idea in references, whatever its state
+            held, naming = consumed_list(r), named_after.get(r.id, set()) - {r.id}
+            for x in held:
+                if x not in naming:
+                    add(f"consumed_by: {x}", f"{x} is no record" if x not in recs else f"{x} does not name {r.id} in references: remove it from consumed_by, "
+                        f"or name the idea in that record with `flow ref {x} +{r.id}`")
+            missing = sorted(naming - set(held))
+            if missing:
+                def fix_mirror(fm=fm, missing=missing):
+                    v = fm.get("consumed_by")
+                    have = list(v) if isinstance(v, list) else [v] if v else []
+                    fm["consumed_by"] = have + [x for x in missing if x not in have]
+                add(f"consumed_by lacks {', '.join(missing)}", f"consumed_by: {', '.join(missing)} appended (the records that name {r.id} in references)",
+                    "consumed-mirror", fix_mirror)
+                writes.add("consumed_by")
         # the links of v0.7.0: derived_from renamed, parent, requires and depends_on folded into references
         if "derived_from" in fm:
             add("derived_from", "references: rename the field, its entries unchanged", "derived-from", renamer(fm, "derived_from", "references"))
@@ -3421,8 +3495,7 @@ def doctor(cfg, today):
                 continue
             if k == "question":
                 q = r[k]
-                answers = q in recs and r.id in (recs[q]["answered_by"] if isinstance(recs[q]["answered_by"], list) else [recs[q]["answered_by"]])
-                name_it = bool(q) and not answers
+                name_it = question_named(r)
                 add(f"{k}: {q or 'null'}", "goes: a task or a finding no longer belongs to a question; delete the field"
                     + (f", and name {q} in references, where it is not yet" if name_it else ""), "question", add_refs(fm, "question", [q] if name_it else []))
                 writes.add("references")
@@ -3929,15 +4002,22 @@ def selftest():
                load_all(cfg)[d]["state"] == "open" and load_all(cfg)[d].body == "The bridge between A and B.\n")
         idea = new(["idea", "an idea", "--source", "test"])
         (root / "answer.md").write_text("A finite counterexample answers it.\n")
-        p = run(["question", "Does A imply B?", "--consume", idea, "--serves", d, "--body", str(root / "answer.md")])
+        p = run(["question", "Does A imply B?", "--ref", idea, "--serves", d, "--body", str(root / "answer.md")])
         q = p["created"][0]
         recs = load_all(cfg)
-        expect("a question minted --consume IDEA consumes the idea into it and names it in its references; it serves what --serves names, "
-               "is open, checked today, and its body says what counts as an answer",
-               recs[q]["references"] == [idea] and recs[idea]["state"] == "consumed" and recs[idea]["consumed_by"] == [q]
+        expect("a question minted --ref IDEA names the idea in its references and is listed in the idea's consumed_by, the idea open still and "
+               "reported as changed beside the question; it serves what --serves names, is open, checked today, and its body says what counts as an answer",
+               recs[q]["references"] == [idea] and recs[idea]["state"] == "open" and recs[idea]["consumed_by"] == [q]
                and recs[q]["serves"] == [d] and recs[q]["state"] == "open" and recs[q]["checked"] == today and p["changed"] == [idea]
                and "counterexample" in recs[q].body and not p["notices"])
-        run(["question", "again", "--consume", idea], ok=False)  # consumed already
+        fresh = new(["idea", "a fresh idea"])
+        p = run(["consume", fresh], ok=False)
+        expect("consume refuses a fresh idea, an idea that produced nothing being removed with a reason",
+               "lists no card in consumed_by" in p["problems"][0]["msg"] and f"flow remove {fresh} --reason R" in p["problems"][0]["msg"]
+               and load_all(cfg)[fresh]["state"] == "open")
+        run(["remove", fresh, "--reason", "only for the refusal"])
+        p = run(["question", "S", "--serves", fresh], ok=False)
+        expect("a refusal names the kind with its article", f"{fresh} is an idea:" in p["problems"][0]["msg"])
         run(["question", "S", "--serves", "direction-0099"], ok=False)  # no such record
         run(["question", "S", "--serves", idea], ok=False)  # an idea is no goal or direction
         run(["question", "S", "--ref", "idea-0099"], ok=False)  # no such record
@@ -3997,8 +4077,8 @@ def selftest():
         expect("a finding minted --answers Q closes Q answered by it, an open sub-question and its task notwithstanding",
                recs[q]["state"] == "answered" and recs[q]["answered_by"] == fa and p["changed"] == [q] and recs[sq]["state"] == "open")
         expect("the notice names every record referring to the closed question, each with its state, a closed one among them, "
-               "and never the finding the same command minted",
-               set(noticed(p, q)) == {idea, t1, t2, sq} and {"id": t2, "state": "aborted"} in p["notices"][0]["refers"] and fa not in noticed(p, q))
+               "never the finding the same command minted, and never the idea listing it in consumed_by, a question answered being a natural end",
+               set(noticed(p, q)) == {t1, t2, sq} and {"id": t2, "state": "aborted"} in p["notices"][0]["refers"] and fa not in noticed(p, q))
         txt = text_of(cfg, ["note", q, "--body", res])
         expect("a note changes no state and prints no notice", "may need a follow-up" not in txt)
         p = run(["finding", "a second answer", "--evidence", "stated:papers/alpha.md#Theorem 2.1", "--answers", q], ok=False)
@@ -4059,7 +4139,8 @@ def selftest():
         run(["evidence", fc, "--retire", "statistical:probes/p.py", "--reason", "back to the one item"])
         run(["remove", t3, "--reason", "not needed"])
         i2 = new(["idea", "a second idea"])
-        q3 = new(["question", "Q2", "--consume", i2])
+        q3 = new(["question", "Q2", "--ref", i2])
+        run(["consume", i2])
         run(["rank", q3, "1"])
         run(["set", q3, "summary", "Q2, put sharper", "--note", "the owner's words"])
         recs = load_all(cfg)
@@ -4070,7 +4151,7 @@ def selftest():
             expect(f"set refuses {gone}, a field no longer, and says the way it goes now", "`flow " in p["problems"][0]["msg"])
         run(["set", q3, "size", "huge"], ok=False)  # not a size
         run(["set", q3, "state", "answered"], ok=False)  # a transition's field
-        q4 = new(["question", "Q to park", "--consume", new(["idea", "an idea to park"])])
+        q4 = new(["question", "Q to park", "--ref", new(["idea", "an idea to park"])])
         run(["rank", q4, "2"])
         was = load_all(cfg)[q4]["checked"]
         rc, _ = dispatch(cfg, ["park", q4, "--reason", "waiting"], today="2026-09-26", as_json=True, quiet=True)
@@ -4129,8 +4210,20 @@ def selftest():
             run(["ref", tz] + bad, ok=False)  # nothing, held, not held, itself, no such record, both ways, no sign
         run(["ref", tz, "+" + q3, "-" + q])
         p = run(["ref", q3, "-" + i2], ok=False)
-        expect("ref adds and removes references and refuses to remove the card a consumed idea names",
-               load_all(cfg)[tz]["references"] == [q3] and f"{i2} is consumed into {q3}" in p["problems"][0]["msg"])
+        expect("ref adds and removes references, and refuses to remove the last card a consumed idea lists, with the way out",
+               load_all(cfg)[tz]["references"] == [q3] and f"{i2} is consumed and {q3} is the last card it lists: `flow reopen {i2} --reason R` first"
+               in p["problems"][0]["msg"] and load_all(cfg)[i2]["consumed_by"] == [q3])
+        p = run(["ref", tz, "+" + i2])
+        expect("ref +IDEA lists the record in the idea's consumed_by, a consumed idea's as an open one's, and reports both records changed",
+               load_all(cfg)[i2]["consumed_by"] == [q3, tz] and load_all(cfg)[i2]["state"] == "consumed" and p["changed"] == [tz, i2])
+        p = run(["ref", q3, "-" + i2])
+        expect("ref -IDEA removes the record from the idea's consumed_by, a consumed idea keeping one card at least",
+               load_all(cfg)[i2]["consumed_by"] == [tz] and load_all(cfg)[q3]["references"] == [] and p["changed"] == [q3, i2])
+        run(["ref", tz, "-" + i2], ok=False)  # the last card of a consumed idea
+        run(["ref", q3, "+" + i2])
+        run(["ref", tz, "-" + i2])
+        expect("the mirror holds whatever the idea's state: a card added to a consumed idea is listed, one removed is not",
+               load_all(cfg)[i2]["consumed_by"] == [q3] and load_all(cfg)[tz]["references"] == [q3])
         run(["ref", tz, "-" + q3])
         # a block on several things, a record, a date written alone and words holding a date, each told apart exactly
         run(["block", tz, "--on", q3, "--on", q3, "--reason", "r"], ok=False)  # one thing twice
@@ -4310,26 +4403,85 @@ def selftest():
         p = run(["set", rt, "question", q3], ok=False)
         expect("set names `flow ref` for a field of references", "flow ref" in p["problems"][0]["msg"])
         shallow, deep = set(ids(["find", "--refers", q])), set(ids(["find", "--refers", q, "--deep"]))
-        expect("find --refers lists who names a record by any link, the idea consumed into it included, and --deep who names those",
+        expect("find --refers lists who names a record by any link, the idea listing it in consumed_by included, and --deep who names those",
                {idea, t1, t2, sq, fc} <= shallow and {f, fa, fr} <= deep and f not in shallow)
         expect("find --refers PATH lists the records whose evidence names a repository path", {f, fa, fc, fb} <= set(ids(["find", "--refers", "papers/alpha.md"])))
         run(["find", "--deep"], ok=False)  # --deep follows --refers
-        # an idea drawn like a task, worked into other cards, consumed into one of them
+        # an idea drawn like a task, worked into other cards as they are minted, consumed once it is fully processed
         wi = new(["idea", "an idea to work"])
         run(["draw", wi, "--owner", "root"])
         run(["draw", wi, "--owner", "root"], ok=False)  # in hand already
         run(["consume", wi], ok=False)  # nothing references it yet
         sub = new(["idea", "a narrower idea", "--ref", wi])
+        expect("an idea mints an idea with --ref as it mints a question: the mirror is the same", load_all(cfg)[wi]["consumed_by"] == [sub])
         p = run(["return", wi, "--note", "half worked"])
         expect("an idea put back partly worked lists what it produced so far",
                load_all(cfg)[wi].body.rstrip().endswith(f"returned: half worked; produced so far: {sub}"))
         run(["draw", wi, "--owner", "root"])
         wt = new(["task", "a chore it shows", "--tag", "upkeep", "--ref", wi])
-        run(["consume", wi])
+        expect("an idea in a hand lists what it produced while it is open, in the order the references were written",
+               load_all(cfg)[wi]["state"] == "open" and load_all(cfg)[wi]["consumed_by"] == [sub, wt])
+        txt = text_of(cfg, ["consume", wi])
         recs = load_all(cfg)
-        expect("an idea consumed is folded into every card that references it, and leaves the hand",
-               recs[wi]["state"] == "consumed" and recs[wi]["consumed_by"] == sorted([sub, wt]) and recs[wi]["owner"] is None)
+        expect("an idea consumed is closed by its own act, consumed_by kept as it was, the hand cleared, and no notice printed",
+               recs[wi]["state"] == "consumed" and recs[wi]["consumed_by"] == [sub, wt] and recs[wi]["owner"] is None and recs[wi]["drawn"] is None
+               and f"changed {wi}" in txt and "may need a follow-up" not in txt)
         run(["draw", wi, "--owner", "root"], ok=False)  # consumed
+        run(["consume", wi], ok=False)  # consumed already
+        p = run(["reopen", wi, "--reason", "one more thing in it"])
+        recs = load_all(cfg)
+        expect("a consumed idea is reopened: open again, consumed_by kept, a dated note keeping that it was consumed, and the notice naming the cards that name it",
+               recs[wi]["state"] == "open" and recs[wi]["consumed_by"] == [sub, wt] and recs[wi].body.rstrip().endswith(f"{today} — reopened: one more thing in it; it was consumed")
+               and set(noticed(p, wi)) == {sub, wt})
+        run(["reopen", wi, "--reason", "again"], ok=False)  # open already
+        run(["consume", wi])
+        # the notice reads consumed_by only where a card the idea produced ends badly or comes back
+        iN = new(["idea", "an idea for the notice"])
+        qN = new(["question", "QN", "--ref", iN])
+        tN, tM, tO = (new(["task", name, "--ref", iN]) for name in ("TN", "TM", "TO"))
+        fN = new(["finding", "FN", "--evidence", "stated:papers/alpha.md#FV-1", "--ref", iN])
+        expect("every mint with --ref IDEA lists the card in the idea's consumed_by", load_all(cfg)[iN]["consumed_by"] == [qN, tN, tM, tO, fN])
+        p = run(["wrong", qN, "--reason", "badly put"])
+        expect("a question closed wrong names the idea that produced it", noticed(p, qN) == [iN])
+        p = run(["reopen", qN, "--reason", "after all"])
+        expect("a question reopened names the idea that produced it", noticed(p, qN) == [iN])
+        p = run(["park", qN, "--reason", "r"])
+        expect("a question parked names no idea", noticed(p, qN) == [])
+        run(["unpark", qN])
+        p = run(["remove", qN, "--reason", "r"])
+        expect("a question removed names the idea that produced it", noticed(p, qN) == [iN])
+        run(["draw", tN, "--owner", "root"])
+        run(["return", tN])
+        run(["draw", tN, "--owner", "root"])
+        p = run(["abort", tN, "--reason", "r"])
+        expect("a task aborted names the idea that produced it", noticed(p, tN) == [iN])
+        p = run(["remove", tM, "--reason", "r"])
+        expect("a task removed names the idea that produced it", noticed(p, tM) == [iN])
+        run(["draw", tO, "--owner", "root"])
+        p = run(["make", tO, "--resolution", res])
+        expect("a task done names no idea", noticed(p, tO) == [])
+        p = run(["remove", fN, "--reason", "r"])
+        expect("a finding removed names the idea that produced it", noticed(p, fN) == [iN])
+        qO = new(["question", "QO", "--ref", iN])
+        p = run(["finding", "FO", "--evidence", "stated:papers/alpha.md#FV-1", "--ref", iN, "--answers", qO])
+        expect("a question answered names no idea, and the mint reports the idea changed beside the question it closed",
+               p["notices"] == [] and p["changed"] == [qO, iN])
+        run(["consume", iN])
+        txt = text_of(cfg, ["finding", "FP", "--evidence", "stated:papers/alpha.md#FV-1", "--ref", iN])
+        expect("a card minted from a consumed idea is listed in its consumed_by all the same, and a finding answering no question prints no closing line",
+               f"changed {iN}" in txt and " closed " not in txt and load_all(cfg)[iN]["state"] == "consumed" and len(load_all(cfg)[iN]["consumed_by"]) == 8)
+        iR = new(["idea", "an idea to remove"])
+        cR = new(["task", "TR", "--ref", iR])
+        p = run(["remove", iR, "--reason", "dropped partly worked"])
+        expect("an idea removed names the cards that name it, and keeps what it produced",
+               noticed(p, iR) == [cR] and load_all(cfg)[iR]["consumed_by"] == [cR])
+        p = run(["reopen", iR, "--reason", "r"], ok=False)
+        expect("a removed idea stays final, the refusal saying where it is restored from", "restored from git" in p["problems"][0]["msg"])
+        run(["tag", iN, "+do-not-reopen"])
+        p = run(["reopen", iN, "--reason", "r"], ok=False)
+        expect("the tag do-not-reopen holds for an idea as for a question", "do-not-reopen" in p["problems"][0]["msg"])
+        run(["tag", iN, "-do-not-reopen"])
+        run(["reopen", tN, "--reason", "r"], ok=False)  # a task is not reopened
         run(["remove", sub, "--reason", "folded into the chore"])
         sub2 = new(["idea", "an idea referring to a removed one", "--ref", sub])
         expect("a removed record may be referenced: nothing is deleted, and nothing is refused for it", load_all(cfg)[sub2]["references"] == [sub])
@@ -4349,6 +4501,12 @@ def selftest():
         expect("wrong and impossible are listed as settled, a removed record nowhere",
                f"`{qw}` — Is the empty sum odd? [wrong]" in idx and f"`{qi}` — Does it halt? [impossible]" in idx and sub not in idx)
         heap = new(["idea", "an idea for the heap"])
+        run(["index"])
+        idx = cfg.index.read_text(encoding="utf-8")
+        shelf = [r for r in load_all(cfg).values() if r.type == "idea" and r["state"] == "open" and not r["owner"]]
+        expect("the index's Heap says of each open idea it lists whether it is fresh or what it produced, and counts the fresh ones",
+               f"{len(shelf)} open ideas, {sum(not r['consumed_by'] for r in shelf)} fresh; oldest:" in idx
+               and f"- `{idea}` — an idea [{today}, test, produced 1]" in idx and "no source, fresh]" in idx)
         # the reference library, asked through its `keys` answer (a stub stands for it here)
         stub = root / "lib_stub.py"
         stub.write_text('import json\nprint(json.dumps({"ok": True, "cite_prefix": "lib:", "cards": '
@@ -4422,7 +4580,7 @@ def selftest():
         recs = load_all(cfg)
         expect("a goal references the direction it was produced along, which stays open, and its body says what reached means",
                recs[g]["references"] == [d] and recs[d]["state"] == "open" and "Reached means" in recs[g].body)
-        qg = new(["question", "Qg", "--consume", new(["idea", "an idea for the goal"]), "--serves", g])
+        qg = new(["question", "Qg", "--ref", new(["idea", "an idea for the goal"]), "--serves", g])
         run(["question", "Qx", "--serves", "goal-0099"], ok=False)
         run(["rank", qg, "3"])
         run(["serves", q4, "+" + g])
@@ -4445,9 +4603,13 @@ def selftest():
                recs[g]["state"] == "given_up" and recs[g]["closed"] == {"date": today, "reason": "B is out of reach this year"}
                and recs[qg]["serves"] == [g] and recs[q4]["serves"] == [g] and recs[qg]["rank"] == 3
                and set(noticed(p, g)) == {q4, qg} and "released" not in p)
+        run(["ref", rt, "+" + q4])
         txt = text_of(cfg, ["unpark", q4])
-        expect("unpark prints the notice under the changed line, in the owner's words, a referring record that is not removed",
-               f"changed {q4}" in txt and "  refers to it, may need a follow-up: " in txt.split(f"changed {q4}", 1)[1])
+        expect("unpark prints the notice under the changed line, in the owner's words, a referring record that is not removed, "
+               "and not the idea that produced the question, an unpark being no end or return of it",
+               f"changed {q4}" in txt and f"  refers to it, may need a follow-up: {rt} (ready)" in txt.split(f"changed {q4}", 1)[1]
+               and load_all(cfg)[q4]["references"][0] not in txt)
+        run(["ref", rt, "-" + q4])
         raw = load_all(cfg)[q4]
         raw.fm["parked"] = {"date": today, "reason": "waiting", "revival": None}
         raw.path.write_text(render(raw.fm, raw.body), encoding="utf-8")
@@ -4466,7 +4628,7 @@ def selftest():
         expect("a goal reached carries its date and what shows it", recs[g2]["state"] == "reached" and recs[g2]["closed"]["reason"] == f"C is proved, {fa}")
         run(["serves", qg, "-" + g2])
         # a direction dropped by the owner; a question keeps what it served
-        qd = new(["question", "Qd", "--consume", new(["idea", "an idea for the bridge"]), "--serves", d])
+        qd = new(["question", "Qd", "--ref", new(["idea", "an idea for the bridge"]), "--serves", d])
         p = run(["drop", d, "--reason", "the bridge is crossed"])
         recs = load_all(cfg)
         expect("a direction dropped clears nothing on its questions, and the notice names who refers to it, a closed one among them",
@@ -4634,6 +4796,7 @@ def selftest():
             for path, text in saved.values():
                 path.write_text(text)
             cfg.index.write_text(idx)
+            return problems
 
         def raw_edit(recs, id_, fn):
             r = recs[id_]
@@ -4666,6 +4829,17 @@ def selftest():
         plant("a closing reason on an open question", "V17", lambda R: raw_edit(R, q3, lambda fm: fm.update(closed={"date": today, "reason": "r"})))
         plant("a consumed idea naming a card that does not reference it", "V17", lambda R: raw_edit(R, i2, lambda fm: fm.update(consumed_by=[q5])))
         plant("a consumed idea naming its card as one id", "V17", lambda R: raw_edit(R, i2, lambda fm: fm.update(consumed_by=q3)))
+        v17 = lambda id_, **kv: [x["msg"] for x in plant(f"an idea's consumed_by set to {kv['consumed_by']}", "V17", lambda R: raw_edit(R, id_, lambda fm: fm.update(kv)))
+                                 if x["code"] == "V17"]
+        expect("V17 fails an idea, open or consumed, whose consumed_by names a record that does not name it in references",
+               v17(heap, consumed_by=[q5]) == [f"consumed_by lists {q5}, which does not name {heap} in references"]
+               and f"consumed_by lists {q5}, which does not name {i2} in references" in v17(i2, consumed_by=[q5, q3]))
+        expect("V17 fails an idea whose consumed_by lacks a record that names it in references, whatever the idea's state",
+               v17(idea, consumed_by=[]) == [f"consumed_by lacks {q}, which names {idea} in references"]
+               and v17(wi, consumed_by=[sub]) == [f"consumed_by lacks {wt}, which names {wi} in references"])
+        expect("V17 fails a consumed idea with an empty consumed_by, and one whose consumed_by is not a list",
+               "consumed with no card in consumed_by: an idea that produced nothing is removed" in v17(i2, consumed_by=[])
+               and v17(i2, consumed_by=q3) == [f"consumed_by lists the cards that name the idea in references, not one id (`flow doctor`)"])
         plant("a question answered by nothing", "V18", lambda R: raw_edit(R, q, lambda fm: fm.update(answered_by=None)))
         plant("a question answered by a task", "V18", lambda R: raw_edit(R, q, lambda fm: fm.update(answered_by=t1)))
         plant("a question answered by a list of findings", "V18", lambda R: raw_edit(R, q, lambda fm: fm.update(answered_by=[fa, f])))
@@ -5213,7 +5387,7 @@ def selftest():
                    go(["touched"])["reranked_only"] == [t1] and t2 in [x["id"] for x in go(["touched"])["touched"]])
             p2.write_text(moved2, encoding="utf-8")
             # a question `rank --set` only moved is re-ranked only: an order asserts no read, so its checked date stands
-            qx = go(["question", "a ranked question", "--consume", go(["idea", "an idea behind a ranked question"])["created"][0]],
+            qx = go(["question", "a ranked question", "--ref", go(["idea", "an idea behind a ranked question"])["created"][0]],
                     day="2026-10-26")["created"][0]
             go(["rank", qx, "4"], day="2026-10-26")
             entry.write_text(f"## 2026-10-27 — a ranked question\n\n**State.** The question {qx} and the chore {t3} are ranked.\n", encoding="utf-8")
@@ -5357,7 +5531,7 @@ def selftest():
             expect("the doctor finds nothing in a tree init wrote", rc == 0 and not pl["problems"])
             (r2 / "res.md").write_text("Done.\n", encoding="utf-8")
             res2 = str(r2 / "res.md")
-            for argv in (["idea", "i"], ["question", "Q", "--consume", "idea-0001"],
+            for argv in (["idea", "i"], ["question", "Q", "--ref", "idea-0001"], ["consume", "idea-0001"],
                          ["task", "t", "--ref", "question-0001"], ["draw", "task-0001", "--owner", "agent"], ["make", "task-0001", "--resolution", res2],
                          ["task", "a chore", "--tag", "upkeep"], ["task", "a chore given up", "--tag", "upkeep"],
                          ["finding", "F", "--evidence", "reference:https://example.org/f", "--ref", "task-0001"]):
@@ -5374,10 +5548,10 @@ def selftest():
             old("task-0003", lambda fm: fm.update(abandoned={"date": today, "reason": "given up while ready"}, state="abandoned") or fm.pop("closed"))
             # a record of the first model, with no tags and no references, a kind to carry over and a listed owner on a done task;
             # a consumed idea still in a hand; a question answered by a list of one finding, and an open one naming one
-            for argv in (["idea", "j"], ["task", "an old chore"], ["question", "Q2", "--consume", "idea-0002"],
+            for argv in (["idea", "j"], ["task", "an old chore"], ["question", "Q2", "--ref", "idea-0002"], ["consume", "idea-0002"],
                          ["draw", "task-0004", "--owner", "agent"], ["make", "task-0004", "--resolution", res2],
                          ["finding", "G", "--evidence", "reference:https://example.org/g", "--ref", "task-0004", "--answers", "question-0002"],
-                         ["idea", "k"], ["question", "Q3", "--consume", "idea-0003"]):
+                         ["idea", "k"], ["question", "Q3", "--ref", "idea-0003"]):
                 dispatch(c2, argv, today=today, as_json=True, quiet=True)
             recs = load_all(c2)
             old("task-0004", lambda fm: (fm.update(kind="survey", owner="agent"), fm.pop("tags"), fm.pop("references"), fm.pop("after")))
@@ -5499,6 +5673,9 @@ def selftest():
                 "ideas/idea-0001-an-idea.md": {"id": "idea-0001", "type": "idea", "state": "consumed", "summary": "an idea", "source": "a talk",
                                                "derived_from": [], "owner": None, "drawn": None, "consumed_by": ["question-0001"], "closed": None,
                                                "origin": "current", "created": day, "tags": []},
+                "ideas/idea-0002-an-open-idea.md": {"id": "idea-0002", "type": "idea", "state": "open", "summary": "an open idea", "source": None,
+                                                    "derived_from": [], "owner": None, "drawn": None, "consumed_by": [], "closed": None,
+                                                    "origin": "current", "created": day, "tags": []},
                 "questions/question-0001-does-a-imply-b.md": {
                     "id": "question-0001", "type": "question", "kind": "conjecture", "state": "open", "summary": "Does A imply B?",
                     "derived_from": ["idea-0001"], "parent": None, "size": "medium",
@@ -5512,7 +5689,7 @@ def selftest():
                     "blocked": None, "rank": None, "why_now": None, "first_move": None, "direction": None, "serves": None,
                     "answered_by": "finding-0002", "closed": None, **tail},
                 "tasks/task-0001-prove-the-lemma.md": {
-                    "id": "task-0001", "type": "task", "state": "ready", "summary": "prove the lemma", "derived_from": ["question-0001"],
+                    "id": "task-0001", "type": "task", "state": "ready", "summary": "prove the lemma", "derived_from": ["question-0001", "idea-0002"],
                     "requires": ["finding-0001"], "size": "small", "owner": None, "drawn": None, "dod": "the lemma is proved", "due": None,
                     "after": "mint the next", "rank": 2, "why_now": "w", "first_move": "m", "rider": True, "parked": None, "blocked": None,
                     "closed": None, **{**tail, "tags": ["research"]}},
@@ -5521,7 +5698,8 @@ def selftest():
                     "requires": [], "size": None, "owner": None, "drawn": day, "dod": None, "due": None, "after": None, "rank": None,
                     "why_now": None, "first_move": None, "rider": False, "parked": None, "blocked": None, "closed": None, **tail},
                 "findings/finding-0001-the-paper-s-lemma.md": base("finding-0001", "finding", None, "the paper's lemma",
-                                                                   evidence=["reference:https://example.org/a"], derived_from=["task-0002"], depends_on=[], **tail),
+                                                                   evidence=["reference:https://example.org/a"], derived_from=["task-0002"], depends_on=[],
+                                                                   question="idea-0002", **tail),
                 "findings/finding-0002-it-follows.md": base("finding-0002", "finding", None, "it follows", evidence=["reference:https://example.org/b"],
                                                             derived_from=["question-0002"], depends_on=["finding-0001"], **tail),
             }
@@ -5534,6 +5712,10 @@ def selftest():
                    and any(x["code"] == "V3" and "unknown field why_now" in x["msg"] and "words in the body" in x["msg"] for x in pl["problems"]))
             rc, pl = dispatch(c2, ["doctor"], today=today, as_json=True, quiet=True)
             said = [x["was"] + " — " + x["now"] for x in pl["mechanical"]]
+            expect("the doctor lists the mirror of an open idea as one mechanical item, read from the references as the fix leaves them: "
+                   "a card's derived_from and a finding's question among them, the ids in order",
+                   "consumed_by lacks finding-0001, task-0001 — consumed_by: finding-0001, task-0001 appended (the records that name idea-0002 in references)" in said
+                   and pl["summary"].get("consumed-mirror") == 1 and not any("idea-0001" in x and "consumed_by lacks" in x for x in said))
             expect("the doctor says a block's words holding a date are words, a date being an item written alone",
                    len(pl["remarks"]) == 1 and pl["remarks"][0]["path"].endswith("question-0001-does-a-imply-b.md")
                    and "the release of 2026-12-01 is words" in pl["remarks"][0]["text"] and "written alone" in pl["remarks"][0]["text"]
@@ -5551,6 +5733,7 @@ def selftest():
                    and "flow doctor: 0 thing(s) for the hand" in fixed_text)
             rc, pl = dispatch(c2, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
             expect("`flow doctor --fix --json` carries the remark", len(pl["remarks"]) == 1 and "written alone" in pl["remarks"][0]["text"])
+            expect("one `flow doctor --fix` writes the mirror, the class counted once", pl["fixed"].get("consumed-mirror") == 1)
             recs = load_all(c2)
             q1, t1_, g1 = recs["question-0001"], recs["task-0001"], recs["goal-0001"]
             expect("doctor --fix moves every v0.7.0 field: the links to references and serves, the block renamed, the words to the body "
@@ -5562,7 +5745,9 @@ def selftest():
                    and f"{today} — why_now (moved from the field): the talk is soon" in q1.body
                    and q1.body.index("criterion (moved") < q1.body.index("why_now (moved") < q1.body.index("first_move (moved")
                    and recs["question-0002"]["references"] == ["question-0001"] and recs["question-0002"]["serves"] == []
-                   and t1_["references"] == ["question-0001", "finding-0001"] and t1_["tags"] == ["research", "rider"]
+                   and t1_["references"] == ["question-0001", "idea-0002", "finding-0001"] and t1_["tags"] == ["research", "rider"]
+                   and recs["finding-0001"]["references"] == ["task-0002", "idea-0002"] and recs["idea-0002"]["consumed_by"] == ["finding-0001", "task-0001"]
+                   and recs["idea-0002"]["state"] == "open" and recs["idea-0001"]["consumed_by"] == ["question-0001"]
                    and f"{today} — dod (moved from the field): the lemma is proved" in t1_.body and t1_["after"] == "mint the next"
                    and recs["task-0002"]["tags"] == [] and recs["task-0002"]["references"] == ["question-0001"]
                    and recs["finding-0002"]["references"] == ["question-0002", "finding-0001"]
@@ -5576,6 +5761,17 @@ def selftest():
             rc, pl = dispatch(c2, ["doctor"], today=today, as_json=True, quiet=True)
             expect("and the doctor finds nothing left in it, and no remark: words holding a date are legitimate words once fixed",
                    rc == 0 and not pl["problems"] and not pl["mechanical"] and pl["remarks"] == [])
+            # an entry whose record does not name the idea is for the hand, with the two ways out
+            stray = load_all(c2)["idea-0001"]
+            stray.fm["consumed_by"] = ["question-0001", "task-0002", "task-0099"]
+            stray.path.write_text(render(stray.fm, stray.body), encoding="utf-8")
+            rc, pl = dispatch(c2, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
+            msgs = [x["msg"] for x in pl["problems"]]
+            expect("a consumed_by entry whose record does not name the idea is for the hand: remove it, or name the idea in that record; no record at all, remove it",
+                   rc == 1 and not pl["fixed"] and len(msgs) == 2
+                   and any("consumed_by: task-0002" in m and "task-0002 does not name idea-0001 in references: remove it from consumed_by, "
+                           "or name the idea in that record with `flow ref task-0002 +idea-0001`" in m for m in msgs)
+                   and any("consumed_by: task-0099" in m and "task-0099 is no record" in m for m in msgs))
 
         # the reflow offered for the project's other prose
         (root / "prose.md").write_text("---\ntitle: A. B on one line\n---\n\n# Prose\n\nOne. Two on a line.\n\n**Theorem 1.** It holds.\n\n"
@@ -5654,7 +5850,6 @@ def build_parser():
         return p
     mint("idea", "an open idea")
     p = mint("question", "an open question; its body says what counts as an answer")
-    p.add_argument("--consume", action="append", metavar="IDEA", help="an open idea consumed into it, named in its references; repeatable")
     p.add_argument("--serves", action="append", metavar="ID", help="an open goal or direction it serves; repeatable"); p.add_argument("--size")
     p = mint("task", "a ready task; its body says what done means")
     p.add_argument("--size"); p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
@@ -5680,7 +5875,7 @@ def build_parser():
     p = sp.add_parser("remove"); p.add_argument("id"); p.add_argument("--reason", required=True)
     p = sp.add_parser("wrong"); p.add_argument("question"); p.add_argument("--reason", required=True)
     p = sp.add_parser("impossible"); p.add_argument("question"); p.add_argument("--by", required=True, help="the standing finding that shows it")
-    p = sp.add_parser("reopen"); p.add_argument("question"); p.add_argument("--reason", required=True, help="why it is to be settled again")
+    p = sp.add_parser("reopen"); p.add_argument("id"); p.add_argument("--reason", required=True, help="why it is to be settled again, or worked again")
     p = sp.add_parser("park"); p.add_argument("id"); p.add_argument("--reason", required=True); p.add_argument("--revival")
     p = sp.add_parser("unpark"); p.add_argument("id"); p.add_argument("--note")
     p = sp.add_parser("block"); p.add_argument("id")
@@ -5754,19 +5949,31 @@ TRANSITIONS = {"idea": cmd_idea, "question": cmd_question, "task": cmd_task, "fi
 NOTICED = ("state", "parked", "blocked_by")
 
 
+def ends_badly(r, was, now):
+    """Whether a state change is a card ending badly or coming back: a question closed wrong, removed or reopened, a task
+    aborted or removed, a finding removed.  Only these name the idea that produced the card (`consumed_by`)."""
+    if was == now:
+        return False
+    if r.type == "question":
+        return now in ("wrong", "removed") or (now == "open" and was in ("answered", "impossible", "wrong", "removed"))
+    return (r.type == "task" and now in ("aborted", "removed")) or (r.type == "finding" and now == "removed")
+
+
 def notices(recs, before, created, changed):
     """For each record a transition changed in its state, or parked, unparked, blocked or unblocked, the records that refer to
     it by a link, each with its state: who may need a follow-up.  A removed record is left out, and so is one the same
-    command minted or changed; nothing is refused or failed for them."""
+    command minted or changed; nothing is refused or failed for them.  The link `consumed_by` is read only where the
+    record ended badly or came back (`ends_badly`), and an idea consumed names no one: the closing is its own act."""
     touched = {r.id for r in created + changed}
     out = []
     for r in changed:
         now = json.dumps([r.fm.get(k) for k in NOTICED], sort_keys=True, default=str)
-        if before.get(r.id) in (None, now):
+        if before.get(r.id) in (None, now) or (r.type == "idea" and r["state"] == "consumed"):
             continue
+        bad_end = ends_badly(r, json.loads(before[r.id])[NOTICED.index("state")], r["state"])
         refs = []
-        for x, _ in linked_by(recs, r.id):
-            if x["state"] != "removed" and x.id not in touched and x.id not in [y["id"] for y in refs]:
+        for x, f in linked_by(recs, r.id):
+            if (f != "consumed_by" or bad_end) and x["state"] != "removed" and x.id not in touched and x.id not in [y["id"] for y in refs]:
                 refs.append({"id": x.id, "state": x["state"]})
         if refs:
             out.append({"id": r.id, "refers": refs})
@@ -5893,7 +6100,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["reranked"] = [{"id": i, "from": f, "to": n} for i, f, n in _RERANKED]
             for i, f, n in _RERANKED:
                 emit(f"re-ranked {i} {f} → {n}")
-            if a.cmd in ("finding", "answer", "impossible") and changed:
+            if (a.cmd in ("answer", "impossible") or (a.cmd == "finding" and a.answers)) and changed:  # the question is changed[0], ideas after it
                 emit(f"{changed[0].id} closed {changed[0]['state']} by {changed[0]['answered_by']}")
             if a.cmd in ("make", "abort") and changed and changed[0]["after"]:  # the post-done instruction, for the agent to follow
                 out["after"] = changed[0]["after"]
@@ -6093,7 +6300,7 @@ USUAL_WORDS = {
     **dict.fromkeys(("done", "close", "finish", "complete"), "a task closes with `make T --resolution FILE` (or `abort T --reason R`), "
                     "a question with the finding that settles it, `answer Q --by F` or `finding SUMMARY --evidence FORM:TARGET… --answers Q`"),
     "capture": "an idea is minted by `idea SUMMARY`",
-    "frame": "a question is minted by `question SUMMARY`, `--consume IDEA` for an idea it is framed from, `--ref ID` for a finding or a question",
+    "frame": "a question is minted by `question SUMMARY`, `--ref ID` for an idea, a finding or a question it comes from; `consume IDEA` closes an idea once it is fully processed",
     "refine": "a question's tasks are minted by `task SUMMARY --ref Q`, a sub-question by `question SUMMARY --ref Q`",
     "kill": "`remove ID --reason R` for an idea, an open question or a ready task; `abort T --reason R` for an active task",
     **dict.fromkeys(("out", "release", "putback"), "`return ID --note N` puts a drawn record back"),
