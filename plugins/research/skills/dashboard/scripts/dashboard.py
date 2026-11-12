@@ -295,7 +295,7 @@ table.kv th{width:10em;text-transform:none;letter-spacing:0;font-size:.9em}
 .badge{display:inline-block;font-size:.76em;font-weight:600;padding:1px 7px;border-radius:99px;
 border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
 .s-open,.s-ready,.s-formal,.s-reached,.s-full,.s-registered{color:var(--g)}
-.s-active,.s-statistical,.s-peer-reviewed,.s-parts{color:var(--b)}
+.s-held,.s-statistical,.s-peer-reviewed,.s-parts{color:var(--b)}
 .s-stated,.s-reference,.s-parked,.s-blocked,.s-skimmed{color:var(--y)}
 .s-refuted,.s-aborted,.s-wrong,.s-unread,.s-excluded{color:var(--r)}
 .s-done,.s-answered,.s-impossible,.s-consumed{color:var(--p)}.s-type,.s-ungraded,.s-removed{color:var(--n)}
@@ -353,7 +353,7 @@ def fmt(R, v, href=None):
     return R.inline(v)
 
 
-STATE_COLS = ("state", "status", "forms", "grade", "read.grade")
+STATE_COLS = ("state", "standing", "status", "forms", "grade", "read.grade")
 
 
 class Site:

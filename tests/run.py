@@ -339,7 +339,7 @@ def main():
         today = __import__("datetime").date.today().isoformat()
         check("docs/research/getting-started.md shows the task record as the tool writes it",
               task.name == "task-0001-prove-the-lemma.md" and task.read_text(encoding="utf-8").replace(today, "2026-10-23") == record)
-        task.write_text(task.read_text(encoding="utf-8").replace("state: ready", "state: active"), encoding="utf-8")
+        task.write_text(task.read_text(encoding="utf-8").replace("owner: null\ndrawn: null", f"owner: agent\ndrawn: '{today}'"), encoding="utf-8")
         r = subprocess.run([sys.executable, str(SCRIPTS["flow"]), "check"], capture_output=True, text=True, cwd=lite)
         failed = re.findall(r"```text\n(.*?)```", started, re.S)[0]
         check("docs/research/getting-started.md shows the failed check as the tool reports it",
