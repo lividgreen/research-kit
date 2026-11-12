@@ -4,7 +4,7 @@ description: The typed flow of research work — ideas, tasks, questions, findin
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), git (the log's part of the freeze check), a project reflow module (one sentence per line; built in otherwise); a resolver for the findings' formal evidence (the formal plugin's, where a formal.toml stands), a probes register and a reference library, without which formal, probe and peer-reviewed evidence is reported unchecked.
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
   script: scripts/flow.py
 ---
 

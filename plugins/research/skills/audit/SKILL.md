@@ -4,7 +4,7 @@ description: A consistency audit across the project's documents — the mechanic
 license: Apache-2.0
 compatibility: No script of its own; runs the project's checks, and `library check` and `formal cite` where those are bound.
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
 ---
 
 # A consistency audit

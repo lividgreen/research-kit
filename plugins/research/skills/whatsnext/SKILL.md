@@ -4,7 +4,7 @@ description: What we do next, for the whole project — review the cards the age
 license: Apache-2.0
 compatibility: The `flow` skill beside this one, whose script it runs; git for the commit.
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
   requires: flow
 ---
 

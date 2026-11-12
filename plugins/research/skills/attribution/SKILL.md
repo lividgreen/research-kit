@@ -4,7 +4,7 @@ description: An attribution check — every sentence crediting the project with 
 license: Apache-2.0
 compatibility: The `library` skill beside this one, whose script it runs; a kept or fetchable copy of each primary source.
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
   requires: library
 ---
 
