@@ -19,7 +19,7 @@ The kit is what replaced each of those failures in one research project: a serie
 
 The **`research` plugin**, for any research project:
 
-- **Research records.** Ideas, questions with a criterion of what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next and a log a cold session starts from.
+- **Research records.** Ideas, questions that say what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next and a log a cold session starts from.
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it, and each document's citations checked against its own reference list.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
 - **A dashboard.** The records and the cards as a read-only page on localhost.

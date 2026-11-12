@@ -289,9 +289,10 @@ def main():
                 check(f"{page} shows {name} as init writes it", len(shown) == len(names) and shown[i] == written)
         lite = Path(tmp) / "lite"
         lite.mkdir()
-        for argv in (["init", "--log", "WORKLOG.md"], ["capture", "A might imply B", "--source", "a talk"],
-                     ["frame", "idea-0001", "--summary", "Does A imply B?", "--criterion", "a finite counterexample, or a proof"],
-                     ["refine", "question-0001", "--task", "prove the lemma", "--task", "design the route", "--tag", "research"]):
+        for argv in (["init", "--log", "WORKLOG.md"], ["idea", "A might imply B", "--source", "a talk"],
+                     ["question", "Does A imply B?", "--consume", "idea-0001"],
+                     ["task", "prove the lemma", "--ref", "question-0001", "--tag", "research"],
+                     ["task", "design the route", "--ref", "question-0001", "--tag", "research"]):
             subprocess.run([sys.executable, str(SCRIPTS["flow"]), *argv], capture_output=True, text=True, cwd=lite, check=True)
         started = (ROOT / "docs/research/getting-started.md").read_text(encoding="utf-8")
         record = re.findall(r"```markdown\n(.*?)```", started, re.S)[0]

@@ -19,18 +19,45 @@ The slug is the summary lowercased, every run of characters outside `a-z0-9` tur
 
 The front matter stands between two `---` lines and is the subset of YAML the script writes: plain scalars, single-quoted strings (a quote doubled inside), double-quoted strings with escapes, `null`, `true` and `false`, integers, block lists (`- item`) and one-level maps.
 Every field of the kind's schema is present, in the order the tables below give, `null` where it is empty and `[]` for an empty list; a hand edit stays inside that subset, since `flow check` reads every record back and fails one it cannot read.
-A field of an older model, such as `abandoned`, `kill`, a task's `kind` or a finding's `status`, fails the check, and `flow doctor` says what it reads now.
+A field of an older model, such as `derived_from`, `criterion`, `blocked`, `abandoned`, a task's `kind` or a finding's `status`, fails the check, and `flow doctor` says what it reads now.
 
 The body is prose, one sentence per line, which `flow check` enforces because diffs and the index depend on it; where `markdownlint` is on PATH, a write that adds a violation is reverted.
 A body points at where its subject is STATED — a document's section, a module, a round — and never restates it, because the statement moves and a copy does not.
-It points at a repository path by a Markdown link whose target is the path from the project root, `[the theorem](<papers/alpha.md#Theorem 2.1>)`, the angle brackets where the target holds a space; `flow artifacts` lists every such path with the records naming it, and the check holds the path before any anchor to existence and to the tree, an absolute path or one climbing above the root by `..` being outside it (V24 on a live record, a warning on a closed one), while a URL, a bare `#anchor` and a path in backticks are prose.
-Transitions append dated notes to the end of a body, each `YYYY-MM-DD — label:` and, after one blank line, the text of the file given (`--body FILE` and `--resolution FILE` take a file, never inline text, or `-` for the standard input): `resolution:` for a task made or aborted with `--resolution`, `refined:` for a question refined with `--body`, `note:` for any record given `flow note ID --body FILE`, `FIELD set: WORDS` for one given `flow set … --note WORDS`, and `criterion set; it read: OLD` (or `horizon`), the owner's words after it, for a goal's criterion or horizon set; `returned:`, `unparked:` and `unblocked:` carry their one-line notes, and an idea returned partly worked has what it produced so far appended, as `returned: NOTE; produced so far: idea-0002, task-0003`.
+A question's body says what counts as an answer, or points at where that is stated; a goal's body what reached means and how far out it lies; a task's body what done means; the check reads none of these, and they are the convention a session keeps.
+A body points at a repository path by a Markdown link whose target is the path from the project root, `[the theorem](<papers/alpha.md#Theorem 2.1>)`, the angle brackets where the target holds a space; `flow artifacts` lists every such path with the records naming it, and the check holds the path before any anchor to existence and to the tree, an absolute path or one climbing above the root by `..` being outside it (V24 on a live record, a warning on a closed or removed one), while a URL, a bare `#anchor` and a path in backticks are prose.
+Transitions append dated notes to the end of a body, each `YYYY-MM-DD — label:` and, after one blank line, the text of the file given (`--body FILE` and `--resolution FILE` take a file, never inline text, or `-` for the standard input): `resolution:` for a task made, or aborted with `--resolution`, `note:` for any record given `flow note ID --body FILE`, `FIELD set: WORDS` for one given `flow set … --note WORDS`, and `summary set; it read: OLD`, the words of `--note` after it, for a summary set; `returned:`, `unparked:` and `unblocked:` carry their one-line notes (`unblocked ITEM:` where `--on` removed one item), an idea returned partly worked has what it produced so far appended, as `returned: NOTE; produced so far: idea-0002, task-0003`, and a question reopened has `reopened: REASON; it was STATE`, with `by F` where a finding settled it and `(DATE: its closing reason)` where it carried one.
+
+## The links
+
+Five fields connect the records, one general and four with a rule.
+
+| Field | On | Holds | Its rule |
+| --- | --- | --- | --- |
+| `references` | every kind | a list of record ids | none: the general link |
+| `answered_by` | question | one finding | the finding that settles it, answered or impossible |
+| `blocked_by` | question, task | a map of `date`, `on` (a list) and `reason` | the record is blocked while an item of `on` holds, and `draw` is refused |
+| `serves` | question | a list of goal and direction ids | biases the ranking; the index lists each goal's and direction's questions |
+| `consumed_by` | idea | a list of record ids | the cards a consumed idea was folded into, each naming it in `references` |
+
+`references` is a connection with no obligation in the flow: what a record came from, rests on or is about.
+An entry is a record of any kind in any state, a removed one included, since nothing is deleted; it is written at any mint with `--ref ID` and changed afterwards with `flow ref ID +X -Y`, refused only where the id does not exist, is the record's own or is held already.
+No transition clears it, and nothing is refused, warned of or failed because one exists; the check holds it to the id's existence alone.
+
+An item of `blocked_by.on` is one of three kinds, told apart exactly:
+
+| Kind | Written | Holds until |
+| --- | --- | --- |
+| a record | its id, a task's or a question's | the record is settled: done, aborted, removed, answered, wrong or impossible |
+| a date | `YYYY-MM-DD` and nothing else, a day of the calendar | that day |
+| words | anything else, a date inside words among them | removed by hand, `flow unblock ID --on "…"` |
+
+Blocked is calculated: nothing marks a record unblocked when a blocker settles, and a blocker reopened blocks again.
 
 ## The fields
 
 The tables give each kind's fields in the order its front matter carries them, and who writes each.
-*Minted* is the transition that creates the record; *transition* names the ones that change the field after; *`flow set`* is the one command for a field the project may change at any time; *hand* is a field the project edits in the file.
-Everything else is never edited by hand: the check does not read who wrote a field, but a hand edit that leaves a record without what its transition would have written fails it.
+*Minted* is the transition that creates the record, `flow idea`, `flow question`, `flow task`, `flow finding`, `flow goal` or `flow direction`; *transition* names the ones that change the field after; *`flow set`*, *`flow ref`*, *`flow serves`* and *`flow tag`* change a field at any time.
+Every field is written by its command, and `tags` alone also by hand: the check does not read who wrote a field, but a hand edit that leaves a record without what its transition would have written fails it.
 
 Every kind carries these:
 
@@ -38,83 +65,77 @@ Every kind carries these:
 | --- | --- | --- |
 | `id` | the record's id, matching its filename | minted |
 | `type` | `idea`, `question`, `task`, `finding`, `goal` or `direction` | minted |
-| `summary` | one line: what the record is about; a direction's name | minted; `flow set` |
-| `derived_from` | the records it came from, as each kind's table says; never a removed one, and never in a cycle | minted |
-| `origin` | `current` for a record the flow minted, `legacy` for one imported from before it and written by hand, which exempts a question from the criterion rule until its first round | minted; hand, for a legacy record alone |
-| `source` | where it came from: a talk, a paper, `refine question-0001` for an idea minted at a refine, `make task-0001` for one minted at a make; a repository path of the tree, such as the document a question was framed from, is a reference `flow artifacts` and `flow find --refers` read; a source with a path's shape (no space, no URL, a `/` or an extension) is held to the tree when the record is minted, so one in words takes a space (`arXiv 2301.12345`), and one outside the tree is words | minted (`--source`) |
+| `state` | the kind's states, below | minted; the transitions |
+| `summary` | one line: what the record is; a goal's outcome, a direction's name | minted; `flow set`, which keeps what it read in the body |
+| `references` | the records it references, any kind, any state | minted (`--ref`); `flow ref`; `flow question --consume` names the idea |
+| `origin` | `current` for a record the flow minted, `legacy` for one imported from before it and written by hand, which lets an answered question name no finding | minted; hand, for a legacy record alone |
+| `source` | where it came from: a talk, a paper; a repository path of the tree, such as the document a question was minted from, is a reference `flow artifacts` and `flow find --refers` read; a source with a path's shape (no space, no URL, a `/` or an extension) is held to the tree when the record is minted, so one in words takes a space (`arXiv 2301.12345`), and one outside the tree is words | minted (`--source`) |
 | `created` | the ISO date of the minting; a direction's date | minted |
-| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `refuted` marks a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open"; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
+| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `rider` marks a task riding the next hand-over, `conjecture` a question that is one, `refuted` a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open" and refuses `flow reopen`; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
 
-The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a reached or given-up goal, a closed direction, and no other.
+The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a removed finding, a reached or given-up goal, a closed direction, and no other.
 
 ### An idea
 
-`id`, `type`, `state`, `summary`, `source`, `derived_from`, `owner`, `drawn`, `consumed_by`, `closed`, `origin`, `created`, `tags`.
+`id`, `type`, `state`, `summary`, `source`, `references`, `owner`, `drawn`, `consumed_by`, `closed`, `origin`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
-| `state` | `open`, `consumed` or `removed` | minted; `frame`, `consume`, `remove` |
-| `derived_from` | the record it was worked out of (`capture --from`), the question a refine minted it from, or the task a make minted it from | minted |
-| `owner` | the owner whose hand it is drawn into, or `null` | `draw`; cleared by `return`, `consume`, `frame` and `remove` |
+| `state` | `open`, `consumed` or `removed` | minted; `question --consume`, `consume`, `remove` |
+| `owner` | the owner whose hand it is drawn into, or `null` | `draw`; cleared by `return`, `consume`, `question --consume` and `remove` |
 | `drawn` | the ISO date it was drawn | `draw`; cleared with the owner |
-| `consumed_by` | the list of the cards it was consumed into, each naming it in `derived_from` | `frame`, `consume` |
+| `consumed_by` | the list of the cards it was consumed into, each naming it in `references` | `question --consume`, `consume` |
 | `closed` | `date` and `reason` once removed | `remove` |
 
 ### A question
 
-`id`, `type`, `kind`, `state`, `summary`, `derived_from`, `parent`, `size`, `criterion`, `checked`, `parked`, `blocked`, `rank`, `why_now`, `first_move`, `direction`, `serves`, `answered_by`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `summary`, `references`, `size`, `checked`, `parked`, `blocked_by`, `rank`, `serves`, `answered_by`, `closed`, `origin`, `source`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
-| `kind` | `question`, or `conjecture` for one | minted (`frame --kind`) |
-| `state` | `open`, `answered`, `wrong`, `impossible` or `removed` | minted; `finding --answers`, `wrong`, `impossible`, `remove` |
-| `derived_from` | the ideas framed into it, or the one finding it was framed from, or the question a refine or the task a make minted it from | minted |
-| `parent` | the question it is a sub-question of | minted (`frame --parent`, `refine --subq`) |
+| `state` | `open`, `answered`, `wrong`, `impossible` or `removed` | minted; `finding --answers`, `answer`, `wrong`, `impossible`, `remove`, `reopen` |
 | `size` | one of `[question] sizes` | minted (`--size`); `flow set` |
-| `criterion` | what would answer it, or show it wrong or impossible | minted (`--criterion`, the second word of `--subq` and `--question`); `flow set` |
-| `checked` | the ISO date the question was last looked at | minted; `rank`, `unpark`, `unblock`, `checked` |
+| `checked` | the ISO date the question was last looked at | minted; `rank ID N`, `park`, `unpark`, `block`, `unblock`, `reopen`, `checked` |
 | `parked` | `null`, or a map of `date`, `reason` and `revival` while set aside by decision | `park`, `unpark`; cleared by every closing |
-| `blocked` | `null`, or a map of `date`, `on` (a task, a question or a condition in words, a date among them; as a list, one item for each thing it waits on) and `reason` while it waits | `block`, `unblock`; cleared by every closing |
-| `rank` | its place on the ranked list, or `null` | `rank`; cleared by every closing |
-| `why_now` | why it is ranked, one clause | `rank --why`; cleared by every closing |
-| `first_move` | its first step, or "none yet" | `rank --first-move`; cleared by every closing |
-| `direction` | the id of the open direction it leans toward, or `null`; a closed question keeps its as history | minted (`frame --direction`); `rank --direction`; cleared on an open question by `drop` |
-| `serves` | the id of the open goal it serves, or `null`; a closed question keeps its as history | minted (`frame --serves`); `rank --serves`; `flow set`; cleared on an open question by `giveup` |
-| `answered_by` | the one finding that settles it, answered or impossible, as one value, not a list; `null` otherwise, and on a legacy question that names none | `finding --answers`, `impossible --by` |
-| `closed` | `date` and `reason` once wrong or removed | `wrong`, `remove` |
+| `blocked_by` | `null`, or a map of `date`, `on` (a list, one item for each thing it waits on) and `reason` | `block`, `unblock`; cleared by every closing |
+| `rank` | its place on the ranked list, a number alone, or `null` | `rank`; cleared by every closing |
+| `serves` | the open goals and directions it serves, a list; a closed question keeps its as history, and nothing clears an entry when its goal or direction closes | minted (`--serves`); `flow serves` |
+| `answered_by` | the one finding that settles it, answered or impossible, as one value, not a list; `null` otherwise, and on a legacy question that names none | `finding --answers`, `answer --by`, `impossible --by`; cleared by `reopen` |
+| `closed` | `date` and `reason` once wrong or removed | `wrong`, `remove`; cleared by `reopen` |
+
+A question has no kind and no criterion: a conjecture is a question tagged `conjecture`, and what counts as an answer is in its body.
 
 ### A task
 
-`id`, `type`, `state`, `summary`, `derived_from`, `requires`, `size`, `owner`, `drawn`, `dod`, `due`, `after`, `rank`, `why_now`, `first_move`, `rider`, `parked`, `blocked`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `summary`, `references`, `size`, `owner`, `drawn`, `due`, `after`, `rank`, `parked`, `blocked_by`, `closed`, `origin`, `source`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `ready`, `active`, `done`, `aborted` or `removed` | minted; `draw`, `return`, `make`, `abort`, `remove` |
-| `derived_from` | what it came from: the question a refine minted it from, the records of `--from` for `task` (a question there open), or the task whose make minted it; empty for a task that stands alone | minted |
-| `requires` | findings it needs before it is drawn | minted (`refine --requires`) |
 | `size` | one of `[question] sizes`, an estimate for ordering | minted (`--size`); `flow set` |
 | `owner` | the owner whose hand holds it while active | `draw`; cleared by `return`, `make` and `abort` |
 | `drawn` | the ISO date it was drawn | `draw`; cleared by `return`, kept on a closed task as the day its work began |
-| `dod` | its definition of done | minted (`--dod`); `flow set` |
 | `due` | its due date, `YYYY-MM-DD`, or `null`; it never moves a rank: the index lists the open tasks that have one under `Due`, soonest first, `flow state` names one that has passed and `flow check` warns on it | minted (`--due`); `flow set` |
 | `after` | what follows its completion, in words, or `null`; `make` and `abort` print it at the close for the agent to follow | minted (`--after`); `flow set` |
-| `rank`, `why_now`, `first_move` | as a question's | `rank`; cleared by `make`, `abort` and `remove` |
-| `rider` | `true` while it rides the next piece of work handed to another session | minted `false`; `flow set rider on` or `off` (`true` or `false`); `false` again at `make`, `abort` and `remove` |
-| `parked`, `blocked` | as a question's, on a ready task | `park`, `unpark`, `block`, `unblock`; cleared by `remove` |
+| `rank` | as a question's | `rank`; cleared by `make`, `abort` and `remove` |
+| `parked`, `blocked_by` | as a question's, on a ready task | `park`, `unpark`, `block`, `unblock`; `draw` clears a block none of whose items holds; cleared by every closing |
 | `closed` | `date` and `reason` once aborted or removed | `abort`, `remove` |
 
-A task has no kind: what a kind said is a tag, `research` for work that came from the research, `upkeep` for the project's own, a project's words beside them, written by the agent at the mint.
+A task has no kind and no definition-of-done field: what a kind said is a tag, `research` for work that came from the research, `upkeep` for the project's own, a project's words beside them, and what done means is in its body.
+A task connected to a question references it; one that is not, a follow-up unrelated to it among them, does not.
 
 ### A finding
 
-`id`, `type`, `summary`, `evidence`, `derived_from`, `depends_on`, `origin`, `source`, `created`, `tags`.
-A finding has no `state` and no status: it is a checkable claim, it accumulates, and its trust is read off the forms its evidence carries.
+`id`, `type`, `state`, `summary`, `evidence`, `references`, `closed`, `origin`, `source`, `created`, `tags`.
+A finding is a checkable claim, and its trust is read off the forms its evidence carries; it stands until it is found false, and is then removed.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
-| `evidence` | one or more items `form:target`, each resolved when it is written and at every check, no item twice; the set of forms present is the finding's trust, shown where a status stood | minted (`flow finding SUMMARY EVIDENCE…`); `evidence`, which adds items, swaps one for another (`--replace OLD NEW`) or retires one (`--retire OLD --reason R`, refused where it leaves none), the last two with a dated note in the body |
-| `derived_from` | what it came from, `--from`: a done or aborted task, an idea or a question; the question it answers (`--answers`) is not listed here, and names it in `answered_by` | minted |
-| `depends_on` | findings it rests on; a cycle is refused | minted (`--depends-on`); `flow set` |
+| `state` | `standing` or `removed` | minted; `remove` |
+| `evidence` | one or more items `form:target`, each resolved when it is written and at every check while the finding stands, no item twice; the set of forms present is the finding's trust, shown where a status stood, and `removed` shows instead on a removed one | minted (`flow finding SUMMARY --evidence ITEM…`); `evidence`, which adds items, swaps one for another (`--replace OLD NEW`) or retires one (`--retire OLD --reason R`, refused where it leaves none), the last two with a dated note in the body; refused on a removed finding |
+| `closed` | `date` and `reason` once removed | `remove` |
+
+What a finding came from or rests on, a task, an idea, a question, another finding, is in its `references`; the question it answers (`--answers`) names it in `answered_by`.
 
 An evidence item's form is one of the words `[evidence] forms` lists; the kit ships five, the project keeps the ones it accepts and adds its own, and what each means for the project is in its instructions:
 
@@ -133,26 +154,23 @@ A finding resting on `stated` alone is the project's own word and the trust to r
 
 ### A goal
 
-`id`, `type`, `state`, `summary`, `criterion`, `horizon`, `derived_from`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `summary`, `references`, `closed`, `origin`, `source`, `created`, `tags`.
 A goal is a destination the owner commits to, formed by the owner alone, possibly after the work has started; there may be several, and there may be none.
+Its summary names the outcome, and its body says what reached means and how far out it lies; a date on the schedule is a task's `due`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `open`, `reached` or `given_up` | minted; `reach`, `giveup` |
-| `criterion` | what reached means | minted (`--criterion`); `flow set` |
-| `horizon` | how far out the destination lies, in the owner's words, or `null`; a date on the schedule is a task's `due` | minted (`--horizon`); `flow set` |
-| `derived_from` | the direction it was produced along, which stays open, or the idea it came from; empty otherwise | minted (`--from`) |
 | `closed` | `date` and `reason` once reached (what shows it) or given up | `reach`, `giveup` |
 
 ### A direction
 
-`id`, `type`, `state`, `summary`, `derived_from`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `summary`, `references`, `closed`, `origin`, `source`, `created`, `tags`.
 A direction is the owner's dated statement of where the research moves: its name is the summary, its words the body, its date `created`; a goal implies its own direction and needs no record here.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `open` or `closed` | minted; `drop` |
-| `derived_from` | the idea it came from, where one did; empty otherwise | minted (`--from`) |
 | `closed` | `date` and `reason` once dropped | `drop` |
 
 ## The states and the transitions
@@ -160,86 +178,92 @@ A direction is the owner's dated statement of where the research moves: its name
 A record's state changes only through a transition, which writes everything the new state needs and nothing a hand would have to add.
 Each table below gives a kind's states, the transition between each pair, and what the transition writes beside the state; a transition refuses a record in the wrong state, so the tables are complete.
 A position — in a hand, parked, blocked — is written beside the state and does not change it.
+A transition that changes a record's state, or parks, unparks, blocks or unblocks it, prints the records referring to it by any link, each with its state, for the session to decide on; it refuses nothing for them ([The flow](flow.md#the-notice)).
 
 ### An idea's
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `capture`, `--from` for one worked out of another record; `refine --idea` and `make --idea` for a residue | `summary`, `source`, `derived_from`, `tags`, a body where `--body` gives one |
+| — | `open` | `idea` | `summary`, `source`, `references`, `tags`, a body where `--body` gives one |
 | `open` | `open`, in a hand | `draw --owner`, refused when the owner's hand is full or the idea is in a hand already | `owner`, `drawn` |
 | `open`, in a hand | `open` | `return` | `owner` and `drawn` cleared; a `returned:` note where `--note` gives one or the idea produced cards, which the note lists as produced so far |
-| `open` | `consumed` | `frame`, into the question minted and every other card that names it; or `consume`, into every card that names it in `derived_from`, refused when none does | `consumed_by`, the list of those cards; `owner` and `drawn` cleared |
+| `open` | `consumed` | `question --consume`, into the question minted and every other card that names it; or `consume`, into every card that names it in `references`, refused when none does | `consumed_by`, the list of those cards; `owner` and `drawn` cleared |
 | `open` | `removed` | `remove` | `closed` with its date and reason; `owner` and `drawn` cleared |
 
-Drawn, an idea is worked: what it produces — ideas (`capture --from`), questions (`frame`), tasks (`task --from`), findings (`finding --from`), goals and directions (`goal --from`, `direction --from`, on the owner's word) — names it in `derived_from`, until it is consumed into them, one or many of any kind, or removed.
+Drawn, an idea is worked: what it produces — ideas, questions, tasks, findings, goals and directions, on the owner's word for the last two — references it (`--ref`), until it is consumed into them, one or many of any kind, or removed.
 A drawn idea counts toward its owner's hand limit as an active task does.
 
 ### A question's
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `frame` from ideas, one finding, or with no record `--source PATH`, a document of the tree, which the question's `source` names; `refine --subq` and `make --question` for a residue | `kind`, `criterion`, `derived_from`, `parent`, `size`, `direction`, `serves`, `checked` set to today |
-| `open` | `open` | `refine`, which mints at least one task and may mint sub-questions and ideas; a parked question is refused | a `refined:` note where `--body` gives one |
-| `open` | `open`, parked | `park` | `parked` with its date, reason and revival; the rank stays |
+| — | `open` | `question`, standing alone or `--consume IDEA`, `--ref` for a finding or a question it comes from, `--source PATH` for a document | `references`, `serves`, `size`, `checked` set to today |
+| `open` | `open`, parked | `park` | `parked` with its date, reason and revival, `checked` set to today; the rank stays |
 | `open`, parked | `open` | `unpark` | `parked` cleared, `checked` set to today, an `unparked:` note |
-| `open` | `open`, blocked | `block --on X` | `blocked` with its date, what it waits on and the reason; the rank stays |
-| `open`, blocked | `open` | `unblock` | `blocked` cleared, `checked` set to today, an `unblocked:` note |
-| `open` | `answered` | `finding … --answers Q`, which mints the finding that settles it | `answered_by`, that finding |
+| `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason, `checked` set to today; the rank stays |
+| `open`, blocked | `open` | `unblock`, or `unblock --on X` for one item | `blocked_by` cleared, or the item taken out of it, `checked` set to today, an `unblocked:` note |
+| `open` | `answered` | `finding … --answers Q`, which mints the finding that settles it, or `answer --by F`, F a standing finding | `answered_by`, that finding |
 | `open` | `wrong` | `wrong --reason` | `closed` with its date and reason |
-| `open` | `impossible` | `impossible --by F`, F a finding minted first | `answered_by`, F |
+| `open` | `impossible` | `impossible --by F`, F a standing finding | `answered_by`, F |
 | `open` | `removed` | `remove --reason` | `closed` with its date and reason |
+| `answered`, `impossible`, `wrong` or `removed` | `open` | `reopen --reason`, refused on a question tagged `do-not-reopen` | `answered_by` and `closed` cleared, `checked` set to today, a `reopened:` note keeping what it was; it comes back unranked, unparked and unblocked |
 
-Every closing is refused while a task that came from the question, naming it in `derived_from`, is ready or active, which is made, aborted or removed first, and clears the rank, the parking and the block.
+Every closing clears the rank, the parking and the block, and none is refused for a task that references the question: a question's closing is its own act.
 A question may be parked and blocked at once, and is closed in either position.
-That a question was refined is read from the tasks that came from it, not from a state: an open question that tasks came from, all of them closed, is listed as needing refine or answer.
-A question already answered refuses `--answers`: one finding answers a question, and a later one names it with `--from Q`.
-`rank`, `checked` and `flow set` act on an open question without changing its state; a goal given up clears `serves` on the open questions serving it, and a direction dropped clears `direction` on the open questions leaning toward it, each printed as released.
+An open question that tasks reference, all of them closed, is listed as needing refine or answer.
+A question that is not open refuses `--answers`, `answer` and `impossible`: it is reopened first.
+`rank`, `checked`, `flow serves` and `flow set` act on an open question without changing its state; reaching or giving up a goal and dropping a direction leave every question's `serves` as it is.
 
 ### A task's
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `ready` | `refine --task`, naming the question; `task`, naming the records of `--from`, a question there open, or none; or `make --task` for a follow-up, naming the made task | `derived_from`, `requires`, `size`, `dod`, `due`, `after`, `tags` |
+| — | `ready` | `task`, `--ref` for what it came from, a question, an idea, a task, or none | `references`, `size`, `due`, `after`, `tags` |
 | `ready` | `ready`, parked | `park` | `parked` with its date, reason and revival; the rank stays |
 | `ready`, parked | `ready` | `unpark` | `parked` cleared, an `unparked:` note |
-| `ready` | `ready`, blocked | `block --on X` | `blocked` with its date, what it waits on and the reason; the rank stays |
-| `ready`, blocked | `ready` | `unblock` | `blocked` cleared, an `unblocked:` note |
-| `ready` | `active` | `draw --owner`, refused while it is parked or blocked or the owner's hand is full | `owner`, `drawn` |
+| `ready` | `ready`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason; the rank stays |
+| `ready`, blocked | `ready` | `unblock`, or `unblock --on X` for one item | `blocked_by` cleared, or the item taken out of it, an `unblocked:` note |
+| `ready` | `active` | `draw --owner`, refused while it is parked, its block holds or the owner's hand is full | `owner`, `drawn`; a block none of whose items holds cleared |
 | `active` | `ready` | `return` | `owner` and `drawn` cleared, a `returned:` note where `--note` gives one |
-| `active` | `done` | `make`, which may mint follow-up tasks, questions and ideas, and prints `after` | a `resolution:` note; `owner`, the rank and `rider` cleared, `drawn` kept; the file moved to the archive |
-| `active` | `aborted` | `abort --reason`, which prints `after` | `closed`, a `resolution:` note; `owner`, the rank and `rider` cleared, `drawn` kept; the file moved to the archive |
-| `ready` | `removed` | `remove --reason` | `closed`; the rank, `rider`, the parking and the block cleared; the file moved to the archive |
+| `active` | `done` | `make --resolution FILE`, refused without one or on an empty one; it prints `after` and mints nothing | a `resolution:` note; `owner` and the rank cleared, `drawn` kept; the file moved to the archive |
+| `active` | `aborted` | `abort --reason`, which prints `after` | `closed`, a `resolution:` note where `--resolution` gives one; `owner` and the rank cleared, `drawn` kept; the file moved to the archive |
+| `ready` | `removed` | `remove --reason` | `closed`; the rank, the parking and the block cleared; the file moved to the archive |
 
 An active task that must wait is returned first, with a note, and then parked or blocked; an active task is aborted, never removed.
 A task handed to a prover's session stays active in the agent's hand and counts toward its limit; the handoff's log entry says it is with the prover.
-`rank` and `flow set` act on a ready or active task without changing its state; what a task came from is fixed at its minting, and `flow set` refuses `question`.
+A follow-up is minted after the make, `flow task "…" --ref T`; `rank`, `flow ref` and `flow set` act on a ready or active task without changing its state.
 
 ### A finding's
 
-A finding is minted by `flow finding` alone, the one mint whatever produced it, with evidence of the forms the project accepts; a task's finding is minted after the task is made or aborted, `--from` it.
-It has no state transition after: it is never removed, since a finding found false is refuted by another finding, tagged `refuted`; `flow evidence` adds items to its evidence, and replaces or retires one whose file is gone with a dated note in the body, and its `summary` and `depends_on` change through `flow set`.
+| From | To | Transition | What else it writes |
+| --- | --- | --- | --- |
+| — | `standing` | `finding --evidence ITEM…`, the one mint whatever produced it; `--answers Q` closes Q answered by it | `evidence`, `references`, `tags`, a body where `--body` gives one |
+| `standing` | `removed` | `remove --reason`, when it is found false | `closed` with its date and reason; the card kept, out of the index's lists and counts |
+
+A task's finding is minted after the task is made or aborted, referencing it, as the skill's practice; `flow evidence` adds items to a standing finding's evidence, and replaces or retires one whose file is gone with a dated note in the body.
+A finding found false is removed and never reopened: what rested on it is reviewed by hand, a question it answered reopened, re-answered or left, and the finding that replaces it references it; a finding removed by mistake is restored from git.
 
 ### A goal's
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `goal --criterion`, on the owner's word; `--from` for the direction it was produced along or the idea it came from | `criterion`, `horizon`, `derived_from`, `tags`, a body where `--body` gives one |
+| — | `open` | `goal`, on the owner's word; `--ref` for the direction it was produced along or the idea it came from | `references`, `tags`, a body where `--body` gives one |
 | `open` | `reached` | `reach --reason`, what shows it | `closed` with its date and reason |
-| `open` | `given_up` | `giveup --reason`, which clears `serves` on the open questions serving it, their ranks kept, and prints them as released | `closed` with its date and reason |
+| `open` | `given_up` | `giveup --reason` | `closed` with its date and reason |
 
 ### A direction's
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `direction`, on the owner's word, the name its summary and `--body FILE` the owner's words | `derived_from`, `tags`, the body |
-| `open` | `closed` | `drop --reason`, which clears `direction` on the open questions leaning toward it and prints them as released | `closed` with its date and reason |
+| — | `open` | `direction`, on the owner's word, the name its summary and `--body FILE` the owner's words | `references`, `tags`, the body |
+| `open` | `closed` | `drop --reason` | `closed` with its date and reason |
 
-A goal produced along a direction (`goal --from D`) leaves the direction open; nothing dissolves one into the other, since a goal is its own direction.
+A goal produced along a direction (`goal --ref D`) leaves the direction open; nothing dissolves one into the other, since a goal is its own direction.
 
 ### The ranked list
 
 `rank` places an open question or a ready or active task at a place on the list, parked or blocked ones included, which keep their rank while they wait; everything else is refused.
-`flow rank ID N --why … --first-move …` gives one record a free rank, `--insert` takes a held rank and moves the records below it down by one, `flow rank --set ID…` fixes the whole order at once and clears every rank it does not name, and `flow rank ID --clear` clears one; `--direction D` and `--serves G` write a question's direction and goal with its rank.
-A question given a rank by `rank ID N` has its `checked` date refreshed, a judgment about that one record; `rank --set`, a shift by `--insert` and a clear only order the list and leave it, and `flow checked ID …` records a read.
-Every transition that clears a rank — `make`, `abort`, `remove`, `wrong`, `impossible`, `finding --answers`, a clear — renumbers the records that keep theirs and prints each as `re-ranked ID N → M`, so the list stays `1..n` without a hand on it.
+A rank is a number alone: `flow rank ID N` gives one record a free rank, `--insert` takes a held rank and moves the records below it down by one, `flow rank --set ID…` fixes the whole order at once and clears every rank it does not name, printing each record as `ranked ID N` or `unranked ID (was N)`, and `flow rank ID --clear` clears one.
+A question given a rank by `rank ID N` has its `checked` date refreshed, a judgment about that one record; `rank --set`, a shift by `--insert` and a clear only order the list and leave it, and `flow checked ID …` records a read of an open question.
+Every transition that clears a rank — `make`, `abort`, `remove`, `wrong`, `impossible`, `answer`, `finding --answers`, a clear — renumbers the records that keep theirs and prints each as `re-ranked ID N → M`, so the list stays `1..n` without a hand on it.
 A due date never moves a rank: the open tasks that have one are listed under `Due`, soonest first, apart from the ranked list.

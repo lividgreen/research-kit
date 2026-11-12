@@ -45,7 +45,7 @@ The scope of a run is what the person gives with the command, and otherwise the 
    Where the artifact settles it, the correct statement is the artifact's; "the person decides" is written only where it does not, and a sentence found false of the artifact is never put to the person as a choice.
 4. **Then the corrections.**
    After the report, each sentence found false of the artifact is corrected in this session at its own size, and reaches every summary site that restates it; a document the project's part names as one a review reports and asks about first gets the sentence, its evidence and the correction put to the person instead.
-   What is the person's to decide goes to them as a question with a recommendation; a discrepancy not corrected now is captured on the person's word (`flow capture` where the project runs the flow), so the report does not live in the conversation alone.
+   What is the person's to decide goes to them as a question with a recommendation; a discrepancy not corrected now is captured on the person's word (`flow idea` where the project runs the flow), so the report does not live in the conversation alone.
    The gates run again after the edits.
 
 **Output.** The gates by exit code, the table, the corrections made with their files, and what was asked or captured.
