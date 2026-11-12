@@ -26,7 +26,8 @@ Mature projects record their decisions; the job is usually to verify and complet
 
 Name what kind of thing is being designed (content with claims, a formal target, tooling, process) and where its design record will LIVE — the project's own taxonomy, as its instructions define it.
 Never invent a parallel records directory: a second taxonomy rots outside whatever coverage the project's checks provide.
-Where the project runs a typed record flow, a design round is a task of the design kind — drawn before the round, closed by its make or abort with the round record as its resolution and the discarded options one line each inside it — and what the round produced (findings with evidence, tasks, questions, ideas) is minted by that closing transition.
+Where the project runs a typed record flow, a design round on a question is the held question itself: its record is a dated note on the question (`flow note Q --body FILE`), the discarded options one line each inside it, no design task is minted for the round, and tasks are minted where a piece of the work is too big.
+A round on no question, on tooling or a process, is a task tagged `design`, drawn before the round and closed by its make or abort with the round record as its resolution and the discarded options one line each inside it, and what such a round produced (findings with evidence, tasks, questions, ideas) is minted after that closing transition.
 
 ## 3. The design bar
 

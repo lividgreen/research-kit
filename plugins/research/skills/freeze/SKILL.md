@@ -25,14 +25,15 @@ The one rule is to save what is important for the work, anything useful the sess
 2. **Flush what only the context holds.**
    Inventory the conversation turn by turn, the person's messages and the replies both, under the test: if the transcript were deleted now, would anything the person said, or anything the person was told, be lost?
    Each item goes to its home by kind: an idea in the person's words, verbatim and dated (`flow idea`); a ruling where the project keeps its rules; a reading given in a reply into the body of the record it is about, with its standing; a correction as a dated line in the record; an unanswered question as a question or an idea; a preference about the process to the agent's memory.
-   Then close the lifecycle of everything the session created: a task made, aborted or returned with a note, an idea consumed or left in the heap.
+   Then close the lifecycle of everything the session created: a task made or aborted, an idea consumed or left in the heap.
+   Then the held cards: for each card the session's hand holds, the log entry says what the session did on it, and one left untouched is returned (`flow return ID --note "…"`) or passed (`flow pass ID --to OWNER --note "…"`) with a note.
    A freeze ranks nothing: a question minted is named unranked, and the list is the `whatsnext` skill's.
    A directive the next session should start from goes to the inbox, one directive, never a summary of the session.
 3. **Sweep by meaning.**
    Search the surfaces a reader sees, the documents and the published pages, for the claims this session made stale, by the claims' own words, not only the files the session already touched.
    A stale claim the session may not correct, in a document the project's rules let only the person change, goes to a record — an idea (`flow idea`), or a task where the fix is work (`flow task`, `--ref` the record it is about) — with the place and the proposed edit in its body, and is named in the log entry, never left in the transcript.
 4. **The checks and the gates, by exit code.**
-   `flow state --check` decides what a machine can see: the log's top entry dated today where the tree changed since the newest committed entry, and every record changed since then named by an entry, a range of ids read and a record only re-ranked not asked for; it prints each hand's active tasks and drawn ideas for the State paragraph and fails on none.
+   `flow state --check` decides what a machine can see: the log's top entry dated today where the tree changed since the newest committed entry, and every record changed since then named by an entry, a range of ids read and a record only re-ranked not asked for; it prints each held card with its drawn date and its age in days, for the State paragraph, and fails on none.
    It exits 1 on a failure, 2 where a part could not be decided, never read as clean; `flow check` and the project's other checks run beside it.
    It also prints the steps that are the session's own as a checklist — the conversation's inventory item by item, the sweep by meaning, the agent's memory checked, the gates by exit code — which the report answers.
 5. **A commit with named paths, then the push as the backup.**

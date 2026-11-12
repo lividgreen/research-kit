@@ -19,13 +19,13 @@ You note an idea, mint a question from it whose body says what would answer it, 
 A finding names its evidence, such as a proved declaration or a script that asserts the result, and the check confirms that the evidence exists.
 
 `flow check` fails when a hand-edited state leaves a record inconsistent, when a record points to an id that does not exist, when a finding's evidence does not resolve, when a rank has no reason, or when the index is out of date; it checks that the records hold together, not who wrote them, runs offline as a pre-commit hook, and its last line lists what it did not look at.
-A generated index keeps a ranked list of open work with a reason for each rank, and `flow state` prints the summary a new session reads first, so the agent continues from the top of the list instead of asking where things stand.
+A generated index keeps a ranked list of open work with a reason for each rank, and `flow state` prints the summary a new session reads first, so the agent goes on from its hand and the list instead of asking where things stand.
 
 The [`flow`](skills/flow/SKILL.md) skill, `/research:flow` in Claude Code; [The flow](../../docs/research/flow.md) is its page, and [Flow cards](../../docs/research/flow-cards.md) the specification of the records.
 
 ## A session's start and its freeze
 
-A session starts with `/research:whatsnext`: what you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under the focus you give, and the top work is drawn into the agent's hand.
+A session starts with `/research:whatsnext`: the cards the agent's hand holds are reviewed, what you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under the focus you give, and the agent's hand is refilled from the top of it.
 It ends with `/research:freeze`: what the conversation found and no record holds is saved, `flow state --check` and the gates run, and the work is committed, so a cold session on another machine continues without asking.
 
 The [`whatsnext`](skills/whatsnext/SKILL.md) and [`freeze`](skills/freeze/SKILL.md) skills; [What is next](../../docs/research/whatsnext.md) and [The freeze](../../docs/research/freeze.md) are their pages.

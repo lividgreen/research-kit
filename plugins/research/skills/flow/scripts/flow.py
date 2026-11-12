@@ -2067,9 +2067,74 @@ def in_deck(recs, owner):
                   key=lambda r: r.id)
 
 
+# What a refill did, for the answer: the cards drawn, the ranked cards it passed over with why, the hand's count and limit.
+_REFILL = {}
+
+
+def draw_into(cfg, r, owner, today):
+    """The writes of a draw: `owner`, `drawn` and, the first time, `started`; a block none of whose items holds goes with it."""
+    r.fm.update({"owner": owner, "drawn": today, "started": r["started"] or today})
+    if r.type != "idea":
+        r.fm["blocked_by"] = None
+    save(cfg, r)
+
+
+def pass_over(cfg, recs, r, owner, today):
+    """Why a refill for `owner` does not draw the ranked card r, in words; None where it may draw it (a ready card in the
+    common deck or the owner's own)."""
+    if is_held(r):
+        return f"held by {r['owner']}"
+    if r["owner"] not in (None, owner):
+        return f"in {r['owner']}'s deck"
+    why = (["parked"] if r["parked"] is not None else []) + \
+          ([f"blocked on {', '.join(blocked_now(cfg, recs, r, today))}"] if blocked_now(cfg, recs, r, today) else [])
+    return ", ".join(why) or None
+
+
+def cmd_refill(cfg, recs, a, today):
+    """A hand filled by rank: from the top of the ranked list, every card whose standing is ready in the common deck or the
+    owner's own is drawn, until the hand's limit; the ranked cards passed over are said with why.  An unranked card is never
+    drawn, and a hand with no limit is refused."""
+    if a.id:
+        raise Refused("draw takes an ID or --refill, not both: `flow draw ID --owner O` draws one card, `flow draw --refill --owner O` fills the hand")
+    if a.owner not in cfg.owners:
+        raise Refused(f"owner {a.owner!r} not in {cfg.owners}")
+    lim = int(cfg.hand.get(a.owner, 0) or 0)
+    if not lim:
+        raise Refused(f"{a.owner}'s hand has no limit: a refill fills a hand to its limit, so name the cards (`flow draw ID --owner {a.owner}`)")
+    ranked = sorted((r for r in recs.values() if r.type in CARDS and r["state"] == "open" and isinstance(r["rank"], int)),
+                    key=lambda r: (r["rank"], r.id))
+    n = len(held_by(recs, a.owner))
+    drawn, skipped, drew, walk = [], [], [], []
+    for r in ranked:
+        if n >= lim:
+            break
+        why = pass_over(cfg, recs, r, a.owner, today)
+        if why:
+            skipped.append({"id": r.id, "type": r.type, "rank": r["rank"], "why": why})
+            walk.append(("passed over", skipped[-1]))
+            continue
+        draw_into(cfg, r, a.owner, today)
+        drawn.append({"id": r.id, "type": r.type, "rank": r["rank"], "summary": r["summary"]})
+        walk.append(("drawn", drawn[-1]))
+        drew.append(r)
+        n += 1
+    unranked = sum(1 for r in recs.values() if r.type in CARDS and r["state"] == "open" and r["rank"] is None
+                   and r["owner"] in (None, a.owner) and card_standing(cfg, recs, r, today) == ["ready"])
+    _REFILL.clear()
+    _REFILL.update({"owner": a.owner, "drawn": drawn, "skipped": skipped, "count": n, "limit": lim, "room": lim - n,
+                    "walk": walk, "unranked_ready": unranked})
+    return [], drew
+
+
 def cmd_draw(cfg, recs, a, today):
     """A card into a hand: any of the three kinds whose standing is ready, from the common deck or the owner's own.  It writes
-    `owner`, `drawn` and, the first time, `started`; a card in another owner's deck is passed first."""
+    `owner`, `drawn` and, the first time, `started`; a card in another owner's deck is passed first.  With --refill, no ID: the
+    hand is filled by rank to its limit."""
+    if a.refill:
+        return cmd_refill(cfg, recs, a, today)
+    if not a.id:
+        raise Refused("draw takes an ID (`flow draw ID --owner O`), or --refill to fill the hand by rank")
     r = get(recs, a.id)
     if r.type not in CARDS:
         raise Refused(f"{r.id} is {kind_word(r.type)}: an idea, a question or a task is drawn into a hand")
@@ -2091,10 +2156,7 @@ def cmd_draw(cfg, recs, a, today):
     n = len(held_by(recs, a.owner))
     if lim and n >= lim:
         raise Refused(f"{a.owner}'s hand is full ({n} of {lim}); return or close a card first")
-    r.fm.update({"owner": a.owner, "drawn": today, "started": r["started"] or today})
-    if r.type != "idea":
-        r.fm["blocked_by"] = None  # a block none of whose items holds goes with the draw
-    save(cfg, r)
+    draw_into(cfg, r, a.owner, today)
     return [], [r]
 
 
@@ -4039,12 +4101,12 @@ INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should 
   and `flow state`, never by a glob; `flow.toml` binds the names.
 - A record's state changes only through a `flow` transition; bodies are edited by hand,
   one sentence per line; `flow check` runs before a commit (a hook where the project has them).
-- The ranked list in `{records}/INDEX.md` is the schedule: a session works from the top.
+- The ranked list in `{records}/INDEX.md` is the schedule: the agent's hand is filled from its top, and a session works its hand.
 {log_line}- Where the project keeps a registry of its deliverables — what it produces and in what order —
   that file is named here and nowhere else; none is needed to start.
 - `INBOX.md` is where the person leaves items between sessions; a session reads it at its start.
 - `flow state` prints the cold-start bundle: the inbox, the ranked list, the hands and the log's top entry.
-- A session starts with the `whatsnext` skill (the inbox read, the list ranked, the top work drawn)
+- A session starts with the `whatsnext` skill (the hand reviewed, the inbox read, the list ranked, the hand refilled)
   and ends with the `freeze` skill (what the conversation holds saved, `flow state --check`, a commit).
   When the person says "whatsnext" or "freeze", they mean these skills: each is called every time, even if it
   ran earlier in the session, and every step is taken; a request ending "… and freeze" is two requests, the work
@@ -5576,6 +5638,70 @@ def selftest():
         go(["index"])
         expect("the cards' tree checks green", go(["check"])["problems"] == [])
 
+    # the refill: a hand filled by rank to its limit, each ranked card passed over said with why
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        do_init(root, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        cfg = Config(root)
+        today = "2026-11-13"
+
+        def go(argv, ok=True):
+            rc, payload = dispatch(cfg, argv, today=today, as_json=True, quiet=True)
+            expect(" ".join(argv[:3]) + (" refused" if not ok else ""), (rc == 0) == ok)
+            if (rc == 0) != ok:
+                for pr in payload["problems"]:
+                    print("      ", pr["code"], pr.get("path") or pr.get("id"), pr["msg"])
+            return payload
+
+        mint = lambda argv: go(argv)["created"][0]
+        card = lambda i: load_all(cfg)[i]
+        said = lambda p: p["problems"][0]["msg"]
+        i1, tp, tb = mint(["idea", "an idea"]), mint(["task", "a parked task"]), mint(["task", "a blocked task"])
+        qd, tr, qr = mint(["question", "in the person's deck", "--for", "owner"]), mint(["task", "a ready task"]), mint(["question", "a ready question"])
+        tu, tz = mint(["task", "an unranked task"]), mint(["task", "one more ready task"])
+        go(["park", tp, "--reason", "set down"])
+        go(["block", tb, "--on", "2099-01-01", "--reason", "later"])
+        go(["rank", "--set", i1, tp, tb, qd, tr, qr, tz])
+        p = go(["draw", "--refill", "--owner", "agent"])
+        expect("a refill draws by rank every ready card of the common deck or the owner's own, of the three kinds, and writes owner, drawn and started",
+               [d["id"] for d in p["drawn"]] == [i1, tr, qr, tz] and all(card(i)["owner"] == "agent" and card(i)["drawn"] == today
+                                                                          and card(i)["started"] == today for i in (i1, tr, qr, tz)))
+        expect("a refill passes over the parked card, the card whose block holds and the card in the person's deck, each said with why, in rank order",
+               p["skipped"] == [{"id": tp, "type": "task", "rank": 2, "why": "parked"},
+                                {"id": tb, "type": "task", "rank": 3, "why": "blocked on 2099-01-01"},
+                                {"id": qd, "type": "question", "rank": 4, "why": "in owner's deck"}])
+        expect("a refill reports the hand's count and limit, and stops at the limit: the card ranked below it is not touched",
+               p["hand"] == {"owner": "agent", "count": 4, "limit": 4, "room": 0} and card(tz)["drawn"] == today)
+        go(["return", tz, "--note", "room again"])
+        go(["rank", tz, "--clear"])
+        p = go(["draw", "--refill", "--owner", "agent"])
+        expect("a refill never draws an unranked card, even a ready one in the common deck, and says how many there are",
+               p["drawn"] == [] and card(tz)["drawn"] is None and card(tu)["drawn"] is None and p["hand"]["count"] == 3 and p["hand"]["room"] == 1
+               and p["unranked_ready"] == 2)
+        txt = text_of(cfg, ["draw", "--refill", "--owner", "agent"])
+        expect("the text lists each card in rank order, drawn or passed over, then the hand as `3 of 4` with the room left",
+               "passed over " + tp + " (rank 2, task): parked" in txt and "agent's hand: 3 of 4, room for 1" in txt
+               and txt.index("passed over " + tb) < txt.index("passed over " + qd) and "unranked and a refill never draws one" in txt)
+        go(["return", i1, "--note", "q"])
+        go(["return", tr, "--note", "q"])
+        go(["rank", tr, "1", "--insert"])
+        go(["rank", tz, "7"])
+        p = go(["draw", "--refill", "--owner", "agent"])
+        expect("a refill fills a hand left under its limit by rank from the top: the card ranked first goes in first",
+               [d["id"] for d in p["drawn"]] == [tr, i1, tz] and p["hand"]["count"] == 4)
+        p = go(["draw", "--refill", "--owner", "agent"])
+        txt = text_of(cfg, ["draw", "--refill", "--owner", "agent"])
+        expect("a hand already full draws nothing and says so, exit 0", p["drawn"] == [] and p["changed"] == [] and p["hand"]["room"] == 0
+               and "nothing drawn: agent's hand is full" in txt and "agent's hand: 4 of 4, full" in txt)
+        p = go(["draw", "--refill", "--owner", "owner"], ok=False)
+        expect("a refill is refused for a hand with no limit, the way to draw named", "no limit" in said(p) and "flow draw ID" in said(p))
+        p = go(["draw", i1, "--refill", "--owner", "agent"], ok=False)
+        expect("an ID with --refill is refused", "not both" in said(p))
+        p = go(["draw", "--owner", "agent"], ok=False)
+        expect("a draw with neither an ID nor --refill is refused", "--refill" in said(p))
+        go(["draw", "--refill", "--owner", "nobody"], ok=False)
+        go(["check"])
+
     # the doctor reads v0.8.0's shape: a task ready or active, a closed task with its drawn date, a question with no owner
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -6448,7 +6574,9 @@ def build_parser():
     p.add_argument("--answers", metavar="Q", help="the open question it settles, which closes answered")
     mint("goal", "the owner's goal: the summary names the outcome, the body what reached means and how far out it lies")
     mint("direction", "the owner's direction, its words the body")
-    p = sp.add_parser("draw"); p.add_argument("id"); p.add_argument("--owner", required=True)
+    p = sp.add_parser("draw", help="a card into a hand, or with --refill the hand filled by rank to its limit"); p.add_argument("id", nargs="?")
+    p.add_argument("--owner", required=True)
+    p.add_argument("--refill", action="store_true", help="no ID: draw by rank from the top every ready card of the common deck or the owner's own, until the hand's limit")
     p = sp.add_parser("return"); p.add_argument("id"); p.add_argument("--note", required=True, help="what the session did on the card and why it goes back")
     p = sp.add_parser("pass", help="a card into another deck, with a note, and out of its hand"); p.add_argument("id")
     p.add_argument("--to", required=True, metavar="OWNER|common", help="the deck it goes to")
@@ -6695,6 +6823,19 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 out["unranked"] = [{"id": i, "was": n} for w, i, n in _SET_RANKS if w == "unranked"]
                 for w, i, n in _SET_RANKS:
                     emit(f"ranked {i} {n}" if w == "ranked" else f"unranked {i} (was {n})")
+            elif a.cmd == "draw" and a.refill:  # a refill: each card said as drawn or passed over, then the hand
+                f = _REFILL
+                out["drawn"], out["skipped"] = f["drawn"], f["skipped"]
+                out["hand"] = {"owner": f["owner"], "count": f["count"], "limit": f["limit"], "room": f["room"]}
+                out["unranked_ready"] = f["unranked_ready"]
+                for word, d in f["walk"]:  # in rank order, each card drawn or passed over
+                    emit(f"{word} {d['id']} (rank {d['rank']}, {d['type']})" + (f" — {d['summary']}" if word == "drawn" else f": {d['why']}"))
+                if not f["room"] and not f["drawn"]:
+                    emit(f"nothing drawn: {f['owner']}'s hand is full")
+                if f["room"]:
+                    emit(("nothing drawn: " if not f["drawn"] else "") + "the ranked list holds no more ready card this hand may draw"
+                         + (f"; {f['unranked_ready']} ready card(s) are unranked and a refill never draws one" if f["unranked_ready"] else ""))
+                emit(f"{f['owner']}'s hand: {f['count']} of {f['limit']}" + (f", room for {f['room']}" if f["room"] else ", full"))
             else:
                 for r in changed:
                     emit(f"changed {r.id} — {row_state(cfg, recs, r, today) or ''} ({rel(cfg, r.path)})")

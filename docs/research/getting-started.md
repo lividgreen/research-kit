@@ -114,7 +114,7 @@ The entry for the result is written by the agent, or by you, in the same commit 
 
 ### A session's start and end
 
-With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and draws the top work into the agent's hand; [What is next](whatsnext.md) says the rest.
+With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reviews what the agent's hand holds, reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and refills the agent's hand from the top of the list; [What is next](whatsnext.md) says the rest.
 It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry, written out or within a range such as `finding-0015…0035`, a record whose only change is its rank not asked to be named), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
 
 ## A card

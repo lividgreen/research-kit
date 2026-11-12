@@ -36,7 +36,7 @@ Each tool's page in the [documentation](README.md) lists everything its check ve
 
 ## How it works
 
-You talk to the agent as you already do, and the skills fold the kit into that conversation: "Where were we?" prints the session summary and the work goes on from the top of the ranked list; "Add this book to the library; I read chapter 2" writes a card, and a citation of that book is then checked against how far it was read.
+You talk to the agent as you already do, and the skills fold the kit into that conversation: "Where were we?" prints the session summary and the work goes on from the agent's hand; "Add this book to the library; I read chapter 2" writes a card, and a citation of that book is then checked against how far it was read.
 [How to use](how-to-use.md) has more.
 
 Every tool is a single Python 3.11 script with no dependencies, and all the data is plain Markdown that can be read without the kit.

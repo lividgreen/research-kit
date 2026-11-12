@@ -20,7 +20,7 @@ The [plugin's page](../plugins/research/README.md) says what each of its twelve 
 - [The research setup](research/research-init.md) — what a setup is, what `/research:research-init` probes, asks, writes and installs
 - [The flow](research/flow.md) — the records' tool: the commands, the index, the directions and the log, `flow.toml`, every code `flow check` reports, its words
 - [Flow cards](research/flow-cards.md) — the specification of a record: the files, the form, every field of the four kinds, the states and the transitions
-- [What is next](research/whatsnext.md) — `/research:whatsnext`: the inbox read, the list ranked under a focus, the top work drawn
+- [What is next](research/whatsnext.md) — `/research:whatsnext`: the hand reviewed, the inbox read, the list ranked under a focus, the hand refilled
 - [The freeze](research/freeze.md) — `/research:freeze`: what a cold session needs saved, `flow state --check`, the report
 - [The audit](research/audit.md) — `/research:audit`: the documents held to one another, the mechanical checks first, a table of discrepancies, then the corrections
 - [Scrutiny](research/scrutinize.md) — `/research:scrutinize`: one argument's claims, gaps and load-bearing steps, checking and not verification
