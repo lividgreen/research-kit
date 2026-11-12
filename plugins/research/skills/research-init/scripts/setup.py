@@ -987,7 +987,7 @@ def upgrade_scenarios(tmp, v, expect):
     s = steps()
     expect("a tree the flow wrote has no upgrade step pending", s["records"]["state"] == "ok" and s["index"]["state"] == "ok", str(s))
     task = next((u / "records").rglob("task-0001-*.md"))
-    task.write_text("".join(l for l in task.read_text(encoding="utf-8").splitlines(True) if not l.startswith("rider:")), encoding="utf-8")
+    task.write_text("".join(l for l in task.read_text(encoding="utf-8").splitlines(True) if not l.startswith("after:")), encoding="utf-8")
     with open(u / "flow.toml", "a", encoding="utf-8") as f:
         f.write('\n[task]\ndefault_kind = "work"\n')
     snapshot = lambda: {q: q.read_bytes() for q in sorted(u.rglob("*")) if q.is_file()}

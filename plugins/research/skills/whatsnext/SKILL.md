@@ -17,35 +17,35 @@ A focus the person gives with the command, "let's focus on the research tasks", 
 
 1. **Read the inbox.**
    `flow state` prints it first, then the ranked list, the hands and the log's top State paragraph.
-   For each item the person left, propose what it becomes: an idea captured, a question framed, a task minted, a goal or a direction the person opens (`flow goal`, `flow direction`, minted on their word alone), an act done in the turn, or nothing, with the reason.
+   For each item the person left, propose what it becomes: an idea, a question or a task minted, a goal or a direction the person opens (`flow goal`, `flow direction`, minted on their word alone), an act done in the turn, or nothing, with the reason.
    Make the records the person agrees to, name each item in the log entry, and remove it from the inbox; an item the person has not answered stays.
    A directive a freeze left for this session is the first move, unless the person says otherwise.
 2. **Inventory from the CURRENT records, through the CLI.**
    `flow find --type task --state ready`, `flow find --type question --state open`, `flow find --parked`, `flow find --blocked`, `flow find --held`; `flow show ID` for one record with its links and back-references; the open goals and directions, `flow find --type goal --state open` and `flow directions`, which the index lists under `Goals`, each with the questions serving it, and `Directions`.
    Never glob or read a record directory.
    Before ranking a record, open what it points at — the document section, the module, the artifact — since records age.
-   A block on a record that has closed is cleared or re-aimed (`flow unblock ID --note "…"`, `flow block ID --on X --reason "…"`).
+   A block is calculated, so one on a record that has settled holds no more and needs no hand; a block on words is unblocked by hand once the words no longer hold (`flow unblock ID --on "…" --note "…"`).
 3. **Rank.**
    With no goal and no direction, the cards are worked as the person says; with directions, the moves lean toward them without being bound, since a new direction may come; with a goal, reaching it is the main direction and the moves go there as fast as they can, the questions serving it (`serves`) first among them.
    Never so biased toward a direction or a goal that the rest is not seen: then whole-project value, then a fresh landing's cheap follow-on; a task's due date never moves a rank, but the `Due` list is read first and a passed date is named.
    A finding resting on `stated` evidence alone (`flow find --form stated --only`) is work waiting, a proof to formalize, a probe to run, a work to cite, and a candidate task.
-   Nothing is ranked down, parked or left off for lacking a route: a record with no known route is ranked with a first move of "none yet", and finding the route is its first round's job.
-   A parked or blocked record keeps its rank, and the list shows the wait; a question whose landing waits on the person's decision says so in its first move and is ranked anyway.
+   Nothing is ranked down, parked or left off for lacking a route: a record with no known route is ranked, and finding the route is its first round's job.
+   A parked or blocked record keeps its rank, and the list shows the wait; a question whose landing waits on the person's decision says so in the log entry and is ranked anyway.
    Where the project pairs documents with a machine-checked library, the `method` skill's rules under "With a prover" order ties among its formal targets.
 4. **Write the ranks.**
-   For each item `flow rank ID N --why "…" --first-move "…" [--direction D] [--serves G]` — a pointer by ID, never a restatement; why now, one clause; the first move, or "none yet"; a question's direction and goal by their ids.
-   A rank another record holds is refused; `--insert` takes it, moving that record and the ones below it down by one: `flow rank ID 1 --insert --why "…" --first-move "…"`.
-   `flow rank --set ID …` fixes the whole order at once: it clears every other rank and writes an order only, refreshing no question's checked date; every record it names already carries its why-now and first move.
+   A rank is a number alone: `flow rank ID N` for one item, `flow rank ID 1 --insert` to take a rank another record holds, moving that record and the ones below it down by one, or `flow rank --set ID …` for the whole order at once, which clears every other rank, writes an order only, refreshing no question's checked date, and prints each record as `ranked ID N` or `unranked ID (was N)`.
+   Why each item stands where it does, and its first move, or "none yet", go in the log entry for this ranking, one clause each, a pointer by ID and never a restatement.
+   A goal or a direction a question serves is given with `flow serves Q +G`, on any open question, ranked or not.
    A list whose ranked records have not changed since its last refresh is left as it is, and the log entry says so with that refresh's date.
-   Draft long why-now or first-move text in a scratch file and pass it through the project's text gates before writing it.
+   Draft the entry in a scratch file and pass it through the project's text gates before writing it.
 5. **Intake.**
    Park or unpark only for a reason the record carries with a date — `flow park ID --reason "…" --revival "…"`, `flow unpark ID` — never "no route"; a task waiting on the person's decision is parked with a reason naming the decision.
-   Mint newly seen residues: `flow capture` for an idea, `flow frame IDEA… --summary "…" --criterion "…"` for a question, or `flow frame FINDING …` from the finding that exposed it — a question of its own, never a line added to the question it came from.
+   Mint newly seen residues: `flow idea "…"` for an idea, `flow question "…" --consume IDEA` for a question from one, or `flow question "…" --ref FINDING` from the finding that exposed it — a question of its own, its body saying what counts as an answer, never a line added to the question it came from.
    Record the read of each question the session opened in step 2 or touched here with `flow checked ID …`, where no `flow rank ID N` refreshed it already; `--set` asserts no read.
-   Goals and directions are the person's: propose in the log entry, and mint or close one (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal given up or a direction dropped prints the questions it released, which are re-ranked here.
+   Goals and directions are the person's: propose in the log entry, and mint or close one (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal reached or given up, or a direction dropped, clears nothing on its questions, and the notice it prints names them: each is decided on here, re-ranked, given another goal or direction with `flow serves`, or left.
 6. **Draw.**
    Draw the top work into the agent's hand under its limit, `flow draw ID --owner agent` (`agent` is the agent's name as `[hand]` names it by default, and a project that names its hands otherwise uses its own name here and below), a task or an idea; a parked or blocked one is refused, and is unparked or unblocked first only with a reason.
-   Where the top of the ranked list is a question, nothing is drawn from it directly: the agent refines it into the task that is its first move, `flow refine Q --task "…"` with the question's `first_move` saying what, and draws that; a question waiting on something the hand cannot do leaves the hand as it is.
+   Where the top of the ranked list is a question, nothing is drawn from it directly: the agent mints the task that is its first move, `flow task "…" --ref Q`, the log entry's first move saying what, and draws that; a question waiting on something the hand cannot do leaves the hand as it is.
    Return, with a note, what the agent's hand holds that the new order no longer puts first: `flow return ID --note "…"`; a task handed to a prover session stays, since its handoff's landing closes it.
    The person's hand is the person's: propose, never draw into it or return from it.
 7. **Prune.**

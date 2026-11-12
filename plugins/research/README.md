@@ -15,7 +15,7 @@ Twelve skills: four over a script each, two over the flow for a session's start 
 ## Records that hold
 
 Ideas, questions, tasks and findings are Markdown files, one per item, that the `flow` command creates and moves through their states.
-You capture an idea, frame it as a question with a criterion (what would answer it, or show it wrong or impossible), split the question into tasks, close each task, and mint the finding that answers the question.
+You note an idea, mint a question from it whose body says what would answer it, mint the tasks it needs, close each task, and mint the finding that answers the question.
 A finding names its evidence, such as a proved declaration or a script that asserts the result, and the check confirms that the evidence exists.
 
 `flow check` fails when a hand-edited state leaves a record inconsistent, when a record points to an id that does not exist, when a finding's evidence does not resolve, when a rank has no reason, or when the index is out of date; it checks that the records hold together, not who wrote them, runs offline as a pre-commit hook, and its last line lists what it did not look at.

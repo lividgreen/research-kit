@@ -23,13 +23,13 @@ The one rule is to save what is important for the work, anything useful the sess
    At the month's first freeze, `flow log archive --before DATE` moves the older entries.
 2. **Flush what only the context holds.**
    Inventory the conversation turn by turn, the person's messages and the replies both, under the test: if the transcript were deleted now, would anything the person said, or anything the person was told, be lost?
-   Each item goes to its home by kind: an idea in the person's words, verbatim and dated (`flow capture`); a ruling where the project keeps its rules; a reading given in a reply into the body of the record it is about, with its standing; a correction as a dated line in the record; an unanswered question as a question or an idea; a preference about the process to the agent's memory.
+   Each item goes to its home by kind: an idea in the person's words, verbatim and dated (`flow idea`); a ruling where the project keeps its rules; a reading given in a reply into the body of the record it is about, with its standing; a correction as a dated line in the record; an unanswered question as a question or an idea; a preference about the process to the agent's memory.
    Then close the lifecycle of everything the session created: a task made, aborted or returned with a note, an idea consumed or left in the heap.
-   A freeze ranks nothing: a question framed is named unranked, and the list is the `whatsnext` skill's.
+   A freeze ranks nothing: a question minted is named unranked, and the list is the `whatsnext` skill's.
    A directive the next session should start from goes to the inbox, one directive, never a summary of the session.
 3. **Sweep by meaning.**
    Search the surfaces a reader sees, the documents and the published pages, for the claims this session made stale, by the claims' own words, not only the files the session already touched.
-   A stale claim the session may not correct, in a document the project's rules let only the person change, goes to a record — an idea (`flow capture`), or a task where the fix is work (`flow task`, `flow refine`) — with the place and the proposed edit in its body, and is named in the log entry, never left in the transcript.
+   A stale claim the session may not correct, in a document the project's rules let only the person change, goes to a record — an idea (`flow idea`), or a task where the fix is work (`flow task`, `--ref` the record it is about) — with the place and the proposed edit in its body, and is named in the log entry, never left in the transcript.
 4. **The checks and the gates, by exit code.**
    `flow state --check` decides what a machine can see: the log's top entry dated today where the tree changed since the newest committed entry, and every record changed since then named by an entry, a range of ids read and a record only re-ranked not asked for; it prints each hand's active tasks and drawn ideas for the State paragraph and fails on none.
    It exits 1 on a failure, 2 where a part could not be decided, never read as clean; `flow check` and the project's other checks run beside it.

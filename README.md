@@ -42,7 +42,7 @@ In Claude Code each skill is also a slash command: `/research:research-init`, `/
 
 The [`research` plugin](plugins/research/README.md), for any research project:
 
-- **Research records.** Ideas, questions with a criterion of what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next.
+- **Research records.** Ideas, questions that say what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next.
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
 - **A dashboard.** The records and the cards as a read-only page on localhost.

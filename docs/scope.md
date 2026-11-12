@@ -46,7 +46,7 @@ A project that already keeps decision records, a roadmap, a log and an agent's m
 | a decision to take | the reason a task waiting on it is parked with; the person's answer unparks it | a record of its own, a tag |
 | a decision taken, with its reasons | the project's decision records where it keeps them, else the log entry that records it | a direction |
 | what interests the owner | a direction record, opened on the owner's word, its words its body | a decision record, the memory |
-| where the research is going | a goal record the owner forms, with what reached means and a horizon; the questions serving it name it | a direction, a roadmap |
+| where the research is going | a goal record the owner forms, its body saying what reached means and how far out it lies; the questions serving it name it in `serves` | a direction, a roadmap |
 | what the project made | a repository path the records refer to, listed by `flow artifacts`; the papers it targets, in its instructions | a register kept by hand |
 | what the person leaves between sessions, and a freeze's directive to the next | the inbox, `INBOX.md`, read at the next session's start | a direction, the log |
 | a rule of the process | the instructions file, or the skill that owns it | the log, the memory |

@@ -9,15 +9,17 @@ In a project with an agent, `/research:research-init` does the setup of the firs
 ```sh
 flow init --log WORKLOG.md     # flow.toml, records/{ideas,tasks,questions,findings,goals,directions,archive} with records/INDEX.md, INBOX.md, a first log entry
 library init --kept --scan records --scan WORKLOG.md --documents "papers/*.md"
-flow capture "A might imply B" --source "a talk"
-flow frame idea-0001 --summary "Does A imply B?" --criterion "a finite counterexample, or a proof"
-flow refine question-0001 --task "prove the lemma" --task "design the route" --tag research
+flow idea "A might imply B" --source "a talk"
+printf 'A finite counterexample answers it, or a proof.\n' | flow question "Does A imply B?" --consume idea-0001 --body -
+flow task "prove the lemma" --ref question-0001 --tag research
+flow task "design the route" --ref question-0001 --tag research
 flow check
 flow state
 ```
 
 `flow init` writes two hands: `agent`, the agent's across its sessions, with a limit of four (its active tasks and the ideas drawn into it), and `owner`, the person's, with no limit (0 is unlimited); `--owner` names others.
-A task has no kind: a tag says what it is, `research` for work that came from the research and `upkeep` for the project's own, any word of yours beside them, and `flow tags` reports them; a task may come from a question, an idea or another task, named in its `derived_from`, or stand alone.
+A task has no kind: a tag says what it is, `research` for work that came from the research and `upkeep` for the project's own, any word of yours beside them, and `flow tags` reports them; a task may reference a question, an idea or another task, named in its `references`, or stand alone.
+A question's body says what counts as an answer, as the one above does, and a task's body what done means; the summary is the one line that states each.
 It also writes `INBOX.md`, where you leave items between sessions; `flow state` prints it first, before the due tasks, the ranked list, the hands and the log's top entry.
 It writes the five evidence forms a finding's items may take, `[evidence] forms` in `flow.toml`, which [The flow](flow.md) shows whole: `formal`, `statistical`, `peer-reviewed`, `stated` and `reference`; keep the ones the project accepts, add its own words, and say in the project's instructions what each means here.
 Then bind the evidence resolvers in `flow.toml` where the project has them — `[evidence] manifest`, `manifest_roots` and `manifest_extension` for a declaration manifest (a text file a prover's build regenerates, one `Module.Path name` line per declaration; of the other row kinds the `formal` plugin's generator writes, the flow reads `private`, `field` and `instance` rows as declarations too and passes over `module`, `hypothesis` and `uses`), `probes` for a register of self-asserting scripts.
@@ -38,21 +40,16 @@ id: task-0001
 type: task
 state: ready
 summary: prove the lemma
-derived_from:
+references:
 - question-0001
-requires: []
 size: null
 owner: null
 drawn: null
-dod: null
 due: null
 after: null
 rank: null
-why_now: null
-first_move: null
-rider: false
 parked: null
-blocked: null
+blocked_by: null
 closed: null
 origin: current
 source: null
@@ -62,7 +59,7 @@ tags:
 ---
 ```
 
-The front matter is what the tool owns: `state`, `derived_from`, `owner`, `drawn`, `rank`, `parked`, `blocked`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`); `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
+The front matter is what the tool owns: `state`, `owner`, `drawn`, `rank`, `parked`, `blocked_by`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`), `references` through `--ref` at the mint and `flow ref` after it, and `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
 The body below it is yours, one sentence per line.
 
 ### What a failed check looks like
@@ -90,14 +87,15 @@ printf 'The lemma holds, and probes/lemma.py asserts it.\n' > resolution.md
 flow draw task-0001 --owner agent
 flow make task-0001 --resolution resolution.md
 flow remove task-0002 --reason "the lemma settles the question, so no route is left to design"
-flow finding "A implies B" statistical:probes/lemma.py --from task-0001 --answers question-0001
+flow finding "A implies B" --evidence statistical:probes/lemma.py --ref task-0001 --answers question-0001
 flow check
 flow state
 ```
 
-`flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution.
+`flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution, which it requires.
 The other task, never drawn, is removed with its reason, since the result settles the question; both tasks are now in `records/archive/`.
-Then `flow finding` mints `finding-0001` from the made task, its evidence the probe in the `statistical` form, and `--answers` closes the question answered by it; a question refuses to close while a task that came from it is ready or active, so the tasks are closed first.
+Then `flow finding` mints `finding-0001` referencing the made task, its evidence the probe in the `statistical` form, and `--answers` closes the question answered by it.
+A question's closing is its own act: had the other task stayed ready, the question would have closed all the same, and the line printed under it, `refers to it, may need a follow-up: …`, would have named the task for the agent to decide on.
 The finding's trust is the forms its evidence carries, here `statistical`; a proof formalized later is added with `flow evidence finding-0001 formal:Lib/Foo.lean#decl`, and an item whose file is later gone is replaced or retired with `--replace` or `--retire`, a dated note in the body keeping what it was.
 The check passes with one warning: no probes register is bound, so the probe is reported unchecked rather than resolved (`[evidence] probes` in `flow.toml` binds one, a Markdown table naming each self-asserting script).
 

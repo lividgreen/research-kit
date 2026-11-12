@@ -14,7 +14,7 @@ The `flow` and `library` skills define what the records and the cards are; this 
    An item that fits no kind is left where it is and named in the report.
 3. **Carry the open work and every finding.**
    What is open now becomes ideas, questions and tasks; work that is settled stays in the old files and in git, and a record points at it rather than copying it.
-   Findings never close, so they are not the history to leave behind: every committed measurement, evaluation or result whose evidence resolves today is a finding, the oldest as well as the newest, and a survey that mints only the recent ones leaves the rest out silently.
+   Findings stand until one is found false, so they are not the history to leave behind: every committed measurement, evaluation or result whose evidence resolves today is a finding, the oldest as well as the newest, and a survey that mints only the recent ones leaves the rest out silently.
    A finding is minted only where its evidence resolves today; a result whose evidence does not resolve stays prose, as principle 2 says.
 4. **Through the tools wherever a command exists.**
    Records are made with `flow` and cards with `library`, so they are valid by construction.
@@ -40,7 +40,7 @@ So "no findings at migration, the results stay in the reports" is not a start: t
 A roadmap is two things the model keeps apart.
 Its order of deliverables, what ships and when, is the project's registry, which stays the roadmap's and is named in the instructions; its open items are the work, which become records, ranked on the next list, the roadmap pointing at no record and no record copying it.
 How the records point at the roadmap's workstreams is the project's own: the survey asks the person, and the mapping message says it (a tag per workstream, a goal for an outcome the person commits to, or nothing).
-A design record that raises a question, an ADR's open point, is framed from the document itself, `flow frame --source doc/adr/0010.md --summary "…" --criterion "…"`, with no idea captured first.
+A design record that raises a question, an ADR's open point, is minted from the document itself, `flow question "…" --source doc/adr/0010.md`, its body saying what counts as an answer, with no idea first.
 
 ## A worked survey
 
@@ -50,7 +50,7 @@ The survey reads each and counts what it holds before proposing anything:
 | Source | What it holds | What it becomes |
 | --- | --- | --- |
 | `doc/ROADMAP.md` | the order C1 → C3, 31 items, 19 marked done | the registry, in place; the 12 open items, each by the kinds' tests: 9 tasks, 2 questions, 1 idea, pointing at the workstreams as the person says |
-| `doc/adr/` | 14 decisions, 3 with open points | the decisions stay; each open point a question framed `--source` its ADR |
+| `doc/adr/` | 14 decisions, 3 with open points | the decisions stay; each open point a question minted `--source` its ADR |
 | `reports/` | 11 reports, 27 measured rates under 16 headings | 27 findings, `statistical:reports/….md#heading-anchor`; 2 claims with no table stay prose |
 | `TODO.md` | 8 chores, 2 done | 6 tasks tagged `upkeep`; the file retired by the person once the checks pass |
 | the old log | dated notes | stays as it is; the first entry of the flow's log points at it |
@@ -65,7 +65,7 @@ Records:
 - 9 tasks and 2 questions from the roadmap's 12 open items; 1 item is an idea.
   How should they point at the workstreams C1 to C3: a tag each (c1, c2, c3), a goal for one you commit to, or nothing?
   The list, one line each with the roadmap line it comes from: …
-- 3 questions framed from the ADRs' open points (0005, 0010, 0014), each naming its ADR as its source.
+- 3 questions minted from the ADRs' open points (0005, 0010, 0014), each naming its ADR as its source.
 - 27 findings from the reports, one per measured rate, each citing its report and heading; the list: …
 - 6 upkeep tasks from TODO.md.
 Left where they are, and why:

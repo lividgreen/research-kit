@@ -659,7 +659,7 @@ elif cmd == "show":
         out = {"ok": False, "problems": [{"msg": args[1] + " does not exist"}]}
     else:
         out = {"ok": True, "records": [{"id": "item-001", "state": "open", "summary": "the first", "doi": "10.1/x", "url": " JavaScript:alert(1)", "secret": {"path": "hidden", "n": 3}, "tags": ["t1"]}],
-               "body": "A body naming item-002, [a script](java\tscript:alert(2)) and [a page](https://example.org/).\n", "backlinks": {"derived_from": [{"id": "item-002", "summary": "second"}]},
+               "body": "A body naming item-002, [a script](java\tscript:alert(2)) and [a page](https://example.org/).\n", "backlinks": {"references": [{"id": "item-002", "summary": "second"}]},
                "sites": [{"path": "a.md", "line": 3, "text": "cites item-001"}]}
 elif cmd == "state":
     out = {"ok": True, "lines": ["a.md:1: one", "a.md:2: item-002 here"]}
