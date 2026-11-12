@@ -28,14 +28,15 @@ The [`handoff`](skills/handoff/SKILL.md) skill, `/formal:handoff` in Claude Code
 Before any document changes, what the prover session reports is checked against the built library: the declaration manifest's diff, a cold read-back of every landed statement, the binders and guards.
 The document's rows are written from the landed proof, the summary sites swept, the records closed, and the commit names its paths.
 `formal handback` prints the manifest diff, the instantiations, the witnesses owed, the guard delta with the live total, the document sites to re-read and the commission against the manifest; `formal readback NAME…` builds the docstring-stripped packet a cold reader writes each statement out from; `formal check` confirms the manifests parse and are the tree's, each root's umbrella imports its modules, the packages import in order and the bindings resolve.
+`formal rows --json` prints every row of the manifests with its kind and fields, the one read of them outside the plugin, and `formal resolve` says whether a list of names resolves in them, as it does for the research flow's `formal` evidence, which reads no manifest.
 Three gates read what a landing touches: `formal cite` resolves every declaration name the documents cite, `formal anchors` every `[Key] §N` of the Lean files against the document the key names, and `formal register` holds what ships to the public register; `formal hypotheses` fails where a shipped theorem gained a named condition, and `formal witnesses` reports the theorems owing a joint-satisfiability witness.
-[`DeclManifest.lean`](skills/land/scripts/DeclManifest.lean), beside the script, generates a Lean package's declaration manifest after a genuine build, writing the seven row kinds `formal` and `flow` read.
+[`DeclManifest.lean`](skills/land/scripts/DeclManifest.lean), beside the script, generates a Lean package's declaration manifest after a genuine build, writing the seven row kinds the CLI reads.
 
 The [`land`](skills/land/SKILL.md) skill, `/formal:land` in Claude Code; [The landing](../../docs/formal/land.md) is its page: the commands, the manifest's grammar and the checks.
 
 ## The prover-side setup
 
-`/formal:formal-init` reads the Lean workspaces under the root with their roots and toolchains, proposes what is missing, writes `formal.toml`, places the manifest generator, writes the prover session's standing instructions from the template, and binds the flow's declaration evidence and the `formal-check` hook, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
+`/formal:formal-init` reads the Lean workspaces under the root with their roots and toolchains, proposes what is missing, writes `formal.toml`, places the manifest generator, writes the prover session's standing instructions from the template, and adds the `formal-check` hook, and `formal-cite`, `formal-anchors` and `formal-register` where their bindings are filled.
 `formal probe` reports the workspaces, the tools and what the setup is missing, and writes nothing.
 
 The [`formal-init`](skills/formal-init/SKILL.md) skill, `/formal:formal-init` in Claude Code; [The formal setup](../../docs/formal/formal-init.md) is its page, with `formal.toml` as `init` writes it.

@@ -22,9 +22,10 @@ A task has no kind: a tag says what it is, `research` for work that came from th
 A question's body says what counts as an answer, as the one above does, and a task's body what done means; the summary is the one line that states each.
 It also writes `INBOX.md`, where you leave items between sessions; `flow state` prints it first, before the due tasks, the ranked list, the hands and the log's top entry.
 It writes the five evidence forms a finding's items may take, `[evidence] forms` in `flow.toml`, which [The flow](flow.md) shows whole: `formal`, `statistical`, `peer-reviewed`, `stated` and `reference`; keep the ones the project accepts, add its own words, and say in the project's instructions what each means here.
-Then bind the evidence resolvers in `flow.toml` where the project has them — `[evidence] manifest`, `manifest_roots` and `manifest_extension` for a declaration manifest (a text file a prover's build regenerates, one `Module.Path name` line per declaration; of the other row kinds the `formal` plugin's generator writes, the flow reads `private`, `field` and `instance` rows as declarations too and passes over `module`, `hypothesis` and `uses`), `probes` for a register of self-asserting scripts.
+Then bind the probes register in `flow.toml` where the project has one: `[evidence] probes`, a register of self-asserting scripts.
+Formal evidence needs no binding: where `formal.toml` stands at the root, `flow check` asks `formal resolve --protocol` of the `formal` plugin installed beside the research one, else a `formal` command on PATH, and its coverage line says which; `[evidence.resolvers]` in `flow.toml` binds another command, for another prover or a form of the project's own, and `formal = []` asks none.
 The library needs no binding: where `library.toml` stands at the root, `flow check` asks the library skill installed beside the flow skill, else a `library` command on PATH, and its coverage line says which; `[library] command` in `flow.toml` names another command, and `command = []` asks none.
-Unbound, formal, probe and peer-reviewed evidence is reported unchecked and the check's coverage line says so.
+Where no resolver, register or library is found, formal, probe and peer-reviewed evidence is reported unchecked and the check's coverage line says so.
 
 `library init --documents "papers/*.md"` binds the documents whose reference entries the library ties to cards: each entry is one line under a `## References` heading opening with the authors and the year in parentheses, as `Jen, E. (1990). *Title*. Venue.`, and an entry with no card, or with two, fails the check.
 A project whose documents keep a BibTeX or numbered bibliography binds no documents and cites by key alone.
@@ -69,7 +70,7 @@ Set the task's `state` to `active` by hand and run `flow check`:
 ```text
 records/tasks/task-0001-prove-the-lemma.md: V9 active without an owner
 records/INDEX.md: V11 records/INDEX.md is stale — run `flow index`
-flow check: 4 records of the kinds idea, question, task, finding, goal, direction; 2 problem(s), 0 warning(s); evidence forms formal, statistical, peer-reviewed, stated, reference; declaration evidence unchecked (no manifest bound); probe evidence unchecked (no register bound); reflow via built-in; markdownlint present
+flow check: 4 records of the kinds idea, question, task, finding, goal, direction; 2 problem(s), 0 warning(s); evidence forms formal, statistical, peer-reviewed, stated, reference; resolver formal unchecked (no formal.toml at the root); probe evidence unchecked (no register bound); reflow via built-in; markdownlint present
 library: 0 key(s) cited from the records, 0 record(s) citing; 0 of them excluded cards; the papers' reference entries and the documents the library's scan binds are not read here; asked through the library skill beside this one
 to reproduce: `flow check` at the project root, the flow skill's scripts/flow.py; where no skill is loaded, `pre-commit run flow-check --all-files`
 ```

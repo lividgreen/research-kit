@@ -66,6 +66,45 @@ def main():
     for n in PINS:
         check(f"{n} identical in setup.py and formal.py", n in s and n in f and s[n] == f[n])
 
+    print("the flow and the formal plugin's resolver, the two sides of one protocol")
+    versions = {n: re.search(r"^RESOLVER_PROTOCOL = (\d+)$", SCRIPTS[n].read_text(encoding="utf-8"), re.M) for n in ("flow", "formal")}
+    check("RESOLVER_PROTOCOL is one number, equal in flow.py and formal.py", all(versions.values()) and versions["flow"].group(1) == versions["formal"].group(1))
+    with tempfile.TemporaryDirectory() as tmp:
+        proj = Path(tmp)
+        flow = lambda *argv, cwd=proj: subprocess.run([sys.executable, str(SCRIPTS["flow"]), *argv], capture_output=True, text=True, cwd=cwd)
+        check("flow init writes a project's flow.toml with no manifest binding", flow("init").returncode == 0
+              and not re.search(r"^#? ?manifest", (proj / "flow.toml").read_text(encoding="utf-8"), re.M))
+        (proj / "lean" / "Lib").mkdir(parents=True)
+        (proj / "lean" / "Lib" / "A.lean").write_text("theorem thm : True := trivial\n", encoding="utf-8")
+        (proj / "scripts").mkdir()
+        (proj / "scripts" / "decls.txt").write_text("module Lib.A 1\nLib.A thm\n", encoding="utf-8")
+        check("with no formal.toml at the root a formal item is minted unchecked, and the coverage says why",
+              flow("finding", "unbound", "--evidence", "formal:Lib/A.lean#thm").returncode == 0
+              and "resolver formal unchecked (no formal.toml at the root)" in flow("check").stdout)
+        (proj / "formal.toml").write_text('[workspace]\ndir = "lean"\n[manifest]\nfiles = ["scripts/decls.txt"]\n[packages]\nLib = "."\n', encoding="utf-8")
+        r = flow("finding", "A holds", "--evidence", "formal:Lib/A.lean#thm", "formal:Lib/A.lean")
+        check("flow finding resolves a formal item of the manifest through the formal script, with no manifest key in flow.toml", r.returncode == 0, r.stdout + r.stderr)
+        r = flow("finding", "B holds", "--evidence", "formal:Lib/A.lean#nope")
+        check("a name the manifest lacks is refused with the resolver's why", r.returncode == 1 and "`nope` is not in the manifest" in r.stderr, r.stdout + r.stderr)
+        r = flow("finding", "C holds", "--evidence", "formal:Lib/Z.lean#thm")
+        check("a path that is no file of the package is refused with the resolver's why", r.returncode == 1 and "Lib/Z.lean is not a file under lean/" in r.stderr, r.stdout + r.stderr)
+        r = flow("check")
+        check("flow check is green with the item resolved, and says the formal plugin beside the research plugin answered",
+              r.returncode == 0 and "resolver formal via the formal plugin beside the research plugin" in r.stdout, r.stdout + r.stderr)
+        stub = proj / "stub.py"
+        toml = (proj / "flow.toml").read_text(encoding="utf-8")
+        for name, body, want in (("an answer in protocol 2", 'print(\'{"protocol": 2, "items": {}}\')', ("unchecked", 0)),
+                                 ("an exit 1", "sys.exit(1)", ("did not answer", 1))):
+            stub.write_text("import sys\nsys.stdin.read()\n" + body + "\n", encoding="utf-8")
+            (proj / "flow.toml").write_text(toml + f'\n[evidence.resolvers]\nformal = [{json.dumps(sys.executable)}, "stub.py"]\n', encoding="utf-8")
+            r = flow("check")
+            if want[0] == "unchecked":
+                ok = r.returncode == 0 and "unchecked: the resolver for formal answered in protocol 2" in r.stdout and "0 problem(s)" in r.stdout
+            else:
+                ok = r.returncode == 1 and "V6 the resolver for formal did not answer: exit 1" in r.stdout and r.stdout.count("V6") == 1
+            check(f"a resolver bound in [evidence.resolvers] that gives {name} leaves the items {'unchecked' if want[1] == 0 else 'with one V6 problem, no record named'}", ok, r.stdout + r.stderr)
+        (proj / "flow.toml").write_text(toml, encoding="utf-8")
+
     print("manifests")
     market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
     codex = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())

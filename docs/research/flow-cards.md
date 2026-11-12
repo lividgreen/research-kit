@@ -141,15 +141,15 @@ An evidence item's form is one of the words `[evidence] forms` lists; the kit sh
 
 | Form | Example | Resolved against |
 | --- | --- | --- |
-| `formal` | `formal:Lib/Foo.lean#lemma_L`, or a whole module `formal:Lib/Foo.lean` | machine-checked: the declaration manifest of `[evidence] manifest`, a text file of `Module.Path name` lines; the file is looked up under `manifest_roots`, and the extension is `manifest_extension` |
+| `formal` | `formal:Lib/Foo.lean#lemma_L`, or a whole module `formal:Lib/Foo.lean` | machine-checked: asked of the resolver, `formal resolve --protocol` of the `formal` plugin, which answers from the manifests `formal.toml` binds ([The flow](flow.md#evidence-resolvers) has the protocol) |
 | `statistical` | `statistical:probes/p.py`; `statistical:results/run.md#FV-1` | the project's own data: a probe listed in the register of `[evidence] probes`, a Markdown table whose first column holds the file's name in backticks; or a committed result by its path, a row anchor checked as a document's |
 | `peer-reviewed` | `peer-reviewed:jen1990`, `peer-reviewed:jen1990#lemma` | a card of the bound reference library, by its key; an extract after `#` |
 | `stated` | `stated:papers/alpha.md#Theorem 2.1`; `stated:papers/alpha.md#FV-1` | the project's own word: a numbered statement of a document of the project — Theorem, Proposition, Lemma, Corollary, Definition, Remark, Fact, Conjecture or Example, then its number, at a line start, after `**` or in a heading — or a table row of it whose first cell is the id, two or three capitals, a hyphen, then letters and digits |
 | `reference` | `reference:https://doi.org/…`; `reference:notes/talk.md` | any other source: a URL, held to its form alone; a repository path, held to its existence and to the tree, an absolute path or one climbing above the root by `..` refused |
 | the project's own | `benchmark:results/bench.md` | a path, held to its existence; anything else reported unchecked |
 
-A declaration resolves when it exists in the manifest, a private declaration's included; whether a document may cite it is the `formal` plugin's gates' claim, at the document row and the citation.
-Where no manifest, register or library is bound, such evidence is reported unchecked and the check's coverage line says so; an item of a form the project does not list, and an item with no form, are refused.
+A declaration resolves when it exists in the manifests, a private declaration's included; whether a document may cite it is the `formal` plugin's gates' claim, at the document row and the citation.
+Where no resolver, register or library is found, such evidence is reported unchecked and the check's coverage line says so; an item of a form the project does not list, and an item with no form, are refused.
 A finding resting on `stated` alone is the project's own word and the trust to raise: `flow evidence` adds the proof formalized, the probe run or the work cited.
 
 ### A goal

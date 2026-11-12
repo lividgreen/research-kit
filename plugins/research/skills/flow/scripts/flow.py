@@ -140,6 +140,12 @@ LINKS = ("references", "answered_by", "blocked_by", "serves", "consumed_by")
 # The five evidence forms the kit ships, the words a finding's trust is read from; a project picks the ones it
 # accepts in [evidence] forms and adds its own.
 SHIPPED_FORMS = ("formal", "statistical", "peer-reviewed", "stated", "reference")
+# The forms the flow resolves itself; any other may be bound to a resolver in [evidence.resolvers], and `formal` is
+# asked of the formal plugin's resolver when the project has a formal.toml.
+OWN_FORMS = ("statistical", "peer-reviewed", "stated", "reference")
+# The version of the protocol the flow speaks with a resolver, `formal resolve --protocol` the one the kit ships;
+# tests/run.py holds it equal to formal.py's own.
+RESOLVER_PROTOCOL = 1
 # The words of the models before this one, which `flow doctor` names and the check refuses: states and fields
 # renamed, and fields dropped, each with what it reads now.
 OLD_STATES = {"abandoned", "decomposed"}
@@ -249,6 +255,32 @@ def find_library(root):
     return [], "library.toml at the root but no library skill beside this one or command on PATH"
 
 
+def find_resolver(root, here=None):
+    """The command that resolves `formal` evidence when flow.toml binds none: the formal plugin's `formal resolve
+    --protocol` beside the research plugin, else `formal` on PATH (the hooks' environment, where the package installs
+    it beside `flow`), either only where a formal.toml stands at the root.  The plugin is in one of three places, the
+    first that is a file, P being the directory four above this script (the plugin's directory in a checkout, the
+    version's in Claude Code's cache): beside P, beside P's parent under P's own version, or the `land` skill in the
+    directory this one sits in, where the skills were installed flat.  Returns the command and the words the
+    coverage line says (`here`, this script's path, is the selftest's to move)."""
+    if not (root / "formal.toml").is_file():
+        return [], "no formal.toml at the root"
+    here = Path(here or __file__).resolve()
+    places = []
+    if len(here.parents) > 3:  # a path shallower than that has no plugin directory to look beside
+        plugin = here.parents[3]
+        places += [(plugin.parent / "formal" / "skills" / "land" / "scripts" / "formal.py", "the formal plugin beside the research plugin"),
+                   (plugin.parent.parent / "formal" / plugin.name / "skills" / "land" / "scripts" / "formal.py", "the formal plugin beside the research plugin")]
+    places.append((here.parent.parent.parent / "land" / "scripts" / "formal.py", "the land skill beside the flow skill"))
+    for cand, words in places:
+        if cand.is_file():
+            return [sys.executable, str(cand), "resolve", "--protocol"], words
+    on_path = shutil.which("formal")
+    if on_path:
+        return [on_path, "resolve", "--protocol"], "the formal command on PATH"
+    return [], "formal.toml at the root but no formal plugin beside the research plugin or command on PATH"
+
+
 class Config:
     def __init__(self, root, bare=False):
         """The bindings of the project at `root`; `bare`, the defaults alone where no flow.toml stands there,
@@ -291,26 +323,31 @@ class Config:
             self.log.with_name(self.log.stem + "-archive") if self.log else None
         self.reflow_module = paths.get("reflow_module")
         self.mdlint_config = paths.get("markdownlint_config")
-        # Evidence resolvers ([evidence]).  The manifest lists declaration names, one per line, as
-        # `Module.Path name`; it may be one file or a list, and every directory evidence paths are
-        # looked up under (the first that holds the file wins).  A prover library's declaration
-        # list is the instance.
+        # Evidence ([evidence]): the forms, the probes register, the anchors a document's items take, and the
+        # resolvers a form whose targets another tool owns is asked of.
         ev = raw.get("evidence", {})
-        lm = ev.get("manifest")
-        self.manifests = [lm] if isinstance(lm, str) else list(lm or [])
-        self.manifest = ", ".join(self.manifests) or None
-        lr = ev.get("manifest_roots", ".")
-        self.manifest_roots = [lr] if isinstance(lr, str) else list(lr)
-        self.manifest_root = " or ".join(self.manifest_roots)
-        # The file extension declaration evidence carries (`Path.ext#name`): named beside the
-        # manifest, since the kit knows no prover.  With no manifest bound any extension but a
-        # document's or a probe's is read as one.
-        ext = ev.get("manifest_extension")
-        if self.manifests and ext is None:
-            raise Refused("flow.toml: [evidence] manifest_extension is required beside manifest "
-                          "(the file extension of the paths declaration evidence cites, e.g. \"lean\")")
-        self.decl_ext = str(ext).lstrip(".") if ext else None
-        ext_rx = re.escape(self.decl_ext) if self.decl_ext else r"(?!(?:md|py)(?:#|$))[A-Za-z0-9]+"
+        resolvers = ev.get("resolvers", {})
+        if not isinstance(resolvers, dict):
+            raise Refused("flow.toml: [evidence.resolvers] is a table of a form and the command that resolves it, `formal = [\"formal\", \"resolve\", \"--protocol\"]`")
+        self.resolvers = {}
+        for f, c in resolvers.items():
+            if f in OWN_FORMS or not FORM_WORD.match(f):
+                raise Refused(f"flow.toml: [evidence.resolvers] binds {f!r}: a form is one lowercase word, and the flow resolves {', '.join(OWN_FORMS)} itself; "
+                              "any other form may be bound")
+            words = [c] if isinstance(c, str) else c
+            if not isinstance(words, list) or not all(isinstance(w, str) and w for w in words):
+                raise Refused(f"flow.toml: [evidence.resolvers] {f} is {c!r}: the whole command, a list of strings (one string is one word); [] turns it off")
+            self.resolvers[f] = (words, "flow.toml's [evidence.resolvers]" if words else "disabled in flow.toml's [evidence.resolvers]")
+        if "formal" not in self.resolvers:
+            self.resolvers["formal"] = find_resolver(self.root)
+        # the forms whose targets are a resolver's: the flow reads no path out of them, and holds an item to `form:target`
+        # and [evidence] forms alone.  `formal` always; another form once a command is bound to it.
+        self.resolved = ("formal", *(f for f, (c, _) in self.resolvers.items() if c and f != "formal"))
+        # the forms whose targets are no repository path of the tree (`flow artifacts`, `find --refers`): those, and the library's keys
+        self.opaque_forms = ("peer-reviewed", *self.resolved)
+        # An item of a declaration's shape, `Path.ext#name` or `Path.ext`: what `flow doctor` reads an item written
+        # before the forms as, for any extension but a document's or a probe's.
+        ext_rx = r"(?!(?:md|py)(?:#|$))[A-Za-z0-9]+"
         self.probes = ev.get("probes")
         self.ev_decl = re.compile(r"^([A-Za-z0-9_/]+\.(?:%s))#([A-Za-z0-9_.'!?]+)$" % ext_rx)
         self.ev_declfile = re.compile(r"^([A-Za-z0-9_/]+\.(?:%s))$" % ext_rx)
@@ -364,7 +401,6 @@ class Config:
         self.id_re = re.compile(r"^(%s)-(\d+)(?:-[a-z0-9-]+)?\.md$" % "|".join(re.escape(self.prefix[t]) for t in TYPES))
         self.type_of_prefix = {self.prefix[t]: t for t in TYPES}
         self._reflow = None
-        self._manifest = None
 
     def has(self, type_):
         return type_ in self.kinds
@@ -388,39 +424,7 @@ class Config:
     def reflow_source(self):
         return self.reflow_module if self.reflow_module and (self.root / self.reflow_module).is_file() else "built-in"
 
-    def manifest_names(self):
-        """Declaration names in the manifest (bare and qualified), or None when absent."""
-        if self._manifest is None:
-            files = [self.root / m for m in self.manifests]
-            if not files or not all(f.is_file() for f in files):
-                self._manifest = False
-            else:
-                names, modules, in_module = set(), set(), defaultdict(set)
-                for line in (ln for f in files for ln in f.read_text(encoding="utf-8").splitlines()):
-                    t = MANIFEST_FIELD.findall(line)  # a «…» name may hold spaces
-                    if not t or t[0].startswith("#") or t[0] in ("hypothesis", "uses"):
-                        continue
-                    if len(t) < (3 if t[0] in ("private", "field", "instance") else 2):
-                        continue
-                    if t[0] == "module":
-                        modules.add(t[1])
-                        continue
-                    module, name = t[1:3] if t[0] in ("private", "field", "instance") else t[:2]
-                    parts = name.split(".")
-                    for k in range(len(parts)):  # every dotted suffix resolves, as a module-scoped lookup
-                        names.add(".".join(parts[k:]))
-                        in_module[module].add(".".join(parts[k:]))
-                self._manifest = names
-                self._modules = modules
-                self._in_module = in_module
-        return None if self._manifest is False else self._manifest
 
-    def manifest_modules(self):
-        self.manifest_names()
-        return None if self._manifest is False else self._modules
-
-
-MANIFEST_FIELD = re.compile(r"(?:«[^»]*»|[^\s«])+")
 _SENT = re.compile(r"([.?!])([\"”’')\]*`]*)[ \t]+(?=[A-Z0-9*`(\[“\"§_])")
 FENCE_RUN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 # The abbreviations the built-in reflow does not split after: the lowercase Latin ones are compared in any case, the capitalised
@@ -999,11 +1003,12 @@ def outside_tree(target):
 OUTSIDE = "outside the tree: a repository path is written from the project root, with no leading `/` and no `..` above it"
 
 
-def evidence_path(item):
-    """The repository path an evidence item names, before any anchor: a probe, a result, a document; None for a
-    declaration (the manifest's, under its own roots), a library key, a URL or a path outside the tree."""
+def evidence_path(item, opaque=("formal", "peer-reviewed")):
+    """The repository path an evidence item names, before any anchor: a probe, a result, a document; None for an
+    item of a form whose targets are no path of the tree (`opaque`: a resolver's, or the library's), a URL or a
+    path outside the tree."""
     s = split_evidence(item)
-    if s is None or s[0] in ("formal", "peer-reviewed") or EV_URL.match(s[1]) or outside_tree(s[1]):
+    if s is None or s[0] in opaque or EV_URL.match(s[1]) or outside_tree(s[1]):
         return None
     return norm_path(s[1])
 
@@ -1025,25 +1030,73 @@ def tree_links(body):
     return [p for p in body_links(body) if not outside_tree(p)]
 
 
-def _resolve_declaration(cfg, target):
-    m = cfg.ev_decl.match(target) or cfg.ev_declfile.match(target)
-    if not m:
-        return f"formal takes a declaration (Path.{cfg.decl_ext or 'ext'}#name) or a whole module (Path.{cfg.decl_ext or 'ext'})"
-    names = cfg.manifest_names()
-    if names is None:
-        return "unchecked: no declaration manifest configured"
-    decl_file = next((cfg.root / r / m.group(1) for r in cfg.manifest_roots
-                      if (cfg.root / r / m.group(1)).is_file()), None)
-    if decl_file is None:
-        return f"{m.group(1)} is not a file under {cfg.manifest_root}/"
-    module = m.group(1).rsplit(".", 1)[0].replace("/", ".")
-    if m.re is cfg.ev_declfile:  # a whole module as evidence: it must be a manifest module
-        return None if module in cfg.manifest_modules() else f"module {module} is not in the manifest"
-    if m.group(2) not in names:
-        return f"`{m.group(2)}` is not in the manifest"
-    if module in cfg.manifest_modules() and m.group(2) not in cfg._in_module[module]:
-        return f"`{m.group(2)}` is not declared in {module}, the module of {m.group(1)}"
-    return None
+def ask_resolver(cfg, form, targets, cache):
+    """What the form's resolver answers for `targets`, asked once for those not answered yet in `cache`: the request
+    `{"protocol": 1, "form": FORM, "items": [TARGET, …]}` on its standard input, one JSON object back,
+    `{"protocol": 1, "items": {TARGET: {"ok": true} | {"ok": false, "why": …} | {"unchecked": …}}}`.  Returns the
+    state kept under the form: `answers` (a target's verdict as `resolve_evidence` words it: None, the reason, or
+    "unchecked: …"), `error` (why the resolver did not answer: a nonzero exit, the limit passed, no JSON object, a
+    target not answered; every item of the form is then unchecked), `unchecked` (the reason, where it answered in a
+    protocol this flow does not read)."""
+    st = cache.setdefault(("resolver", form), {"answers": {}, "error": None, "unchecked": None})
+    todo = [t for t in dict.fromkeys(targets) if t not in st["answers"]]
+    if st["error"] or st["unchecked"] or not todo:
+        return st
+    cmd = cfg.resolvers[form][0]
+    try:
+        r = subprocess.run(cmd, input=json.dumps({"protocol": RESOLVER_PROTOCOL, "form": form, "items": todo}),
+                           capture_output=True, text=True, cwd=cfg.root, timeout=60)
+        if r.returncode != 0:
+            lines = lambda out: [ln.strip() for ln in out.splitlines() if ln.strip()]
+            said = (lines(r.stderr) or lines(r.stdout) or [""])[-1]  # the last line: a traceback ends in its message
+            raise ValueError(f"exit {r.returncode}" + (f" ({said[:200]})" if said else ""))
+        ans = json.loads(r.stdout)
+        if not isinstance(ans, dict) or isinstance(ans.get("protocol"), bool) or not isinstance(ans.get("protocol"), int):
+            raise ValueError("no JSON object with a `protocol` number")
+        if ans["protocol"] != RESOLVER_PROTOCOL:
+            st["unchecked"] = f"the resolver for {form} answered in protocol {ans['protocol']}, which this flow does not read (it reads {RESOLVER_PROTOCOL})"
+            return st
+        if not isinstance(ans.get("items"), dict):
+            raise ValueError("no `items` object")
+        for t in todo:
+            a = ans["items"].get(t)
+            if not isinstance(a, dict):
+                raise ValueError(f"no answer for {t}")
+            if a.get("ok") is True:
+                st["answers"][t] = None
+            elif a.get("ok") is False:
+                st["answers"][t] = str(a.get("why") or "the resolver refuses it")
+            elif isinstance(a.get("unchecked"), str):
+                st["answers"][t] = f"unchecked: {a['unchecked']}"
+            else:
+                raise ValueError(f"the answer for {t} is neither ok nor unchecked")
+    except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+        st["error"] = f"timed out after 60 seconds" if isinstance(e, subprocess.TimeoutExpired) else str(e)
+    return st
+
+
+def ask_resolvers(cfg, items, cache):
+    """Every item of a form a resolver answers for, asked of it in one run for each form."""
+    by = defaultdict(list)
+    for e in items:
+        s = split_evidence(e)
+        if s and s[0] in cfg.forms and s[0] in cfg.resolved and cfg.resolvers[s[0]][0]:
+            by[s[0]].append(s[1])
+    for form, targets in by.items():
+        ask_resolver(cfg, form, targets, cache)
+
+
+def _resolve_by_resolver(cfg, form, target, cache):
+    """An item of a form whose targets a resolver owns: its verdict, None where it resolves."""
+    cmd, route = cfg.resolvers[form]
+    if not cmd:
+        return f"unchecked: no resolver for {form} ({route})"
+    st = ask_resolver(cfg, form, [target], cache)
+    if st["error"]:
+        return f"unchecked: the resolver for {form} did not answer: {st['error']}"
+    if st["unchecked"]:
+        return f"unchecked: {st['unchecked']}"
+    return st["answers"][target]
 
 
 HTML_TAG = re.compile(r"<!--.*?-->|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
@@ -1152,8 +1205,9 @@ def _resolve_probe(cfg, target, cache):
 
 def resolve_evidence(cfg, item, cache, lib=None):
     """None when the item resolves; 'unchecked: …' where no resolver is bound for it; else the reason.  The form is
-    held to [evidence] forms, the target to the shape its form takes: `formal` a declaration of the manifest,
-    `statistical` a probe of the register or a committed result by its path, `peer-reviewed` a card of the library
+    held to [evidence] forms, the target to the shape its form takes: `formal`, and any form the project binds to a
+    resolver, whatever the resolver answers for it (`cache` keeps its answers), `statistical` a probe of the
+    register or a committed result by its path, `peer-reviewed` a card of the library
     (`lib` its `keys` answer, asked where None), `stated` a row, a numbered statement or a heading of a document of
     the project, `reference` a URL for its form alone or a path for its existence; a document's anchor, under
     `statistical` and `reference` as well, checked as a stated item's is; a form of the project's own, a path for its
@@ -1165,10 +1219,10 @@ def resolve_evidence(cfg, item, cache, lib=None):
     form, target = s
     if form not in cfg.forms:
         return f"form {form!r} is not one [evidence] forms lists ({', '.join(cfg.forms)})"
+    if form in cfg.resolved:  # the resolver's targets: the flow reads no path out of them
+        return _resolve_by_resolver(cfg, form, target, cache)
     if form != "peer-reviewed" and not EV_URL.match(target) and outside_tree(target):
         return f"{norm_path(target)} is {OUTSIDE}"
-    if form == "formal":
-        return _resolve_declaration(cfg, target)
     if form == "stated":
         return _resolve_document(cfg, target, cache)
     if form == "peer-reviewed":
@@ -1208,6 +1262,7 @@ def resolve_items(cfg, items, have=()):
     """Every item of a mint or an append resolved, or the first reason refused; an item already held refused."""
     cache, seen = {}, set(have)
     lib = library_keys(cfg) if any(evidence_form(e) == "peer-reviewed" for e in items) else None
+    ask_resolvers(cfg, items, cache)
     for e in items:
         if e in seen:
             raise Refused(f"evidence {e} is there already")
@@ -1309,7 +1364,7 @@ def link_ids(r):
 def validate(cfg, recs, today):
     problems, warnings = [], []
     cache = {}
-    coverage = {"records": len(recs), "kinds": list(cfg.kinds), "forms": list(cfg.forms), "manifest": cfg.manifest_names() is not None,
+    coverage = {"records": len(recs), "kinds": list(cfg.kinds), "forms": list(cfg.forms),
                 "probes": bool(cfg.probes and (cfg.root / cfg.probes).is_file()),
                 "reflow": cfg.reflow_source, "markdownlint": bool(shutil.which("markdownlint"))}
 
@@ -1330,6 +1385,13 @@ def validate(cfg, recs, today):
     cited, citers = Counter(), set()
     if lib is not None and lib.get("error"):
         problems.append({"code": "V23", "id": None, "path": None, "msg": f"the library did not answer: {lib['error']}"})
+    # every item of a form a resolver answers for, asked of it once; one that does not answer is one problem, no record's
+    ask_resolvers(cfg, [str(e) for r in recs.values() if r.type == "finding" and r["state"] != "removed"
+                        for e in (r["evidence"] if isinstance(r["evidence"], list) else [])], cache)
+    for form in cfg.resolved:
+        st = cache.get(("resolver", form))
+        if st and st["error"]:
+            problems.append({"code": "V6", "id": None, "path": None, "msg": f"the resolver for {form} did not answer: {st['error']}"})
 
     for r in recs.values():
         t = r.type
@@ -1502,6 +1564,12 @@ def validate(cfg, recs, today):
             problems.append({"code": "V14", "id": None, "path": None, "msg": f"rank {n} on {', '.join(ids)}"})
     if ranks and sorted(ranks) != list(range(1, len(ranks) + 1)):
         problems.append({"code": "V14", "id": None, "path": None, "msg": f"ranks are not 1..n: {sorted(ranks)}"})
+    coverage["resolvers"] = {}
+    for form in (f for f in cfg.forms if f in cfg.resolvers):  # each form asked of a resolver: the route that answered, or why none did
+        cmd, route = cfg.resolvers[form]
+        st = cache.get(("resolver", form)) or {}
+        coverage["resolvers"][form] = (f"unchecked ({route})" if not cmd else f"unchecked (did not answer: {st['error']}; {route})" if st.get("error")
+                                       else f"unchecked ({st['unchecked']}; {route})" if st.get("unchecked") else f"via {route}")
     if lib is None or lib.get("error"):
         coverage["library"] = None
     else:
@@ -2390,25 +2458,25 @@ def library_keys(cfg):
 
 # --- views -------------------------------------------------------------------
 
-def refers_to(r, target):
+def refers_to(r, target, opaque=("formal", "peer-reviewed")):
     """Whether record r names `target`, a record's id or a repository path, by a link (`references`, `answered_by`,
     `serves`, `consumed_by`, an item of `blocked_by.on`), an evidence item, a source that is a path or a body link."""
     if any(v == target for _, v in link_ids(r)):
         return True
-    if "evidence" in r.fm and any(evidence_path(e) == target for e in r["evidence"] or []):
+    if "evidence" in r.fm and any(evidence_path(e, opaque) == target for e in r["evidence"] or []):
         return True
     if source_path(r) == target:
         return True
     return target in tree_links(r.body)
 
 
-def referrers(recs, target, deep=False):
+def referrers(recs, target, deep=False, opaque=("formal", "peer-reviewed")):
     """The ids of the records naming `target`; with `deep`, of those naming them, and so on."""
     found, frontier = set(), [target]
     while frontier:
         x = frontier.pop()
         for r in recs.values():
-            if r.id not in found and r.id != target and refers_to(r, x):
+            if r.id not in found and r.id != target and refers_to(r, x, opaque):
                 found.add(r.id)
                 if deep:
                     frontier.append(r.id)
@@ -2431,7 +2499,7 @@ def cmd_find(cfg, recs, a, today):
     if a.only and not a.form:
         raise Refused("--only holds the forms of --form: flow find --form stated --only")
     target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
-    naming = referrers(recs, target, a.deep) if a.refers else None
+    naming = referrers(recs, target, a.deep, cfg.opaque_forms) if a.refers else None
     for r in recs.values():
         if a.type and r.type != a.type:
             continue
@@ -2507,7 +2575,7 @@ def cmd_artifacts(cfg, recs, a, today):
         if r["state"] == "removed":
             continue
         for e in (r["evidence"] or []) if "evidence" in r.fm else []:
-            p = evidence_path(e)
+            p = evidence_path(e, cfg.opaque_forms)
             if p:
                 paths[p].append({"id": r.id, "via": "evidence"})
         for p in sorted(set(tree_links(r.body))):
@@ -3181,6 +3249,11 @@ def doctor(cfg, today):
     if fnd:
         out.append(_item("flow.toml", "[finding]", "goes: a finding's status is read from the forms of its evidence, which [evidence] forms lists; "
                          "delete the section, with the comments init wrote beside it"))
+    for k, now in (("manifest", "the declaration manifests are `formal.toml`'s alone ([manifest] files), and the flow asks `formal resolve` for formal evidence"),
+                   ("manifest_roots", "a declaration's path is read under the package directories `formal.toml`'s [packages] binds"),
+                   ("manifest_extension", "a declaration's path carries `.lean`, which the formal plugin owns")):
+        if k in ev:
+            out.append(_item("flow.toml", f"[evidence] {k}", f"goes: {now}; delete the line"))
     if "forms" not in ev:
         out.append(_item("flow.toml", "no [evidence] forms", f"forms = [{', '.join(json.dumps(f) for f in SHIPPED_FORMS)}]: "
                          "the forms the project accepts, of the five the kit ships and its own"))
@@ -3456,9 +3529,6 @@ BINDING_READERS = {
     "question.sizes": "`flow question`, `flow task` and `flow set … size`: the sizes a question or a task takes",
     "evidence.statement_words": "`flow check` and the evidence mints: the words a numbered statement's anchor takes",
     "evidence.row_id": "`flow check` and the evidence mints: the pattern a table row's id matches",
-    "evidence.manifest": "`flow check`: the declaration manifest formal evidence resolves against",
-    "evidence.manifest_roots": "`flow check`: the directories a declaration's path is looked up under",
-    "evidence.manifest_extension": "`flow check`: the extension a declaration's path carries",
     "evidence.probes": "`flow check`: the probes register statistical evidence resolves against",
     "library.command": "`flow check`: the command that answers the library's keys",
     "index.recent_findings": "`flow index`: how many recent findings the index lists",
@@ -3486,7 +3556,7 @@ def doctor_notes(cfg):
     def keys(src):
         out, section = {}, None
         for line in src.split("\n"):
-            m = re.match(r"^\s*#?\s*\[([A-Za-z_][A-Za-z0-9_]*)\]\s*$", line)
+            m = re.match(r"^\s*#?\s*\[([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\]\s*$", line)
             if m:
                 section = m.group(1)
                 continue
@@ -3499,8 +3569,8 @@ def doctor_notes(cfg):
     notes = []
     log = cfg.raw.get("paths", {}).get("log") if isinstance(cfg.raw.get("paths"), dict) else None
     for k, default in keys(init_text(cfg.records_name, log, release=cfg.script_version)).items():
-        section, key = k.split(".", 1)
-        if k in have or section in ("hand", "kit") or k == "evidence.forms":
+        section, key = k.rsplit(".", 1)
+        if k in have or section in ("hand", "kit", "evidence.resolvers") or k == "evidence.forms":
             continue
         notes.append({"key": f"[{section}] {key}", "default": default,
                       "reads": BINDING_READERS.get(k, "the record ids of that type" if section == "prefixes" else "the flow's commands")})
@@ -3600,7 +3670,7 @@ sizes = ["small", "medium", "large"]
 
 [evidence]
 # The forms a finding's evidence takes, each item `form:target`, the finding's trust the forms it carries.
-# The kit ships five: formal (a declaration of the manifest, machine-checked), statistical (a probe of the
+# The kit ships five: formal (a declaration of the prover's library, machine-checked), statistical (a probe of the
 # register, or a committed result by its path), peer-reviewed (a card of the library), stated (a row, a
 # statement or a heading of a document of the project: its own word, the trust to raise) and reference (any
 # other source, a link).  Keep the ones the project accepts and add its own words; the instructions say what
@@ -3611,14 +3681,15 @@ forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 # row_id (`doc.md#FV-1`).  Unset, the words and the id shown.
 # statement_words = ["Theorem", "Proposition", "Lemma", "Corollary", "Definition", "Remark", "Fact", "Conjecture", "Example"]
 # row_id = "[A-Z]{2,3}-[A-Za-z0-9]+"
-# A declaration manifest: a text file listing `Module.Path name` per line (a prover library's
-# declaration list is the instance); `manifest_roots` are the directories a `Path.ext#name`
-# item is looked up under.  Absent, declaration evidence is unchecked and the check says so.
-# manifest = ["scripts/decls.txt"]
-# manifest_roots = ["src"]
-# manifest_extension = "lean"   # required beside manifest: the extension the cited paths carry
 # A probes register: a Markdown table whose first column names each self-asserting script.
 # probes = "probes/README.md"
+# A form whose targets another tool owns is asked of that tool: one request on its standard input holds every item
+# of the form, one answer on its standard output says each resolves or why not (the flow's page names the
+# protocol).  Unset, `formal` is asked of the formal plugin installed beside the research one, else `formal` on PATH,
+# either only where a formal.toml stands at the root; `formal = []` asks none.  Another prover's, or a form of the
+# project's own, binds the whole command here, run at the project root.
+# [evidence.resolvers]
+# formal = ["formal", "resolve", "--protocol"]
 
 [library]
 # The reference library, when the project has one: the command that answers `keys`.  Unset, the
@@ -3743,10 +3814,9 @@ index = "research/INDEX.md"
 archive = "research/archive"
 [evidence]
 forms = ["formal", "statistical", "peer-reviewed", "stated", "reference", "benchmark"]
-manifest = "decls.txt"
-manifest_roots = "lean"
-manifest_extension = "lean"
 probes = "probes/README.md"
+[evidence.resolvers]
+formal = ["{python}", "resolver.py"]
 [prefixes]
 idea = "idea"
 question = "question"
@@ -3758,6 +3828,45 @@ id_width = 4
 [hand]
 root = 2
 author = 0
+"""
+
+# A resolver the selftest binds in place of `formal resolve --protocol`: it reads the manifest `decls.txt` and answers in the
+# protocol, `resolver.mode` making it misbehave (`exit1`, `raise`, `say`, `nojson`, `v2`, `skip`) and `resolver.log` counting what it was asked.
+SELFTEST_RESOLVER = """import json, sys
+from pathlib import Path
+mode = Path("resolver.mode").read_text().strip() if Path("resolver.mode").exists() else ""
+if mode == "exit1":
+    sys.exit(1)
+if mode == "raise":
+    raise ValueError("boom")
+if mode == "say":
+    print("first line")
+    print("COULD NOT CHECK: no lake")
+    sys.exit(1)
+if mode == "nojson":
+    print("hello")
+    sys.exit(0)
+req = json.load(sys.stdin)
+with open("resolver.log", "a") as log:
+    log.write(json.dumps(req["items"]) + "\\n")
+rows = [l.split() for l in Path("decls.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
+mods = {r[1] for r in rows if r[0] == "module"}
+decls = {(r[0], r[1]) for r in rows if len(r) == 2 and r[0] != "module"} | {(r[1], r[2]) for r in rows if len(r) == 3 and r[0] in ("private", "field")}
+items = {}
+for t in req["items"]:
+    path, _, name = t.partition("#")
+    module = path[:-5].replace("/", ".")
+    if not path.endswith(".lean"):
+        items[t] = {"ok": False, "why": "formal takes a declaration (Path.lean#name) or a whole module (Path.lean)"}
+    elif not name:
+        items[t] = {"ok": True} if module in mods else {"ok": False, "why": "module " + module + " is not in the manifest"}
+    elif any(m == module and (n == name or n.endswith("." + name)) for m, n in decls):
+        items[t] = {"ok": True}
+    else:
+        items[t] = {"ok": False, "why": "`" + name + "` is not in the manifest"}
+if mode == "skip":
+    items.popitem()
+print(json.dumps({"protocol": 2 if mode == "v2" else 1, "items": items}))
 """
 
 SOURCE = Path(__file__).read_text(encoding="utf-8")
@@ -3780,7 +3889,8 @@ def selftest():
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        (root / "flow.toml").write_text(SELFTEST_TOML)
+        (root / "flow.toml").write_text(SELFTEST_TOML.replace("{python}", json.dumps(sys.executable)[1:-1]))
+        (root / "resolver.py").write_text(SELFTEST_RESOLVER)
         (root / "decls.txt").write_text("module Lib.Foo 1\nmodule Lib.Bar 1\nLib.Foo lemma_L\nLib.Bar lemma_B\nprivate Lib.Foo helper\nuses Lib.Bar lemma_B lemma_L\n")
         (root / "lean" / "Lib").mkdir(parents=True)
         (root / "lean" / "Lib" / "Foo.lean").write_text("theorem lemma_L : True := trivial\n")
@@ -3797,8 +3907,10 @@ def selftest():
         res = str(root / "res.md")
         cfg = Config(root)
         today = "2026-09-25"
-        expect("a `uses` row of the manifest is no declaration: its module field names none",
-               "lemma_B" in cfg.manifest_names() and "Bar" not in cfg.manifest_names() and "Lib.Bar" not in cfg.manifest_names())
+        expect("formal evidence is resolved by the resolver flow.toml binds, and the flow reads no manifest: the answer is the resolver's",
+               cfg.resolvers["formal"] == ([sys.executable, "resolver.py"], "flow.toml's [evidence.resolvers]") and cfg.resolved == ("formal",)
+               and resolve_evidence(cfg, "formal:Lib/Bar.lean#lemma_B", {}) is None
+               and resolve_evidence(cfg, "formal:Lib/Bar.lean#lemma_L", {}) == "`lemma_L` is not in the manifest")
 
         def run(argv, ok=True):
             rc, payload = dispatch(cfg, argv, today=today, as_json=True, quiet=True)
@@ -4253,16 +4365,56 @@ def selftest():
         expect("the coverage counts the cited keys by grade and the excluded ones",
                p["coverage"]["library"] == {"cited": 2, "records": 1, "grades": {"parts": 1, "unread": 1}, "excluded": 1})
         txt = text_of(cfg, ["check"])
-        expect("check says in words how many keys the records cite, and what the manifest and the register bound check",
-               "library: 2 key(s) cited from the records" in txt and f"declaration evidence via {cfg.manifest}" in txt
-               and f"probe evidence via {cfg.probes}" in txt)
-        keep = (cfg.manifests, cfg.manifest, cfg.probes, cfg._manifest)
-        cfg.manifests, cfg.manifest, cfg.probes, cfg._manifest = ["gone.txt"], "gone.txt", "probes/gone.md", None
+        expect("check says in words how many keys the records cite, and which route answered for formal and what the register bounds",
+               "library: 2 key(s) cited from the records" in txt and "resolver formal via flow.toml's [evidence.resolvers]" in txt
+               and f"probe evidence via {cfg.probes}" in txt and p["coverage"]["resolvers"] == {"formal": "via flow.toml's [evidence.resolvers]"}
+               and "manifest" not in p["coverage"])
+        keep = cfg.probes
+        cfg.probes = "probes/gone.md"
         txt = text_of(cfg, ["check"])
-        cfg.manifests, cfg.manifest, cfg.probes, cfg._manifest = keep
-        expect("check says a bound manifest or register that is absent is not found, not that none is bound",
-               "declaration evidence unchecked (manifest gone.txt not found)" in txt
-               and "probe evidence unchecked (register probes/gone.md not found)" in txt and "no manifest bound" not in txt)
+        cfg.probes = keep
+        expect("check says a bound register that is absent is not found, not that none is bound",
+               "probe evidence unchecked (register probes/gone.md not found)" in txt and "no register bound" not in txt)
+        # the resolver: asked once for every item of its form, and one that does not answer is one problem, no record's
+        log = root / "resolver.log"
+        log.unlink(missing_ok=True)
+        p = run(["check"])
+        asked = [json.loads(ln) for ln in log.read_text().splitlines()]
+        expect("check asks the formal resolver once, with every formal item of the records on its standard input",
+               len(asked) == 1 and set(asked[0]) >= {"Lib/Foo.lean#lemma_L"} and len(asked[0]) == len(set(asked[0])) and not p["problems"])
+        log.unlink()
+        run(["evidence", fa, "formal:Lib/Bar.lean#lemma_B"])
+        expect("a mint asks the resolver once, for the items it mints", [json.loads(ln) for ln in log.read_text().splitlines()] == [["Lib/Bar.lean#lemma_B"]])
+        run(["evidence", fa, "--retire", "formal:Lib/Bar.lean#lemma_B", "--reason", "it was a test of the resolver"])
+        for mode, said in (("exit1", "exit 1"), ("raise", "(ValueError: boom)"), ("say", "(COULD NOT CHECK: no lake)"),
+                           ("nojson", "Expecting value"), ("skip", "no answer for")):
+            (root / "resolver.mode").write_text(mode)
+            p = run(["check"], ok=False)
+            ours = [x for x in p["problems"] if x["code"] == "V6"]
+            expect(f"a resolver that does not answer ({mode}) is one V6 problem with no record, the formal items unchecked",
+                   len(ours) == 1 and ours[0]["id"] is None and ours[0]["msg"].startswith("the resolver for formal did not answer: ") and said in ours[0]["msg"]
+                   and "Traceback" not in ours[0]["msg"] and "first line" not in ours[0]["msg"]
+                   and any("formal:Lib/Foo.lean#lemma_L: unchecked: the resolver for formal did not answer" in w for w in p["warnings"]))
+            expect(f"a mint passes a formal item as unchecked while the resolver does not answer ({mode})",
+                   resolve_evidence(cfg, "formal:Lib/Foo.lean#nope", {}).startswith("unchecked: the resolver for formal did not answer: "))
+            txt = text_of(cfg, ["check"])
+            expect(f"the coverage line says the route did not answer ({mode})", "formal unchecked (did not answer: " in txt)
+        (root / "resolver.mode").write_text("v2")
+        p = run(["check"])
+        expect("an answer in a protocol this flow does not read leaves the items unchecked with that reason, and no problem",
+               not p["problems"] and any("answered in protocol 2, which this flow does not read (it reads 1)" in w for w in p["warnings"])
+               and p["coverage"]["resolvers"]["formal"].startswith("unchecked (the resolver for formal answered in protocol 2"))
+        run(["finding", "unchecked", "--evidence", "formal:Lib/Foo.lean#nope", "--ref", t4])  # the mint passes it unchecked
+        (root / "resolver.mode").unlink()
+        fu = [r.id for r in load_all(cfg).values() if r.type == "finding" and "formal:Lib/Foo.lean#nope" in (r["evidence"] or [])][0]
+        p = run(["check"], ok=False)
+        expect("an item that passed unchecked is refused once the resolver answers", any(x["id"] == fu and x["code"] == "V6" and "`nope` is not in the manifest" in x["msg"] for x in p["problems"]))
+        run(["remove", fu, "--reason", "a test of the unchecked mint"])
+        cfg.resolvers["formal"] = ([], "disabled in flow.toml's [evidence.resolvers]")
+        expect("a resolver turned off leaves formal evidence unchecked, said in the coverage",
+               resolve_evidence(cfg, "formal:Lib/Foo.lean#lemma_L", {}).startswith("unchecked: no resolver for formal (disabled")
+               and "formal unchecked (disabled in flow.toml's [evidence.resolvers])" in text_of(cfg, ["check"]))
+        cfg.resolvers["formal"] = ([sys.executable, "resolver.py"], "flow.toml's [evidence.resolvers]")
 
         # goals: formed by the owner, served by questions, reached or given up
         (root / "reach.md").write_text("Reached means B is proved, before the talk.\n")
@@ -4544,10 +4696,8 @@ def selftest():
         plant("an evidence item with no form", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=["Lib/Foo.lean#lemma_L"])))
         plant("an evidence item of a form the project does not list", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=["folklore:Lib/Foo.lean#lemma_L"])))
         plant("an evidence item twice", "V6", lambda R: raw_edit(R, f, lambda fm: fm.update(evidence=["formal:Lib/Foo.lean#lemma_L"] * 2)))
-        plant("finding whose declaration left the manifest", "V6",
-              lambda R: ((root / "decls.txt").write_text("module Lib.Foo 0\n"), setattr(cfg, "_manifest", None)))
+        plant("finding whose declaration left the manifest", "V6", lambda R: (root / "decls.txt").write_text("module Lib.Foo 0\n"))
         (root / "decls.txt").write_text("module Lib.Foo 1\nLib.Foo lemma_L\n")
-        cfg._manifest = None
         recs = load_all(cfg)
         raw_edit(recs, ff, lambda fm: fm.update(evidence=["stated:papers/gone.md#x"]))
         expect("a removed finding's evidence is history: not resolved, never failed",
@@ -4751,15 +4901,85 @@ def selftest():
         cfg = Config(root)
         expect("a bare flow.toml: records/, INBOX.md at the root, the five shipped evidence forms",
                cfg.records_name == "records" and cfg.inbox == root / "INBOX.md" and cfg.forms == SHIPPED_FORMS
-               and cfg.decl_ext is None and cfg.ev_decl.match("src/Foo.agda#bar") and not cfg.ev_decl.match("papers/a.md#x"))
-        expect("declaration evidence with no manifest is unchecked, not failed",
-               resolve_evidence(cfg, "formal:src/Foo.agda#bar", {}).startswith("unchecked"))
-        (root / "flow.toml").write_text("[evidence]\nmanifest = \"decls.txt\"\n")
-        try:
-            Config(root)
-            expect("a manifest with no manifest_extension is refused", False)
-        except Refused as e:
-            expect("a manifest with no manifest_extension is refused", "manifest_extension" in str(e))
+               and cfg.ev_decl.match("src/Foo.agda#bar") and not cfg.ev_decl.match("papers/a.md#x"))
+        expect("formal evidence with no formal.toml at the root is unchecked, not failed, and the coverage says why",
+               cfg.resolvers["formal"] == ([], "no formal.toml at the root")
+               and resolve_evidence(cfg, "formal:src/Foo.agda#bar", {}).startswith("unchecked: no resolver for formal (no formal.toml at the root)"))
+        (root / "flow.toml").write_text("[evidence]\nmanifest = \"decls.txt\"\nmanifest_roots = \"lean\"\n")
+        old = Config(root)
+        expect("a flow.toml with the manifest bindings of the models before is read, and nothing refuses on them", old.resolvers["formal"][0] == [])
+        for ev, why in (('[evidence.resolvers]\nstated = ["x"]\n', "resolves"), ('[evidence.resolvers]\nBench = ["x"]\n', "one lowercase word"),
+                        ('[evidence.resolvers]\nformal = [1]\n', "list of strings"), ('[evidence]\nresolvers = "x"\n', "is a table")):
+            (root / "flow.toml").write_text(ev)
+            try:
+                Config(root)
+                said = ""
+            except Refused as e:
+                said = str(e)
+            expect(f"flow.toml's resolvers refused: {why}", why in said)
+        (root / "flow.toml").write_text('[evidence]\nforms = ["formal", "benchmark"]\n[evidence.resolvers]\nformal = "frm"\nbenchmark = ["bench", "run"]\nother = []\n')
+        c4 = Config(root)
+        expect("a bound command is the whole command: a string is one word, [] turns a form's resolver off, and a bound form is the resolver's",
+               c4.resolvers == {"formal": (["frm"], "flow.toml's [evidence.resolvers]"), "benchmark": (["bench", "run"], "flow.toml's [evidence.resolvers]"),
+                                "other": ([], "disabled in flow.toml's [evidence.resolvers]")}
+               and c4.resolved == ("formal", "benchmark") and c4.opaque_forms == ("peer-reviewed", "formal", "benchmark"))
+        # the formal resolver found as the library is: formal.toml at the root, then the plugin beside the research one in one of
+        # three places, then PATH
+        with tempfile.TemporaryDirectory() as t5:
+            base = Path(t5)
+            proj = base / "proj"
+            proj.mkdir()
+            words = lambda here: find_resolver(proj, here)
+            expect("with no formal.toml at the root no resolver is looked for", words(base / "x" / "a" / "b" / "c" / "flow.py") == ([], "no formal.toml at the root"))
+            (proj / "formal.toml").write_text("", encoding="utf-8")
+            land = lambda d: (d / "skills" / "land" / "scripts").mkdir(parents=True) or (d / "skills" / "land" / "scripts" / "formal.py").write_text("")
+            flow_at = lambda d: d / "skills" / "flow" / "scripts" / "flow.py"
+            land(base / "checkout" / "formal")
+            cmd, route = words(flow_at(base / "checkout" / "research"))
+            expect("a checkout: the formal plugin beside the research plugin, asked `resolve --protocol`",
+                   cmd == [sys.executable, str(base / "checkout" / "formal" / "skills" / "land" / "scripts" / "formal.py"), "resolve", "--protocol"]
+                   and route == "the formal plugin beside the research plugin")
+            land(base / "cache" / "formal" / "0.8.0")
+            land(base / "cache" / "formal" / "0.7.0")
+            cmd, route = words(flow_at(base / "cache" / "research" / "0.8.0"))
+            expect("Claude Code's cache: the formal plugin of the same version, and no other",
+                   cmd[1:2] == [str(base / "cache" / "formal" / "0.8.0" / "skills" / "land" / "scripts" / "formal.py")]
+                   and route == "the formal plugin beside the research plugin")
+            expect("the cache holds another version of formal only: not that one",
+                   words(flow_at(base / "cache" / "research" / "0.9.0"))[1] != "the formal plugin beside the research plugin")
+            land(base / "flat")
+            cmd, route = words(base / "flat" / "skills" / "flow" / "scripts" / "flow.py")
+            expect("skills installed flat: the land skill beside the flow skill", cmd[1:2] == [str(base / "flat" / "skills" / "land" / "scripts" / "formal.py")]
+                   and route == "the land skill beside the flow skill")
+            cmd, route = words(flow_at(base / "alone" / "research"))
+            cmd, route = words(Path("/a/flow.py"))
+            expect("a script shallower than four directories raises nothing: the places beside it are skipped, then PATH or none",
+                   (cmd, route) == (([shutil.which("formal"), "resolve", "--protocol"], "the formal command on PATH") if shutil.which("formal")
+                                    else ([], "formal.toml at the root but no formal plugin beside the research plugin or command on PATH")))
+            expect("with none beside it: `formal` on PATH where there is one, else none and why",
+                   (cmd, route) == (([shutil.which("formal"), "resolve", "--protocol"], "the formal command on PATH") if shutil.which("formal")
+                                    else ([], "formal.toml at the root but no formal plugin beside the research plugin or command on PATH")))
+        # a form of the project's own bound to a resolver: its targets are the resolver's, read as no path
+        with tempfile.TemporaryDirectory() as t6:
+            r6 = Path(t6)
+            (r6 / "bres.py").write_text('import json, sys\nreq = json.load(sys.stdin)\nprint(json.dumps({"protocol": 1, "items": {t: {"ok": True} if t == "run-1" '
+                                        'else {"unchecked": "not run yet"} if t == "run-2" else {"ok": False, "why": "no such run"} for t in req["items"]}}))\n')
+            (r6 / "flow.toml").write_text('[evidence]\nforms = ["benchmark", "reference"]\n[evidence.resolvers]\n'
+                                          f'benchmark = [{json.dumps(sys.executable)}, "bres.py"]\n')
+            (r6 / "results").mkdir()
+            (r6 / "results" / "run-1").write_text("x\n")
+            c6 = Config(r6)
+            rc6 = lambda argv: dispatch(c6, argv, today="2026-09-25", as_json=True, quiet=True)
+            expect("a bound form is held to form:target, the resolver's word taken: ok, unchecked, or refused with its why",
+                   resolve_evidence(c6, "benchmark:run-1", {}) is None and resolve_evidence(c6, "benchmark:run-2", {}) == "unchecked: not run yet"
+                   and resolve_evidence(c6, "benchmark:run-3", {}) == "no such run" and resolve_evidence(c6, "benchmark:../outside", {}) == "no such run")
+            rc, pl = rc6(["finding", "ran", "--evidence", "benchmark:run-1", "benchmark:run-2", "reference:results/run-1"])
+            rc_bad, _ = rc6(["finding", "ran", "--evidence", "benchmark:run-3"])
+            expect("a mint takes the unchecked item and refuses the one the resolver refuses", rc == 0 and rc_bad == 1)
+            rc, pl = rc6(["artifacts"])
+            expect("the flow reads no path out of a bound form's target: only the reference is a path", [a["path"] for a in pl["artifacts"]] == ["results/run-1"])
+            rc, pl = rc6(["find", "--refers", "run-1"])
+            expect("find --refers names no record for a bound form's target taken as a path", rc == 0 and pl["records"] == [])
         (root / "flow.toml").write_text("[evidence]\nforms = [\"Peer Reviewed\"]\n")
         try:
             Config(root)
@@ -4777,8 +4997,8 @@ def selftest():
         expect("flow state prints the new log's top entry", any("the flow set up" in ln for ln in lines))
         (root / "research").mkdir(exist_ok=True)
         txt = text_of(cfg, ["check"])
-        expect("check says in words that no manifest, no register and no library is bound",
-               "declaration evidence unchecked (no manifest bound)" in txt and "probe evidence unchecked (no register bound)" in txt
+        expect("check says in words that no resolver is found for formal, and no register and no library is bound",
+               "resolver formal unchecked (no formal.toml at the root)" in txt and "probe evidence unchecked (no register bound)" in txt
                and "library: none bound" in txt and "NOT CONFIGURED" not in txt)
         r = subprocess.run([sys.executable, __file__, "--help"], capture_output=True, text=True, cwd=tempfile.gettempdir())
         expect("--help works with no bindings file", r.returncode == 0 and "reopen" in r.stdout and "init" in r.stdout)
@@ -5117,6 +5337,16 @@ def selftest():
             expect("the doctor's text counts the notes", "3 optional key(s) the current init writes, noted" in text_of(c3, ["doctor"]))
             (r3 / "flow.toml").write_text(toml3, encoding="utf-8")
             expect("a key the project keeps commented, as init writes it, is no note", not answer(Config(r3), ["doctor"])[1]["notes"])
+            expect("init writes no manifest binding, and the resolvers commented",
+                   not re.search(r"manifest", toml3) and "# [evidence.resolvers]\n# formal = " in toml3)
+            # a flow.toml of the models before the resolver: the three manifest bindings are read, refused by nothing, and named for the hand
+            (r3 / "flow.toml").write_text(toml3.replace("[evidence]\n", '[evidence]\nmanifest = ["decls.txt"]\nmanifest_roots = ["lean"]\nmanifest_extension = "lean"\n', 1), encoding="utf-8")
+            rc, pl = answer(Config(r3), ["doctor"])
+            named = [x for x in pl["problems"] if x["path"] == "flow.toml" and "[evidence] manifest" in x["msg"]]
+            expect("the doctor names the three manifest bindings for the hand, each as one line to delete, and --fix writes none of them",
+                   len(named) == 3 and all("goes:" in x["msg"] and "delete the line" in x["msg"] for x in named)
+                   and not any("manifest" in x["msg"] for x in pl["mechanical"]))
+            (r3 / "flow.toml").write_text(toml3, encoding="utf-8")
 
         # the doctor: the words of the model before 0.3, named with what each reads now
         with tempfile.TemporaryDirectory() as t2:
@@ -5833,7 +6063,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for w in warnings:
                 emit(f"warning: {w}")
             emit(f"flow check: {len(recs)} records of the kinds {', '.join(cov['kinds'])}; {len(problems)} problem(s), {len(warnings)} warning(s); "
-                 + (f"evidence forms {', '.join(cov['forms'])}; declaration evidence {f'via {cfg.manifest}' if cov['manifest'] else f'unchecked (manifest {cfg.manifest} not found)' if cfg.manifest else 'unchecked (no manifest bound)'}; "
+                 + (f"evidence forms {', '.join(cov['forms'])}; resolver{'s' if len(cov['resolvers']) > 1 else ''} {', '.join(f'{f} {w}' for f, w in cov['resolvers'].items()) or 'none asked'}; "
                     f"probe evidence {f'via {cfg.probes}' if cov['probes'] else f'unchecked (register {cfg.probes} not found)' if cfg.probes else 'unchecked (no register bound)'}; " if cfg.has("finding") else "")
                  + f"reflow via {cov['reflow']}; markdownlint {'present' if cov['markdownlint'] else 'ABSENT'}")
             lc = cov["library"]

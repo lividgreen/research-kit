@@ -12,7 +12,7 @@ The agent runs each skill's script from the skill's own directory, so nothing is
 - **Optional**: `pdftotext` (poppler), or any command the project names in `library.toml`, for a kept PDF's text; the `markdown` package for the dashboard's rendered bodies (paragraphs otherwise); SQLite built with FTS5 for stemmed search (whole words otherwise).
 - **Optional environment variables** for the library's online commands: `LIBRARY_MAILTO`, `OPENALEX_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY`; [What goes online](network.md) says where each is sent.
 
-Lean, a prover or a build are never needed by the `research` plugin; the declaration manifest the flow reads is the project's.
+Lean, a prover or a build are never needed by the `research` plugin; the flow reads no declaration manifest, it asks the `formal` plugin about it.
 
 ### The `formal` plugin
 
@@ -188,7 +188,7 @@ With a Lean workspace, `/formal:formal-init` follows for the prover side ([The f
 
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the setup proposes one where none is on PATH.
 Each check reads its bindings file at the project root; a project with no `flow.toml`, `library.toml` or `formal.toml` leaves that hook out.
-A bindings file names code that runs — the reflow module, the library's command and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
+A bindings file names code that runs — the reflow module, the library's command, the resolvers of `[evidence.resolvers]` and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
 To update the hooks, set `rev` to the latest tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it); the plugins follow the releases through the marketplace's `latest`, as the next section says.
 
 A plugin-install project that wants one version everywhere may write its hooks the other way, as `repo: local` hooks with `language: system`, each `entry` a runner of the project's own followed by the script's command, so the hooks run the installed plugin's scripts and the marketplace's `ref` is the one pin; the kit ships no such runner, and the project's finds the script under the agent's plugin cache (see *Outside the agent* below).
