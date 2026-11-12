@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.8.0 — 2026-11-13
 
 The flow's model made robust before v1.0, from a review of every operation and every card's states: five links, `references` the general one with no rule beside `answered_by`, `blocked_by`, `serves` and `consumed_by`, each with its own; one mint per kind, each the kind's name; a question's closing its own act, refused for no task that names it, and undone by `flow reopen`; an idea's closing its own act as well, its `consumed_by` filling while it is worked; a finding found false removed; a block calculated from what it waits on; and a transition naming the records that refer to the one it changed, for the session to decide on.
