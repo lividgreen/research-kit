@@ -18,7 +18,7 @@ What the kit assumes of a project, what its agent does without asking, and what 
 
 ## What the agent does without asking, and what it may not do
 
-Without asking, the agent continues from the top of the ranked list when a session opens, corrects a sentence it finds false of the project's artifact at the sentence's own size, and, where the project has no rule of its own, registers a landed result by the `method` skill's register test, naming the clause that fired.
+Without asking, the agent works its hand, filled from the top of the ranked list, when a session opens, corrects a sentence it finds false of the project's artifact at the sentence's own size, and, where the project has no rule of its own, registers a landed result by the `method` skill's register test, naming the clause that fired.
 These are the `method` and `flow` skills' defaults, and the `audit`, `scrutinize` and `attribution` skills' once their report is given; a project that wants to be asked first says so in one sentence of its instructions file, and the skills yield.
 
 What it may not do, and what fails when it does:

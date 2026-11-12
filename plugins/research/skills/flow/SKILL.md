@@ -81,6 +81,21 @@ A card both parked and blocked reads `parked, blocked`; an idea is only ever `he
 A closed card is in no deck and no hand, and in a pile read from its state, no file moving for it: the discard pile holds a task done, an idea consumed, a question answered or impossible (a finding settled it), the graveyard any card removed, a task aborted and a question wrong.
 `flow find --pile discard|graveyard` lists one, and `flow show` names a closed card's pile.
 
+## The session
+
+A session is dedicated to its hand: it works the held cards one by one until each is closed or walled, then freezes, reports what was done and stops; with four cards in the hand it processes four cards.
+Every card minted on the way goes to a deck and not to the hand, a task a question spawns in the common deck unless it is minted `--for` an owner, ranked as the mint places it.
+A question may be answered with no task at all.
+A task it spawns may be a side story, off the list (`flow rank T --clear`); it blocks the question (`flow block Q --on T`) only where the question cannot move without it.
+A design round on a question is the held question itself: its record is a dated note on the question (`flow note Q --body FILE`), its discarded options one line each inside it, and no design task is minted for the round; the round mints tasks where a piece of the work is too big.
+A round on no question, on tooling or a process, is a task tagged `design`, its record the resolution.
+Where the agent needs the person's answer it asks.
+If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry; if the person postpones, the waiting card is passed to the person's deck (`flow pass ID --to owner --note "…"`, the note naming the decision), or into the person's hand at their word, and leaves the agent's hand at that moment; a decision is no card and no kind.
+Parking stays for a card set down by decision, and for nothing waited on: a date and an outside event's words are items of a block.
+Deviations are the person's to rule and the agent's to propose: drawing a card in the middle of a session, taking another after one that took little effort, or drawing a task straight from the deck for a prover that runs in parallel while the session works on something else.
+A card drawn by a deviation counts against the hand's limit, one number and no second class of held card; a deviation that finds the hand full is the person's to settle with the ruling, a card returned or the limit raised.
+A project's instructions may carry the person's standing ruling for one.
+
 ## The mints
 
 Only the mints mint, one per kind, each the kind's name; every one takes the summary as its one positional, `--ref ID` (repeatable), `--tag T` (repeatable), `--source S` and `--body FILE`, and a card's mint (an idea, a question, a task) `--for OWNER`, which puts the new card in that owner's deck and the common deck without it.
@@ -120,7 +135,7 @@ The tag `rider` marks a task riding the next piece of work handed to another ses
 
 | Transition | Consumes and produces | Command |
 | --- | --- | --- |
-| draw | a ready idea, question or task → in the owner's hand, from the common deck or the owner's own, under the owner's hand limit; it writes `owner`, `drawn` and, the first time, `started`; refused while the card is parked or its block holds, and for a card in another owner's deck, which `flow pass` moves first | `flow draw task-0001 --owner agent` |
+| draw | a ready idea, question or task → in the owner's hand, from the common deck or the owner's own, under the owner's hand limit; it writes `owner`, `drawn` and, the first time, `started`; refused while the card is parked or its block holds, and for a card in another owner's deck, which `flow pass` moves first; `--refill` with no ID draws by rank from the top every ready card of the common deck or the owner's own until the hand's limit, and says each card it drew and each ranked card it passed over with why | `flow draw task-0001 --owner agent`; `flow draw --refill --owner agent` |
 | return | a held card → out of the hand, into its owner's deck: `drawn` cleared, `owner` kept; the note is required | `flow return task-0001 --note "…"` |
 | pass | a card, held or not → another owner's deck or the common one, out of the hand where it was held; the note, required, is written into the body under the date as `passed from A to B: …`; refused where the card is in that deck already and in no hand, and where it is in that owner's hand, which is a return | `flow pass question-0004 --to owner --note "…"`, `--to common` |
 | make | held task → done and archived, its resolution appended under the date; the task's `after` printed; it mints nothing | `flow make task-0001 --resolution FILE` (required, refused empty; `-` reads the standard input) |
@@ -140,7 +155,7 @@ A task closes one of three ways: made (state `done`), aborted when started and f
 A closed task moves to the archive at its closing transition, so the record directories show the live front of work.
 A done task with no resolution is never legitimate: the resolution says what was done, and the archived task keeps what was asked and its notes.
 A residue sharp enough to name becomes a task, a question or an idea of its own, minted after the make with `--ref T`, rather than prose in the resolution or a line appended to a question's body.
-A design round is a task tagged `design`: drawn before the round, closed by make or abort with the round record as its resolution and its discarded options one line each inside that record.
+A design round on no question is a task tagged `design`: drawn before the round, closed by make or abort with the round record as its resolution and its discarded options one line each inside that record; a round on a question is the held question, its record a dated note (the session, above).
 
 A question is minted in the expectation of a finding, a part of the research and not of the conversation, and closes one of four ways:
 
@@ -182,7 +197,7 @@ It refuses nothing, fails nothing and asks for no reference to be removed: what 
 | note | a file's text appended to a record's body under today's date, through the record's write; no field changes | `flow note task-0001 --body FILE` |
 
 A question or a task may be parked and blocked at once: parked is by decision, a thing not worked on on purpose; blocked is by an obstacle, a thing waited on.
-A task waiting on the person's decision is parked with a reason naming the decision, and the person's answer is the unpark note and a log entry; a decision is no card and no kind.
+A card whose remaining steps wait on the person's decision is passed to the person's deck (the session, above), never parked for it.
 Parking or blocking a question, propose what becomes of the tasks that reference it: those of a parked question are usually parked with it, while a blocked question may have tasks that go on.
 
 Blocked is calculated, never marked: a record is blocked while an item of its `blocked_by.on` holds, and is not once none does, and a blocker reopened blocks again.
@@ -227,7 +242,7 @@ The log is dated entries, newest first, each a level-2 heading `## YYYY-MM-DD �
 Then the generated index, which lists the ranked list with each question's `serves`, each record's waits and, on a held card, its holder, each owner's hand and deck, the open goals and directions with the questions serving each, the open tasks in no hand (each with its deck where it is an owner's), the open, parked and blocked questions, the questions whose tasks are all closed, and the settled ones.
 Locate records with `flow find` or `flow show ID`; open record files only by ID.
 Never glob the record directories, and never read a record directory whole.
-A session's start is the `whatsnext` skill: it reads the inbox, proposes what to make of each item, ranks under the focus the person gives, and draws.
+A session's start is the `whatsnext` skill: it reviews the agent's hand, reads the inbox, proposes what to make of each item, ranks under the focus the person gives, and refills the hand by rank.
 
 ## Writing discipline
 
@@ -288,8 +303,10 @@ A line the reflow does not split is left as written, so a hard break's two trail
 ## The next list
 
 The ranked records are the schedule of the WORK, and the only one; the registry below orders the deliverables, not the work.
-A session works from the top.
+The agent's hand is filled from its top, and a session works its hand.
 The list is filled or refreshed by the `whatsnext` skill, when the person asks or when it is empty, on no cadence, with no per-landing re-triage; a rank is a number alone, and why a record stands where it does goes in the log's entry for that ranking.
+`flow draw --refill --owner O` is the refill: from the top of the list, every card whose standing is `ready` in the common deck or O's own is drawn, until the hand's limit, and each ranked card it passes over is printed with why (`parked`, `blocked on …`, `in owner's deck`, `held by owner`), then the hand as `3 of 4` with the room left; an unranked card is never drawn by it, a hand with no limit and an ID given with the flag are refused, a hand already full draws nothing and says so, and under `--json` the lists `drawn` and `skipped` and the hand's `count`, `limit` and `room` are its answer.
+Where the hand is left under its limit, the lines say why, and the log entry for the ranking carries that explanation.
 Nothing is ranked down or left off for lacking a route: finding the route is its first round's job.
 A parked or blocked record keeps its rank, and the list marks what it waits for, so the order survives the wait.
 Goals and directions bias the choice of the next moves and never order the list.
@@ -327,6 +344,7 @@ Findings live in one directory, and the document a finding belongs to is a refer
 On the usual path a task is made first and its finding minted after it: `flow make T --resolution FILE`, then `flow finding … --evidence … --ref T --answers Q`.
 An open question whose tasks are all closed is listed as needing refine or answer: its next tasks are minted, or it is answered.
 A question asks one thing, and its body says what answers it.
+A question in a hand is worked where it stands: a design round on it is a dated note (`flow note Q --body FILE`), and the tasks the work needs are minted where a piece is too big.
 An open end a round finds beyond that is a question of its own, referencing the finding that exposed it (`flow question "…" --ref finding-0001`) or minted from an idea captured first (`--ref IDEA`), and is never appended to the first question's body as what stays open: a question that gathers its residues has no answer anyone can reach, and the next list can no longer rank it by how near it is to done.
 A question whose parts each carry weight alone is split: at its mint, into one question per part; at answering, the part answered closes the question, and each part still open is minted on its own with a pointer to where it is stated.
 A wrong or impossible question is listed by the index under "Settled, do not re-open" with its word; so is any question but a removed one tagged `do-not-reopen` (`--tag` at its mint, or `flow tag`), the person's mark for a matter that must not be asked again; a removed record is in none of the index's lists and none of its counts, listed only by `flow find --state removed` or `--id`.

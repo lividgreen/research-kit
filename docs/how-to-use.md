@@ -13,7 +13,7 @@ A research thread, from a remark at a talk to a result, looks like this:
   The agent frames the idea as a question and fixes what would settle it before any work starts, say a finite counterexample or a proof, then proposes the split into tasks: design the route, prove the lemma.
   You see the split before it is written, because anything ready may be drawn without asking again.
 - **"What's next?"**, **"What's on the table?"** or `/research:whatsnext let's focus on the proofs`
-  The agent reads what you left in the inbox and proposes a record for each item, refreshes the ranked list under your focus with a reason for each rank, draws the top task into its hand and runs a design pass before building anything.
+  The agent reads what you left in the inbox and proposes a record for each item, refreshes the ranked list under your focus with a reason for each rank, refills its hand from the top of it and runs a design pass before building anything.
 - **"Continue."** or **"Go on with task-0007 in autonomous mode."**
   The agent works down the list.
   A work it reads gets a card with how far it was read; a task is made, and its result minted as a finding naming its evidence, a script that asserts it or a proved declaration; residue sharp enough to name becomes a task or a question of its own rather than prose; the log entry lands in the same commit as the transition.
@@ -26,7 +26,7 @@ A research thread, from a remark at a talk to a result, looks like this:
 - **"Let's freeze here."** or `/research:freeze`
   The agent saves what the conversation found and no record holds, sweeps what the session made stale, runs the checks and commits, and leaves one directive for the next session in the inbox.
 - **Next week: "Where were we?"**
-  The agent prints the session summary and continues from the top of the list.
+  The agent prints the session summary and continues with the cards in its hand.
   Nothing settled last week is asked again, and a question shown wrong or impossible is listed as settled.
 
 With the `formal` plugin and a Lean 4 library, the proof step changes hands without you saying anything new.
