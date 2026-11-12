@@ -4,6 +4,40 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The flow's cards: ideas, questions and tasks live in decks and hands, a card's standing is calculated, and a closed card is in a pile.
+
+**Upgrading**: a breaking release, which takes a v0.7.0 tree and a v0.8.0 one alike.
+Move the plugins as [Install](docs/install.md#following-the-releases) says and restart, then run `flow doctor --fix` before any other flow command: it reads a task's state `ready` or `active` as `open`, writes an active task's and a drawn idea's `started` from their `drawn` date (both stay held, in their owner's hand), moves a closed task's `drawn` to `started` and clears it, and adds `started` to the three kinds of card, `owner` and `drawn` to a question and `rank` to an idea, each `null`; a ready task had no owner and is in the common deck, and a task returned before the upgrade lost its date with the return, so its `started` stays `null`.
+The doctor's line on a decision task now says the pass: `flow pass T --to OWNER --note …` in place of a park.
+Then read each parked card once (`flow find --parked`): one whose reason names the person's decision is unparked and passed to the person, and the rest stay parked.
+No line of the doctor's guards that step, so it is the hand's own; run `flow check`, and only then mint.
+The words a project's instructions and scripts change: `--state ready` and `--state active` are refused, a task's state being `open` (`flow find --ready` lists the cards a refill may draw, `--held` those in a hand); `flow return` takes `--note`, required now; `flow remove` refuses a started task, which `flow abort` closes; `flow rank` takes an idea; `flow draw` takes a question as it takes a task; and `flow block` and `flow park` take a held card, which they return to its owner's deck, where the refusal "is active: return it first" stood.
+
+The flow:
+
+- Cards, decks and hands: an idea, a question and a task are cards, and a finding, a goal and a direction are held by nobody.
+  There is one common deck and one deck for each owner of `[hand]`; a card's `owner` is its deck (`null` for the common one, `common` in the commands), and its `drawn` its hand, the date of the present hold.
+  A new card lands in the common deck unless it is minted `--for` an owner, and a card that leaves a hand stays in that owner's deck.
+  A `[hand]` that names an owner `common` is refused when `flow.toml` is read.
+- The state and the standing: `state` stores a card's life only, so a task is `open`, `done`, `aborted` or `removed` as an idea and a question are open or closed, and a live card's standing is calculated, `held`, `parked`, `blocked` or `ready`, printed by `flow show`, `flow find`'s rows and `flow state`; a card both parked and blocked reads `parked, blocked`.
+  `started`, a new field on the three kinds, is the date of the card's first draw, kept through a return, a pass and the closing, where a closed task's `drawn` was kept until now.
+- `flow draw` takes an idea, a question or a task whose standing is ready, from the common deck or the owner's own, and writes `owner`, `drawn` and, the first time, `started`; a card in another owner's deck is refused with `flow pass` named.
+  `flow return ID --note "…"` puts a held card back into its owner's deck, `owner` kept.
+  `flow pass ID --to OWNER|common --note "…"` moves any open card, held or not, between decks, out of its hand, the note written into the body as `passed from A to B: …`.
+  The three kinds count alike against a hand's limit.
+- `flow block` and `flow park` on a held card return it to its owner's deck in the same command and say so, and the card stays there after the block clears until a draw; an idea is never parked or blocked.
+- `flow rank` takes an open idea beside a question and a task, in every form, and an idea's closing clears its rank.
+  A task minted with `--ref` of a ranked question takes the question's place: it is ranked just below it and below the run of ranked tasks directly under it that reference it, the rest moving down, and the mint prints `ranked task-0013 3` and each `re-ranked`; the agent may put it elsewhere or off the list.
+- The closings: every closing clears `owner` and `drawn` and keeps `started`, and `flow reopen` brings a card back into the common deck; `flow abort` takes a started task, held or not, and `flow remove` refuses a started one and names `flow abort`.
+- The piles: a card closed with success is in the discard pile (a task done, an idea consumed, a question answered or impossible) and a removed or broken one in the graveyard (any card removed, a task aborted, a question wrong); no file moves for a pile, `flow find --pile discard|graveyard` lists one and `flow show` names a closed card's pile.
+- The views: `flow find` has `--ready`, `--held`, `--parked` and `--blocked` reading the three kinds, `--deck NAME` (an owner's cards in no hand, `--deck common` the common deck's) and `--pile`; `flow state` prints each owner's hand in full with its cards' ages, each owner's deck with every card's standing and the common deck as a count, and `flow state --check` prints each held card with its drawn date and its age in days; the index's `Hand` section gains each owner's deck, `Next (ranked)` marks a held card with its holder, and `Ready` lists the open tasks in no hand, each with its deck where it is an owner's.
+- The check: V9 reads the new model, a held card being open, with its owner and its `started` date and no parking and no block (whether or not the block holds), a closed card having neither owner nor drawn date, and a hand's limit counting the three kinds; V3 reads a task's `ready` or `active` as an older model's state, V14 holds an idea's rank to the same rule, and V20 reads `started` as a date.
+- `flow doctor` reads a v0.8.0 tree as above, and `flow init`'s `[hand]` comment counts cards.
+
+The pages:
+
+- The flow's three pages and the dashboard's styles say the cards' model: a state's word is `open` for a task, the standing is `held`, `parked`, `blocked` or `ready`, and the dashboard's list gains a standing column and the `--ready`, `--deck` and `--pile` filters.
+
 ## v0.8.0 — 2026-11-13
 
 The flow's model made robust before v1.0, from a review of every operation and every card's states: five links, `references` the general one with no rule beside `answered_by`, `blocked_by`, `serves` and `consumed_by`, each with its own; one mint per kind, each the kind's name; a question's closing its own act, refused for no task that names it, and undone by `flow reopen`; an idea's closing its own act as well, its `consumed_by` filling while it is worked; a finding found false removed; a block calculated from what it waits on; and a transition naming the records that refer to the one it changed, for the session to decide on.

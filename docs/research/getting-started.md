@@ -17,7 +17,8 @@ flow check
 flow state
 ```
 
-`flow init` writes two hands: `agent`, the agent's across its sessions, with a limit of four (its active tasks and the ideas drawn into it), and `owner`, the person's, with no limit (0 is unlimited); `--owner` names others.
+`flow init` writes two hands: `agent`, the agent's across its sessions, with a limit of four (the cards it holds now: ideas, questions and tasks alike), and `owner`, the person's, with no limit (0 is unlimited); `--owner` names others.
+Ideas, questions and tasks are cards, kept in decks and hands: a new card lands in the common deck, or in an owner's deck where it is minted `--for` that owner, and a hand holds what its owner is working on now.
 A task has no kind: a tag says what it is, `research` for work that came from the research and `upkeep` for the project's own, any word of yours beside them, and `flow tags` reports them; a task may reference a question, an idea or another task, named in its `references`, or stand alone.
 A question's body says what counts as an answer, as the one above does, and a task's body what done means; the summary is the one line that states each.
 The question names the idea in its `references` and the idea lists the question in its `consumed_by`, both written by the one mint; `flow consume idea-0001` closes the idea once everything in it is folded into cards, and `flow remove idea-0001 --reason "…"` drops one that led to nothing.
@@ -40,13 +41,14 @@ The first task the block above minted is `records/tasks/task-0001-prove-the-lemm
 ---
 id: task-0001
 type: task
-state: ready
+state: open
 summary: prove the lemma
 references:
 - question-0001
 size: null
 owner: null
 drawn: null
+started: null
 due: null
 after: null
 rank: null
@@ -61,15 +63,15 @@ tags:
 ---
 ```
 
-The front matter is what the tool owns: `state`, `owner`, `drawn`, `rank`, `parked`, `blocked_by`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`), `references` through `--ref` at the mint and `flow ref` after it, and `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
+The front matter is what the tool owns: `state`, `owner`, `drawn`, `started`, `rank`, `parked`, `blocked_by`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`), `references` through `--ref` at the mint and `flow ref` after it, and `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
 The body below it is yours, one sentence per line.
 
 ### What a failed check looks like
 
-Set the task's `state` to `active` by hand and run `flow check`:
+Put the task in the agent's hand by hand, `owner: agent` and a `drawn` date, and run `flow check`:
 
 ```text
-records/tasks/task-0001-prove-the-lemma.md: V9 active without an owner
+records/tasks/task-0001-prove-the-lemma.md: V9 a held card has no started date: the draw writes it
 records/INDEX.md: V11 records/INDEX.md is stale — run `flow index`
 flow check: 4 records of the kinds idea, question, task, finding, goal, direction; 2 problem(s), 0 warning(s); evidence forms formal, statistical, peer-reviewed, stated, reference; resolver formal unchecked (no formal.toml at the root); probe evidence unchecked (no register bound); reflow via built-in; markdownlint present
 library: 0 key(s) cited from the records, 0 record(s) citing; 0 of them excluded cards; the papers' reference entries and the documents the library's scan binds are not read here; asked through the library skill beside this one
@@ -81,7 +83,7 @@ The lines after them are the coverage, which varies by machine: which resolvers 
 
 ## A task closed
 
-Set the state back to `ready`, and the work goes on from where the first block left it:
+Set `owner` and `drawn` back to `null`, and the work goes on from where the first block left it:
 
 ```sh
 mkdir probes && printf 'assert 2 + 2 == 4\n' > probes/lemma.py   # a self-asserting script, the finding's evidence
@@ -94,10 +96,10 @@ flow check
 flow state
 ```
 
-`flow draw` puts the task in the agent's hand, and `flow make` closes it with its resolution, which it requires.
-The other task, never drawn, is removed with its reason, since the result settles the question; both tasks are now in `records/archive/`.
+`flow draw` takes the task from the common deck into the agent's hand, writing `owner`, `drawn` and `started`, and `flow make` closes it with its resolution, which it requires; the task leaves its hand, keeps its `started` date and is in the discard pile.
+The other task, never started, is removed with its reason, since the result settles the question; both tasks are now in `records/archive/`.
 Then `flow finding` mints `finding-0001` referencing the made task, its evidence the probe in the `statistical` form, and `--answers` closes the question answered by it.
-A question's closing is its own act: had the other task stayed ready, the question would have closed all the same, and the line printed under it, `refers to it, may need a follow-up: …`, would have named the task for the agent to decide on.
+A question's closing is its own act: had the other task stayed open, the question would have closed all the same, and the line printed under it, `refers to it, may need a follow-up: …`, would have named the task for the agent to decide on.
 The finding's trust is the forms its evidence carries, here `statistical`; a proof formalized later is added with `flow evidence finding-0001 formal:Lib/Foo.lean#decl`, and an item whose file is later gone is replaced or retired with `--replace` or `--retire`, a dated note in the body keeping what it was.
 The check passes with one warning: no probes register is bound, so the probe is reported unchecked rather than resolved (`[evidence] probes` in `flow.toml` binds one, a Markdown table naming each self-asserting script).
 

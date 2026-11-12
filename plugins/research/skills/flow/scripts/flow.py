@@ -4,8 +4,8 @@
 Records live as one Markdown file each, front matter plus a prose body, under the
 directory `flow.toml` names.  Six kinds:
 
-  idea       a thought not yet a question; open | consumed | removed  (drawn into a hand like a task)
-  task       a unit of work, across the main axis; ready | active | done | aborted | removed  (closed tasks move
+  idea       a thought not yet a question; open | consumed | removed
+  task       a unit of work, across the main axis; open | done | aborted | removed  (closed tasks move
              to the archive); its tags say what it is, it may carry a due date and a post-done instruction
   question   what we have to answer to move the research; open | answered | wrong | impossible | removed;
              its body says what counts as an answer, and it may serve goals and directions
@@ -20,35 +20,41 @@ that settles it), `blocked_by` on a question or a task (a map of date, on and re
 `on` holds) and `serves` (goals and directions); an idea's `consumed_by` (the cards that name it in `references`).
 An idea's `consumed_by` fills while the idea is open: the script writes it with the reference, at a mint with
 `--ref IDEA` and by `flow ref`, and `flow consume IDEA` closes the idea once it is fully processed.
-A ready task or an open question may be parked (by decision) and blocked (by what it waits on), both at once;
-it keeps its rank, and the lists mark the wait.
+Ideas, questions and tasks are cards, and live in decks and hands: `owner` is the deck (a name of `[hand]`, or null for
+the common one), `drawn` the hand (the date of the present hold, or null), `started` the date of the first draw.  A card's
+standing is calculated and never stored: held (in a hand), parked, blocked, or ready (a refill may draw it now).
+An open question or an open task may be parked (by decision) and blocked (by what it waits on), both at once;
+it keeps its rank, and the lists mark the wait.  A card closed with success is in the discard pile, a removed or broken
+one in the graveyard; no file moves for a pile.
 
 Transitions (the only writers of state and links).  Every mint takes --ref ID (repeatable), --tag T
 (repeatable), --source S and --body FILE:
 
-  flow idea SUMMARY                                            an open idea
-  flow question SUMMARY [--serves ID]... [--size s]            an open question
-  flow task SUMMARY [--size s] [--due YYYY-MM-DD] [--after A]  a ready task
+  flow idea SUMMARY [--for O]                                  an open idea, in O's deck (the common deck without --for)
+  flow question SUMMARY [--serves ID]... [--size s] [--for O]  an open question
+  flow task SUMMARY [--size s] [--due YYYY-MM-DD] [--after A] [--for O]  an open task, placed below the ranked
+                                 question it references
   flow finding SUMMARY --evidence FORM:TARGET... [--answers Q] a standing finding; --answers Q closes Q answered by it
   flow goal SUMMARY  |  flow direction SUMMARY                 the owner's, minted and closed on the owner's word
-  flow draw ID --owner O         a ready task -> active, or an open idea into the hand (hand limit from flow.toml)
-  flow return ID [--note N]      active -> ready, or an idea out of the hand
+  flow draw ID --owner O         a ready idea, question or task into O's hand (hand limit from flow.toml)
+  flow return ID --note N        a held card out of the hand, into its owner's deck
+  flow pass ID --to O|common --note N   a card, held or not, into another deck, out of any hand
   flow make T --resolution FILE                                active -> done, archived; its `after` printed
-  flow abort T --reason R [--resolution FILE]                  active -> aborted, archived
+  flow abort T --reason R [--resolution FILE]                  a started task -> aborted, archived
   flow answer Q --by F           question(open) -> answered by F
   flow impossible Q --by F       question(open) -> impossible, F the finding that shows it
   flow wrong Q --reason R        question(open) -> wrong
   flow reopen ID --reason R      a closed question, or a consumed idea -> open, a dated note keeping what it was
-  flow remove ID --reason R      idea(open) | question(open) | task(ready) | finding(standing) -> removed
+  flow remove ID --reason R      idea(open) | question(open) | task(open, never started) | finding(standing) -> removed
   flow consume IDEA              an open idea whose consumed_by lists a card -> consumed: fully processed
   flow reach G --reason R  |  flow giveup G --reason R  |  flow drop D --reason R
   flow evidence F FORM:TARGET... evidence added to a standing finding: its trust raised
   flow evidence F --replace OLD NEW  |  flow evidence F --retire OLD --reason R    an item whose file is gone, swapped
                                  or retired, the dated note in the body keeping what it was
-  flow park ID --reason R [--revival V]  |  flow unpark ID [--note N]     an open question or a ready task
+  flow park ID --reason R [--revival V]  |  flow unpark ID [--note N]     an open question or an open task
   flow block ID --on X... --reason R     |  flow unblock ID [--on X] [--note N]
                                  X a task's or a question's id, a date alone (YYYY-MM-DD) or words
-  flow rank ID N [--insert]  |  rank --set ID...  |  rank ID --clear
+  flow rank ID N [--insert]  |  rank --set ID...  |  rank ID --clear     an open idea, question or task
   flow checked ID...             refresh an open question's last-checked date
   flow set ID FIELD VALUE        summary (every kind, the old one kept in the body), size (question, task),
                                  due | after (task)
@@ -65,7 +71,7 @@ check; `pages` (the dashboard's page manifest); `--json` on every command.
 
   flow state --check             what a machine sees of a freeze: the log's top entry today's where the tree
                                  changed since the newest committed entry, every record changed since then named;
-                                 the hands' active tasks and drawn ideas printed
+                                 the cards each hand holds printed, each with its drawn date and its age
   flow doctor [--fix] [--all]    every record and binding written in an older model's words, and what it reads
                                  now; --fix writes every edit whose line states it, the rest left to the hand
   flow log add FILE              one entry at the top of the log, reflowed and linted as a record is
@@ -118,7 +124,7 @@ TYPES = ("idea", "question", "task", "finding", "goal", "direction")
 STATES = {
     "idea": ("open", "consumed", "removed"),
     "question": ("open", "answered", "wrong", "impossible", "removed"),
-    "task": ("ready", "active", "done", "aborted", "removed"),
+    "task": ("open", "done", "aborted", "removed"),
     "finding": ("standing", "removed"),
     "goal": ("open", "reached", "given_up"),
     "direction": ("open", "closed"),
@@ -126,11 +132,11 @@ STATES = {
 CLOSED_TASK = ("done", "aborted", "removed")
 SETTLED = (*CLOSED_TASK, "answered", "wrong", "impossible")  # a record a block waits on no longer holds it
 SCHEMA = {
-    "idea": ("id", "type", "state", "summary", "source", "references", "owner", "drawn", "consumed_by",
+    "idea": ("id", "type", "state", "summary", "source", "references", "owner", "drawn", "started", "rank", "consumed_by",
              "closed", "origin", "created", "tags"),
-    "question": ("id", "type", "state", "summary", "references", "size", "checked", "parked", "blocked_by", "rank",
-                 "serves", "answered_by", "closed", "origin", "source", "created", "tags"),
-    "task": ("id", "type", "state", "summary", "references", "size", "owner", "drawn", "due", "after", "rank",
+    "question": ("id", "type", "state", "summary", "references", "size", "owner", "drawn", "started", "checked", "parked",
+                 "blocked_by", "rank", "serves", "answered_by", "closed", "origin", "source", "created", "tags"),
+    "task": ("id", "type", "state", "summary", "references", "size", "owner", "drawn", "started", "due", "after", "rank",
              "parked", "blocked_by", "closed", "origin", "source", "created", "tags"),
     "finding": ("id", "type", "state", "summary", "evidence", "references", "closed", "origin", "source", "created", "tags"),
     "goal": ("id", "type", "state", "summary", "references", "closed", "origin", "source", "created", "tags"),
@@ -151,6 +157,10 @@ RESOLVER_PROTOCOL = 1
 # The words of the models before this one, which `flow doctor` names and the check refuses: states and fields
 # renamed, and fields dropped, each with what it reads now.
 OLD_STATES = {"abandoned", "decomposed"}
+OLD_TASK_STATES = {"ready", "active"}  # a task's state held its place in the flow until v0.9.0; the standing is calculated now
+# The three kinds of card, which live in decks and hands; findings, goals and directions are held by nobody.
+CARDS = ("idea", "question", "task")
+COMMON = "common"  # the word that names the common deck in the commands: `owner` null
 OLD_FIELDS = {"abandoned": "closed", "derived_from": "references", "blocked": "blocked_by"}
 MOVED_FIELDS = {
     "abandoned": "`closed`", "derived_from": "`references`", "blocked": "`blocked_by`",
@@ -382,6 +392,9 @@ class Config:
         self.prefix = {t: pre.get(t, t) for t in TYPES}
         self.id_width = int(pre.get("id_width", 4))
         self.hand = raw.get("hand", {})
+        if COMMON in self.hand:
+            raise Refused(f"flow.toml: [hand] names an owner {COMMON!r}, the word that names the common deck in the commands "
+                          "(`flow pass ID --to common`, `flow find --deck common`): name the hand otherwise")
         self.owners = tuple(self.hand.keys()) or ("agent",)
         self.sizes = tuple(raw.get("question", {}).get("sizes", ("small", "medium", "large")))
         # The reference library, when the project has one: the command that answers `keys`
@@ -907,7 +920,7 @@ def new_record(cfg, type_, fields, body="", today=None):
         if f in fm:
             fm[f] = []
     fm.update({"id": next_id(cfg, type_), "type": type_, "origin": "current", "created": today})
-    fm["state"] = {"task": "ready", "finding": "standing"}.get(type_, "open")
+    fm["state"] = "standing" if type_ == "finding" else "open"
     if type_ == "question":
         fm["checked"] = today
     for k, v in fields.items():
@@ -1350,12 +1363,60 @@ def kind_word(t):
     return ("an " if t[:1] in "aeiou" else "a ") + t
 
 
-LIVE = {"idea": ("open",), "question": ("open",), "task": ("ready", "active"), "goal": ("open",), "direction": ("open",),
+def is_held(r):
+    """Whether a card is in a hand: open, and its `drawn` set (the date of the present hold)."""
+    return r.type in CARDS and r["state"] == "open" and r["drawn"] is not None
+
+
+def card_standing(cfg, recs, r, today):
+    """A live card's standing, calculated and never stored, as a list of words: `held` (in a hand, which carries no wait),
+    else `parked` and `blocked` as they hold today, else `ready` (a refill may draw it now).  An idea is only ever held
+    or ready, since it is never parked or blocked.  None for a record that is no open card."""
+    if r.type not in CARDS or r["state"] != "open":
+        return None
+    if is_held(r):
+        return ["held"]
+    out = (["parked"] if r["parked"] is not None else []) + (["blocked"] if blocked_now(cfg, recs, r, today) else [])
+    return out or ["ready"]
+
+
+def standing_words(cfg, recs, r, today):
+    """The standing as it is printed: `held`, `parked, blocked`, `ready`; the empty string where the record is no open card."""
+    return ", ".join(card_standing(cfg, recs, r, today) or [])
+
+
+# The two piles a closed card goes to: a card closed with success is in the discard pile, a removed or broken one in the
+# graveyard.  A pile is read from the state; no file moves for it.
+PILES = {"idea": {"consumed": "discard", "removed": "graveyard"},
+         "question": {"answered": "discard", "impossible": "discard", "wrong": "graveyard", "removed": "graveyard"},
+         "task": {"done": "discard", "aborted": "graveyard", "removed": "graveyard"}}
+
+
+def pile_of(r):
+    """The pile a closed card is in, `discard` or `graveyard`; None for a live card and for a record that is no card."""
+    return PILES.get(r.type, {}).get(r["state"])
+
+
+def age_days(drawn, today):
+    """The days between a hold's date and today, as words (`0 days`, `1 day`, `3 days`)."""
+    try:
+        n = (dt.date.fromisoformat(today) - dt.date.fromisoformat(str(drawn))).days
+    except ValueError:
+        return "an unreadable date"
+    return f"{n} day{'' if n == 1 else 's'}"
+
+
+def deck_of(r):
+    """The deck a live card is in: its owner's name, or `common`."""
+    return r["owner"] or COMMON
+
+
+LIVE = {"idea": ("open",), "question": ("open",), "task": ("open",), "goal": ("open",), "direction": ("open",),
         "finding": ("standing",)}
 
 
 def live(r):
-    """Whether a record is at the front of work: open, ready or active; a finding while it stands."""
+    """Whether a record is at the front of work: open; a finding while it stands."""
     return r["state"] in LIVE.get(r.type, ())
 
 
@@ -1432,14 +1493,14 @@ def validate(cfg, recs, today):
             if k not in SCHEMA[t]:
                 bad("V3", r, f"unknown field {k}" + (f", of an older model: it reads {MOVED_FIELDS[k]} now (`flow doctor`)" if k in MOVED_FIELDS else ""))
         if r["state"] not in STATES[t]:
-            bad("V3", r, f"state {r['state']!r} not in {STATES[t]}" + (" (`flow doctor`)" if r["state"] in OLD_STATES else ""))
+            bad("V3", r, f"state {r['state']!r} not in {STATES[t]}" + (" (`flow doctor`)" if r["state"] in OLD_STATES or (t == "task" and r["state"] in OLD_TASK_STATES) else ""))
         if t in ("question", "task") and r["size"] not in (None, *cfg.sizes):
             bad("V3", r, f"size {r['size']!r} not in {cfg.sizes}")
-        if t in ("task", "idea") and r["owner"] not in (None, *cfg.owners):
+        if t in CARDS and r["owner"] not in (None, *cfg.owners):
             bad("V3", r, f"owner {r['owner']!r} not in {cfg.owners}")
         if r["origin"] not in ("current", "legacy"):
             bad("V3", r, f"origin {r['origin']!r}")
-        for f in ("created", "checked", "drawn"):
+        for f in ("created", "checked", "drawn", "started"):
             v = r[f] if f in SCHEMA[t] else None
             if v is not None and not ISO.match(str(v)):
                 bad("V20", r, f"{f} is not an ISO date")
@@ -1475,10 +1536,10 @@ def validate(cfg, recs, today):
             bad("V17", r, f"{r['state']} without a dated reason (`closed`: date, reason)")
         elif c is not None and r["state"] not in closing:
             bad("V17", r, f"a dated closing reason on a record that is {r['state']}")
-        # the positions: parked and blocked_by on an open question or a ready task, either or both
+        # the positions: parked and blocked_by on an open question or an open task, either or both
         if t in ("question", "task"):
-            where = "an open question" if t == "question" else "a ready task"
-            ok_state = r["state"] == ("open" if t == "question" else "ready")
+            where = "an open question" if t == "question" else "an open task"
+            ok_state = r["state"] == "open"
             p, b = r["parked"], r["blocked_by"]
             if p is not None and (not ok_state or not isinstance(p, dict) or not p.get("date") or not p.get("reason")):
                 bad("V15", r, f"parked needs {where} with a date and a reason")
@@ -1486,18 +1547,22 @@ def validate(cfg, recs, today):
                 bad("V15", r, f"blocked_by needs {where} with a date, what it waits on and a reason")
             elif isinstance(b, dict) and not isinstance(b.get("on"), list):
                 bad("V15", r, "blocked_by.on is one value: it is a list, one item for each thing waited on (`flow doctor --fix`)")
-        if t == "task":
-            if r["state"] in ("ready", "active") and r["due"] is not None and ISO.match(str(r["due"])) and str(r["due"]) <= today:
-                warnings.append(f"{r.id}: due {r['due']} has passed")
-            if r["state"] == "active":
-                if r["owner"]:
-                    by_owner[r["owner"]] += 1
-                else:
-                    bad("V9", r, "active without an owner")
-            elif r["state"] in CLOSED_TASK and r["owner"]:
-                bad("V20", r, f"a {r['state']} task carries an owner")  # its drawn date stays, the day its work began
-            elif r["state"] == "ready" and (r["owner"] or r["drawn"]):
-                bad("V9", r, "a ready task carries an owner or a drawn date: it is in no hand")
+        if t == "task" and r["state"] == "open" and r["due"] is not None and ISO.match(str(r["due"])) and str(r["due"]) <= today:
+            warnings.append(f"{r.id}: due {r['due']} has passed")
+        if t in CARDS:  # the decks and the hands: `owner` is the deck, `drawn` the hand
+            if r["state"] == "open":
+                if r["drawn"] is not None:  # held
+                    if not r["owner"]:
+                        bad("V9", r, "a held card has no owner: drawn is the hand, and a hand is an owner's")
+                    else:
+                        by_owner[r["owner"]] += 1
+                    if r["started"] is None:
+                        bad("V9", r, "a held card has no started date: the draw writes it")
+                    if t != "idea" and (r["parked"] is not None or r["blocked_by"] is not None):
+                        bad("V9", r, "a held card carries a parking or a block: a card that has to wait is returned by `flow park` or `flow block`, "
+                                     "which take it out of the hand")
+            elif (r["owner"] or r["drawn"]) and r["state"] in STATES[t]:  # a state of an older model is V3's
+                bad("V9", r, f"a {r['state']} {t} carries an owner or a drawn date: a closed card is in no deck and no hand")
         if t == "finding" and r["state"] != "removed":  # a removed finding's evidence is history, no longer resolved
             if not r["evidence"]:
                 bad("V6", r, "no evidence")
@@ -1541,13 +1606,6 @@ def validate(cfg, recs, today):
                     bad("V17", r, f"consumed_by lacks {x}, which names {r.id} in references")
                 if r["state"] == "consumed" and not into:
                     bad("V17", r, "consumed with no card in consumed_by: an idea that produced nothing is removed")
-            if r["owner"]:
-                if r["state"] != "open" or not r["drawn"]:
-                    bad("V9", r, "an idea in a hand is open and carries its drawn date")
-                else:
-                    by_owner[r["owner"]] += 1
-            elif r["drawn"]:
-                bad("V9", r, "a drawn date on an idea in no hand")
         if lib is not None and not lib.get("error"):
             for k in sorted(set(lib["cite_re"].findall(render(r.fm, r.body)))):
                 cited[k] += 1
@@ -1558,7 +1616,7 @@ def validate(cfg, recs, today):
                 held = (lib["cards"].get(k) or {}).get("extracts")
                 if held is not None and i not in held:
                     bad("V23", r, f"cites {lib['cite_prefix']}{k}#{i}, and the library's card {k} carries no extract {i}")
-        if t in ("question", "task") and r["rank"] is not None:
+        if t in CARDS and r["rank"] is not None:
             if not _rankable(cfg, r):
                 bad("V14", r, "rank on a closed record")
             if isinstance(r["rank"], int) and not isinstance(r["rank"], bool):
@@ -1596,7 +1654,7 @@ def validate(cfg, recs, today):
     for o, n in by_owner.items():
         lim = int(cfg.hand.get(o, 0) or 0)
         if lim and n > lim:
-            problems.append({"code": "V9", "id": None, "path": None, "msg": f"{o} holds {n} records; limit {lim}"})
+            problems.append({"code": "V9", "id": None, "path": None, "msg": f"{o} holds {n} cards; limit {lim}"})
     # index freshness
     if cfg.index.is_file():
         have, want = cfg.index.read_text(encoding="utf-8"), render_index(cfg, recs)
@@ -1613,6 +1671,13 @@ def validate(cfg, recs, today):
 
 def _line(r, extra=""):
     return f"- `{r.id}` — {r['summary']}" + (f" [{extra}]" if extra else "")
+
+
+def deck_what(cfg, recs, r):
+    """What the index says of a card in an owner's deck: its kind, tags, size and references, then its waits."""
+    own = ", ".join(x for x in (r.type, *(str(t) for t in r["tags"] or []), r["size"] if "size" in r.fm else None,
+                                *(r["references"] or [])) if x)
+    return "; ".join([own] + waits(cfg, recs, r))
 
 
 def render_index(cfg, recs):
@@ -1633,10 +1698,10 @@ def render_index(cfg, recs):
 
     # the due dates, soonest first: a date never moves a rank, and the index never reads the day, so a passed
     # one is marked by `flow state` and warned of by `flow check`, not here
-    due = sorted((r for r in R if r.type == "task" and r["state"] in ("ready", "active") and r["due"] is not None),
+    due = sorted((r for r in R if r.type == "task" and r["state"] == "open" and r["due"] is not None),
                  key=lambda r: (str(r["due"]), r.id))
     if due:
-        section("Due", [_line(r, f"due {r['due']}" + (", active" if r["state"] == "active" else "")) for r in due])
+        section("Due", [_line(r, f"due {r['due']}" + (", held" if is_held(r) else "")) for r in due])
 
     ranked = sorted((r for r in R if r["rank"] is not None), key=lambda r: (0, r["rank"], "") if isinstance(r["rank"], int) else (1, 0, str(r["rank"])))
     rows = []
@@ -1645,22 +1710,28 @@ def render_index(cfg, recs):
         bits += [f"waits: {w}" for w in waits(cfg, recs, r)]
         rows.append(f"{r['rank']}. `{r.id}` — {r['summary']}")
         rows += [f"   {b}" for b in bits]
+        if is_held(r):
+            rows.append(f"   held by {r['owner']}")
     section("Next (ranked)", rows)
 
     rows = []
     for o in cfg.owners:
         rows.append(f"### {o}")
         rows.append("")
-        held = [r for r in R if r.type == "task" and r["state"] == "active" and r["owner"] == o]
-        held += [r for r in R if r.type == "idea" and r["state"] == "open" and r["owner"] == o]
+        held = held_by(recs, o)
         lim = int(cfg.hand.get(o, 0) or 0)
 
         def what(r):
-            if r.type == "idea":
-                return f"idea, drawn {r['drawn']}"
+            if r.type != "task":
+                return f"{r.type}, drawn {r['drawn']}"
             return ", ".join([*(str(t) for t in r["tags"] or []), f"drawn {r['drawn']}"] + list(r["references"] or []))
         rows += ([f"{len(held)} of {lim}", ""] if lim and held else []) + ([_line(r, what(r)) for r in held] or ["none"])
         rows.append("")
+        # the owner's deck: the cards that are theirs and in no hand, each with what it waits on (the index never reads the day)
+        deck = sorted((r for r in R if r.type in CARDS and r["state"] == "open" and r["owner"] == o and r["drawn"] is None),
+                      key=lambda r: r.id)
+        if deck:
+            rows += [f"{o}'s deck, {len(deck)} card{'' if len(deck) == 1 else 's'}:", ""] + [_line(r, deck_what(cfg, recs, r)) for r in deck] + [""]
     section("Hand", rows[:-1])
 
     # the goals and the directions, the pulls on the ranking: each open goal by its summary, each open direction with
@@ -1676,9 +1747,10 @@ def render_index(cfg, recs):
         section("Directions", [row for d in dirs for row in [_line(d, str(d["created"]))] + served(d)])
 
     order = {s: i for i, s in enumerate(cfg.sizes)}
-    ready = [r for r in R if r.type == "task" and r["state"] == "ready"]
+    ready = [r for r in R if r.type == "task" and r["state"] == "open" and not is_held(r)]
     ready.sort(key=lambda r: (order.get(r["size"], len(order)), r.id))
-    section("Ready", [_line(r, "; ".join([", ".join(x for x in (*(str(t) for t in r["tags"] or []), r["size"], *(r["references"] or [])) if x)] + waits(cfg, recs, r))) for r in ready])
+    section("Ready", [_line(r, "; ".join([", ".join(x for x in (*(str(t) for t in r["tags"] or []), r["size"], *(r["references"] or []),
+                                                                  *([f"deck {r['owner']}"] if r["owner"] else [])) if x)] + waits(cfg, recs, r))) for r in ready])
 
     if cfg.has("question"):
         waiting = lambda r: r["parked"] is not None or bool(index_waits_on(cfg, recs, r))
@@ -1725,8 +1797,7 @@ def get(recs, id_, type_=None, states=None):
     if type_ and r.type != type_:
         raise Refused(f"{id_} is {kind_word(r.type)}, not {kind_word(type_)}")
     if states and r["state"] not in states:
-        raise Refused(f"{id_} is {r['state']}, not {' or '.join(states)}"
-                      + (f": draw it first (`flow draw {id_} --owner O`)" if r.type == "task" and r["state"] == "ready" and "active" in states else ""))
+        raise Refused(f"{id_} is {r['state']}, not {' or '.join(states)}")
     return r
 
 
@@ -1739,7 +1810,7 @@ _SET_RANKS = []
 def close_ranks(cfg, recs):
     """The ranked records renumbered 1..n in their order, after a transition cleared one of them:
     the list stays contiguous without a hand on it.  Each move is recorded in _RERANKED."""
-    ranked = sorted((r for r in recs.values() if r.type in ("question", "task") and r["rank"] is not None),
+    ranked = sorted((r for r in recs.values() if r.type in CARDS and r["rank"] is not None),
                     key=lambda r: (r["rank"] if isinstance(r["rank"], int) else 10**9, r.id))
     for n, r in enumerate(ranked, 1):
         if r["rank"] != n:
@@ -1769,6 +1840,20 @@ def mint_refs(recs, ids, own=None):
 def mint_common(cfg, recs, a):
     """The fields every mint takes: --ref, --tag and --source."""
     return {"references": mint_refs(recs, a.ref), "source": mint_source(cfg, a.source), "tags": a.tag or []}
+
+
+def deck_name(cfg, word, what="owner"):
+    """The deck a word names: `common` for the common deck, which is `owner` null (None), else a name of `[hand]`."""
+    if word == COMMON:
+        return None
+    if word not in cfg.owners:
+        raise Refused(f"{what} {word!r} is not one of {', '.join(cfg.owners)}, nor `{COMMON}` for the common deck")
+    return word
+
+
+def mint_deck(cfg, a):
+    """The owner a card is minted for with --for: the deck it lands in, the common one (None) where none is named."""
+    return deck_name(cfg, a.for_, "--for") if getattr(a, "for_", None) else None
 
 
 def check_serves(recs, ids):
@@ -1839,7 +1924,7 @@ def mint_source(cfg, src):
 # --- the mints: one per kind, each the kind's name ---------------------------------
 
 def cmd_idea(cfg, recs, a, today):
-    r = new_record(cfg, "idea", {"summary": a.summary, **mint_common(cfg, recs, a)}, read_body(a.body), today)
+    r = new_record(cfg, "idea", {"summary": a.summary, "owner": mint_deck(cfg, a), **mint_common(cfg, recs, a)}, read_body(a.body), today)
     return [r], mirror_add(cfg, recs, r, r["references"])
 
 
@@ -1847,15 +1932,38 @@ def cmd_question(cfg, recs, a, today):
     """A question, standing alone or not: an idea, a finding or a question it comes from is a --ref (an idea then lists it
     in consumed_by, whatever its state), a document its --source."""
     common = mint_common(cfg, recs, a)
-    q = new_record(cfg, "question", {"summary": a.summary, "size": a.size, "serves": check_serves(recs, a.serves), **common},
-                   read_body(a.body), today)
+    q = new_record(cfg, "question", {"summary": a.summary, "size": a.size, "owner": mint_deck(cfg, a),
+                                     "serves": check_serves(recs, a.serves), **common}, read_body(a.body), today)
     return [q], mirror_add(cfg, recs, q, q["references"])
 
 
 def cmd_task(cfg, recs, a, today):
-    r = new_record(cfg, "task", {"summary": a.summary, "size": a.size, "due": check_due(a.due), "after": a.after, **mint_common(cfg, recs, a)},
-                   read_body(a.body), today)
+    """A task, in the common deck or the owner's `--for`.  Minted from a ranked question it takes the question's place on the
+    ranked list, just below it and below the run of ranked tasks directly under it that reference it, so the next refill draws
+    it in turn and nothing is displaced meanwhile; the agent may put it elsewhere (`flow rank T N --insert`) or clear it."""
+    r = new_record(cfg, "task", {"summary": a.summary, "size": a.size, "due": check_due(a.due), "after": a.after,
+                                 "owner": mint_deck(cfg, a), **mint_common(cfg, recs, a)}, read_body(a.body), today)
+    place = inherited_place(recs, r)
+    if place is not None:
+        insert_rank(cfg, recs, r, place)
+        _SET_RANKS.append(("ranked", r.id, place))
     return [r], mirror_add(cfg, recs, r, r["references"])
+
+
+def inherited_place(recs, t):
+    """The rank a task minted with --ref takes: below the best-ranked open question it references, and below the run of
+    ranked tasks directly under that question that reference it.  None where it references no ranked question: no other
+    mint inherits a place, what an idea or a question produces being ranked by `whatsnext`."""
+    qs = [recs[i] for i in t["references"] or [] if i in recs and recs[i].type == "question" and recs[i]["state"] == "open"
+          and isinstance(recs[i]["rank"], int)]
+    if not qs:
+        return None
+    q = min(qs, key=lambda x: x["rank"])
+    by_rank = {o["rank"]: o for o in recs.values() if o is not t and o.type in CARDS and isinstance(o["rank"], int)}
+    place = q["rank"] + 1
+    while place in by_rank and by_rank[place].type == "task" and q.id in (by_rank[place]["references"] or []):
+        place += 1
+    return place
 
 
 def answerable(recs, qid):
@@ -1948,61 +2056,92 @@ def cmd_direction(cfg, recs, a, today):
 # --- the hands, and the closings -----------------------------------------------------
 
 def held_by(recs, owner):
-    """What an owner's hand holds: the active tasks drawn into it and the ideas drawn."""
-    return [r for r in recs.values() if r["owner"] == owner and
-            ((r.type == "task" and r["state"] == "active") or (r.type == "idea" and r["state"] == "open"))]
+    """What an owner's hand holds: the cards drawn into it, ideas, questions and tasks alike, by id."""
+    return sorted((r for r in recs.values() if r["owner"] == owner and is_held(r)), key=lambda r: r.id)
+
+
+def in_deck(recs, owner):
+    """What an owner's deck holds beside their hand: the open cards that are theirs and in no hand, by id; the common
+    deck for the owner None."""
+    return sorted((r for r in recs.values() if r.type in CARDS and r["state"] == "open" and r["owner"] == owner and r["drawn"] is None),
+                  key=lambda r: r.id)
 
 
 def cmd_draw(cfg, recs, a, today):
+    """A card into a hand: any of the three kinds whose standing is ready, from the common deck or the owner's own.  It writes
+    `owner`, `drawn` and, the first time, `started`; a card in another owner's deck is passed first."""
     r = get(recs, a.id)
-    if r.type == "task":
-        if r["state"] != "ready":
-            raise Refused(f"{r.id} is {r['state']}, not ready")
-        holds = blocked_now(cfg, recs, r, today)
-        why = (["parked (`flow unpark` it first)"] if r["parked"] is not None else []) + \
-              ([f"blocked on {', '.join(holds)}, which still holds (`flow unblock {r.id} --on X` for words or a mistake)"] if holds else [])
-        if why:
-            raise Refused(f"{r.id} is {' and '.join(why)}")
-    elif r.type == "idea":
-        if r["state"] != "open":
-            raise Refused(f"{r.id} is {r['state']}, not open")
-        if r["owner"]:
-            raise Refused(f"{r.id} is in {r['owner']}'s hand already")
-    else:
-        raise Refused(f"{r.id} is {kind_word(r.type)}: a task or an idea is drawn into a hand")
+    if r.type not in CARDS:
+        raise Refused(f"{r.id} is {kind_word(r.type)}: an idea, a question or a task is drawn into a hand")
+    if r["state"] != "open":
+        raise Refused(f"{r.id} is {r['state']}, not open")
     if a.owner not in cfg.owners:
         raise Refused(f"owner {a.owner!r} not in {cfg.owners}")
+    if r["drawn"] is not None:
+        raise Refused(f"{r.id} is in {r['owner']}'s hand already" + ("" if r["owner"] == a.owner else
+                      f": `flow pass {r.id} --to {a.owner} --note …` moves it"))
+    if r["owner"] not in (None, a.owner):
+        raise Refused(f"{r.id} is in {r['owner']}'s deck: `flow pass {r.id} --to {a.owner} --note …` moves it first, or {r['owner']} draws it")
+    holds = blocked_now(cfg, recs, r, today)
+    why = (["parked (`flow unpark` it first)"] if r["parked"] is not None else []) + \
+          ([f"blocked on {', '.join(holds)}, which still holds (`flow unblock {r.id} --on X` for words or a mistake)"] if holds else [])
+    if why:
+        raise Refused(f"{r.id} is {' and '.join(why)}")
     lim = int(cfg.hand.get(a.owner, 0) or 0)
-    held = len(held_by(recs, a.owner))
-    if lim and held >= lim:
-        raise Refused(f"{a.owner}'s hand is full ({held} of {lim}); return or close a record first")
-    r.fm.update({"owner": a.owner, "drawn": today})
-    if r.type == "task":
-        r.fm.update({"state": "active", "blocked_by": None})  # a block none of whose items holds goes with the draw
+    n = len(held_by(recs, a.owner))
+    if lim and n >= lim:
+        raise Refused(f"{a.owner}'s hand is full ({n} of {lim}); return or close a card first")
+    r.fm.update({"owner": a.owner, "drawn": today, "started": r["started"] or today})
+    if r.type != "idea":
+        r.fm["blocked_by"] = None  # a block none of whose items holds goes with the draw
     save(cfg, r)
     return [], [r]
 
 
 def cmd_return(cfg, recs, a, today):
+    """A held card out of the hand and into its owner's deck: `drawn` cleared, `owner` kept.  The note is what the session did
+    on it and why it goes back."""
     r = get(recs, a.id)
-    if r.type == "task" and r["state"] == "active":
-        r.fm.update({"state": "ready", "owner": None, "drawn": None})
-    elif r.type == "idea" and r["state"] == "open" and r["owner"]:
-        r.fm.update({"owner": None, "drawn": None})
-    elif r.type == "task" and r["state"] == "ready":
-        raise Refused(f"{r.id} is ready, in no hand")
-    else:
+    if r.type not in CARDS:
+        raise Refused(f"{r.id} is {kind_word(r.type)}: only an idea, a question or a task is held in a hand")
+    if not is_held(r):
         raise Refused(f"{r.id} is in no hand")
+    if not (a.note or "").strip():
+        raise Refused("return takes --note in words: what the session did on the card and why it goes back")
+    r.fm["drawn"] = None
     made = consumed_list(r) if r.type == "idea" else []
-    if a.note or made:  # an idea put back partly worked lists what it produced so far
-        append_note(r, today, "returned" + (f": {a.note}" if a.note else "") + (f"; produced so far: {', '.join(made)}" if made else ""))
+    append_note(r, today, f"returned: {a.note.strip()}" + (f"; produced so far: {', '.join(made)}" if made else ""))  # an idea put back partly worked lists what it produced
+    save(cfg, r)
+    return [], [r]
+
+
+def cmd_pass(cfg, recs, a, today):
+    """A card into another deck, with a note, and out of the hand where it was held: `owner` the deck's, `drawn` cleared.
+    A card whose remaining steps are the person's is passed to the person at that moment."""
+    r = get(recs, a.id)
+    if r.type not in CARDS:
+        raise Refused(f"{r.id} is {kind_word(r.type)}: an idea, a question or a task is passed")
+    if r["state"] != "open":
+        raise Refused(f"{r.id} is {r['state']}, not open")
+    to = deck_name(cfg, a.to, "--to")
+    if not (a.note or "").strip():
+        raise Refused("pass takes --note in words: why the card goes to that deck")
+    if to == r["owner"]:
+        if is_held(r):
+            raise Refused(f"{r.id} is in {a.to}'s hand: `flow return {r.id} --note …` puts it back into the deck")
+        raise Refused(f"{r.id} is in {a.to}'s deck already" if to else f"{r.id} is in the common deck already")
+    was = deck_of(r)
+    r.fm.update({"owner": to, "drawn": None})
+    append_note(r, today, f"passed from {was} to {a.to}: {a.note.strip()}")
     save(cfg, r)
     return [], [r]
 
 
 def close_task(cfg, recs, t, state, today, reason=None):
+    """A task closed, the file moved to the archive: it leaves its deck and its hand, `owner` and `drawn` cleared, and keeps
+    `started`, the day its work began."""
     had_rank = t["rank"] is not None
-    t.fm.update({"state": state, "owner": None, "rank": None, "parked": None, "blocked_by": None,
+    t.fm.update({"state": state, "owner": None, "drawn": None, "rank": None, "parked": None, "blocked_by": None,
                  "closed": {"date": today, "reason": reason} if reason else None})
     save(cfg, t)
     move_to_archive(cfg, t)
@@ -2013,7 +2152,9 @@ def close_task(cfg, recs, t, state, today, reason=None):
 def cmd_make(cfg, recs, a, today):
     """A task made: its resolution, what was done, appended under the date; it mints nothing, the follow-ups being
     minted after it (`flow task … --ref T`)."""
-    t = get(recs, a.task, "task", ("active",))
+    t = get(recs, a.task, "task", ("open",))
+    if not is_held(t):
+        raise Refused(f"{t.id} is in no hand: draw it first (`flow draw {t.id} --owner O`)")
     text = read_body(a.resolution)
     if not text.strip():
         raise Refused(f"the resolution {'from the standard input' if a.resolution == '-' else a.resolution} is empty: "
@@ -2024,7 +2165,9 @@ def cmd_make(cfg, recs, a, today):
 
 
 def cmd_abort(cfg, recs, a, today):
-    t = get(recs, a.task, "task", ("active",))
+    t = get(recs, a.task, "task", ("open",))
+    if t["started"] is None:
+        raise Refused(f"{t.id} was never started: abort takes a task whose work began; `flow remove {t.id} --reason R` drops one that never did")
     if a.resolution:
         append_note(t, today, "resolution:", read_body(a.resolution))
     close_task(cfg, recs, t, "aborted", today, a.reason)
@@ -2034,7 +2177,7 @@ def cmd_abort(cfg, recs, a, today):
 def close_question(cfg, recs, q, state, today, reason=None, by=None):
     """A question closed: no task is asked about, since a question's closing is its own act and tasks stand across it."""
     had_rank = q["rank"] is not None
-    q.fm.update({"state": state, "answered_by": by, "rank": None, "parked": None, "blocked_by": None,
+    q.fm.update({"state": state, "answered_by": by, "owner": None, "drawn": None, "rank": None, "parked": None, "blocked_by": None,
                  "closed": {"date": today, "reason": reason} if reason else None})
     save(cfg, q)
     if had_rank:
@@ -2076,14 +2219,14 @@ def cmd_reopen(cfg, recs, a, today):
         raise Refused(f"{q.id} carries the tag do-not-reopen, the person's mark that it stays settled: ask the person; "
                       f"`flow tag {q.id} -do-not-reopen` lifts it, on their word")
     if q.type == "idea":
-        q.fm["state"] = "open"
+        q.fm.update({"state": "open", "owner": None, "drawn": None})  # back into the common deck
         append_note(q, today, f"reopened: {a.reason.strip()}; it was consumed")
         save(cfg, q)
         return [], [q]
     was, by, c = q["state"], q["answered_by"], q["closed"]
     note = (f"reopened: {a.reason.strip()}; it was {was}" + (f" by {by}" if by else "")
             + (f" ({c.get('date')}: {c.get('reason')})" if isinstance(c, dict) and c.get("reason") else ""))
-    q.fm.update({"state": "open", "answered_by": None, "closed": None, "checked": today})
+    q.fm.update({"state": "open", "answered_by": None, "closed": None, "checked": today, "owner": None, "drawn": None})  # back into the common deck
     append_note(q, today, note)
     save(cfg, q)
     return [], [q]
@@ -2119,17 +2262,22 @@ def cmd_consume(cfg, recs, a, today):
     if not consumed_list(i):
         raise Refused(f"{i.id} lists no card in consumed_by: an idea that produced nothing is removed with a reason "
                       f"(`flow remove {i.id} --reason R`), and one that produces something names it with `--ref {i.id}` as each card is minted")
-    i.fm.update({"state": "consumed", "owner": None, "drawn": None})
+    had_rank = i["rank"] is not None
+    i.fm.update({"state": "consumed", "owner": None, "drawn": None, "rank": None})
     save(cfg, i)
+    if had_rank:
+        close_ranks(cfg, recs)
     return [], [i]
 
 
 def cmd_remove(cfg, recs, a, today):
     r = get(recs, a.id)
     if r.type == "task":
-        if r["state"] != "ready":
-            raise Refused(f"{r.id} is {r['state']}: remove takes a ready task; abort an active one" if r["state"] == "active"
-                          else f"{r.id} is {r['state']} already")
+        if r["state"] != "open":
+            raise Refused(f"{r.id} is {r['state']} already")
+        if r["started"] is not None:
+            raise Refused(f"{r.id} was started ({r['started']}): remove takes a task whose work never began; "
+                          f"`flow abort {r.id} --reason R` closes a started one, held or not")
         close_task(cfg, recs, r, "removed", today, a.reason)
         return [], [r]
     if r.type == "finding":  # a finding found false: removed, its card kept, what refers to it named by the notice
@@ -2139,12 +2287,15 @@ def cmd_remove(cfg, recs, a, today):
         save(cfg, r)
         return [], [r]
     if r.type not in ("idea", "question"):
-        raise Refused(f"{r.id} is {kind_word(r.type)}: remove takes an open idea, an open question, a ready task or a standing finding")
+        raise Refused(f"{r.id} is {kind_word(r.type)}: remove takes an open idea, an open question, an open task never started or a standing finding")
     if r["state"] != "open":
         raise Refused(f"{r.id} is {r['state']} already")
     if r.type == "idea":
-        r.fm.update({"state": "removed", "owner": None, "drawn": None, "closed": {"date": today, "reason": a.reason}})
+        had_rank = r["rank"] is not None
+        r.fm.update({"state": "removed", "owner": None, "drawn": None, "rank": None, "closed": {"date": today, "reason": a.reason}})
         save(cfg, r)
+        if had_rank:
+            close_ranks(cfg, recs)
         return [], [r]
     close_question(cfg, recs, r, "removed", today, reason=a.reason)
     return [], [r]
@@ -2152,15 +2303,26 @@ def cmd_remove(cfg, recs, a, today):
 
 # --- the positions ---------------------------------------------------------------------
 
+# The cards a command returned to their owner's deck beside its own change, a held card made to wait: said as such.
+_RETURNED = []
+
+
 def waitable(recs, id_):
+    """An open question or an open task, which may be parked or blocked; a held one is returned to its owner's deck in the
+    same command (`wait_return`), a hand holding only what is being worked."""
     r = get(recs, id_)
-    if r.type == "question" and r["state"] == "open":
+    if r.type in ("question", "task") and r["state"] == "open":
         return r
-    if r.type == "task" and r["state"] == "ready":
-        return r
-    if r.type == "task" and r["state"] == "active":
-        raise Refused(f"{r.id} is active: return it first (`flow return {r.id} --note …`), then park or block it")
-    raise Refused(f"{r.id} is a {r['state'] or ''} {r.type}: an open question or a ready task waits")
+    if r.type == "idea":
+        raise Refused(f"{r.id} is an idea: an idea is never parked or blocked, it is ready or held")
+    raise Refused(f"{r.id} is {'a ' + r['state'] if r['state'] else 'a'} {r.type}: an open question or an open task waits")
+
+
+def wait_return(r):
+    """A held card that is made to wait goes back to its owner's deck in the same command, and the command says so."""
+    if is_held(r):
+        _RETURNED.append((r.id, r["owner"]))
+        r.fm["drawn"] = None
 
 
 def cmd_park(cfg, recs, a, today):
@@ -2169,6 +2331,7 @@ def cmd_park(cfg, recs, a, today):
         since = r["parked"].get("date") if isinstance(r["parked"], dict) else r["parked"]
         raise Refused(f"{r.id} is parked already, since {since}: unpark it first")
     r.fm["parked"] = {"date": today, "reason": a.reason, "revival": a.revival}
+    wait_return(r)
     if r.type == "question":
         r.fm["checked"] = today
     save(cfg, r)
@@ -2216,6 +2379,7 @@ def cmd_block(cfg, recs, a, today):
     if len(set(ons)) < len(ons):
         raise Refused("block names one thing twice in --on")
     r.fm["blocked_by"] = {"date": today, "on": ons, "reason": a.reason}
+    wait_return(r)
     if r.type == "question":
         r.fm["checked"] = today
     save(cfg, r)
@@ -2245,7 +2409,20 @@ def cmd_unblock(cfg, recs, a, today):
 
 
 def _rankable(cfg, r):
-    return (r.type == "question" and r["state"] == "open") or (r.type == "task" and r["state"] in ("ready", "active"))
+    """Whether a record may stand on the ranked list: an open idea, question or task, a held one and a waiting one included."""
+    return r.type in CARDS and r["state"] == "open"
+
+
+def insert_rank(cfg, recs, r, n):
+    """r placed at rank n, the ranked cards from n down moved down by one, each move recorded as a re-rank."""
+    others = sorted((o for o in recs.values() if o is not r and o.type in CARDS and o["rank"] is not None), key=lambda o: o["rank"])
+    r.fm["rank"] = n
+    save(cfg, r)
+    for i, o in enumerate(others[:n - 1] + [None] + others[n - 1:], 1):
+        if o is not None and o["rank"] != i:
+            _RERANKED.append((o.id, o["rank"], i))
+            o.fm["rank"] = i
+            save(cfg, o)
 
 
 def cmd_rank(cfg, recs, a, today):
@@ -2260,7 +2437,7 @@ def cmd_rank(cfg, recs, a, today):
             if not _rankable(cfg, r):
                 raise Refused(f"{r.id} cannot be ranked: it is {r['state'] or 'a ' + r.type}")
         for r in sorted(recs.values(), key=lambda r: r.id):
-            if r.type in ("question", "task") and r["rank"] is not None and r not in rs:
+            if r.type in CARDS and r["rank"] is not None and r not in rs:
                 _SET_RANKS.append(("unranked", r.id, r["rank"]))
                 r.fm["rank"] = None
                 save(cfg, r)
@@ -2272,8 +2449,8 @@ def cmd_rank(cfg, recs, a, today):
             changed.append(r)
         return [], changed
     r = get(recs, a.id)
-    if r.type not in ("question", "task"):
-        raise Refused(f"{r.id} is {kind_word(r.type)}: only questions and tasks are ranked")
+    if r.type not in CARDS:
+        raise Refused(f"{r.id} is {kind_word(r.type)}: only ideas, questions and tasks are ranked")
     if a.clear:
         had_rank = r["rank"] is not None
         r.fm["rank"] = None
@@ -2286,7 +2463,7 @@ def cmd_rank(cfg, recs, a, today):
     if not _rankable(cfg, r):
         raise Refused(f"{r.id} cannot be ranked: it is {r['state']}")
     n = int(a.n)
-    others = sorted((o for o in recs.values() if o is not r and o.type in ("question", "task") and o["rank"] is not None),
+    others = sorted((o for o in recs.values() if o is not r and o.type in CARDS and o["rank"] is not None),
                     key=lambda o: o["rank"])
     if not 1 <= n <= len(others) + 1:
         raise Refused(f"rank {n} would leave a gap: the ranks run 1..{len(others) + 1} with {r.id} among them")
@@ -2295,16 +2472,13 @@ def cmd_rank(cfg, recs, a, today):
             if o["rank"] == n:
                 raise Refused(f"rank {n} is held by {o.id}: --insert puts {r.id} there and moves the rest down, "
                               f"and `flow rank --set ID…` writes the whole order at once")
-    r.fm["rank"] = n
     if r.type == "question":
         r.fm["checked"] = today
-    save(cfg, r)
     if a.insert:  # the others keep their order around it, renumbered from 1
-        for i, o in enumerate(others[:n - 1] + [None] + others[n - 1:], 1):
-            if o is not None and o["rank"] != i:
-                _RERANKED.append((o.id, o["rank"], i))
-                o.fm["rank"] = i
-                save(cfg, o)
+        insert_rank(cfg, recs, r, n)
+    else:
+        r.fm["rank"] = n
+        save(cfg, r)
     return [], [r]
 
 
@@ -2472,6 +2646,15 @@ def stat(r):
     return (", ".join(forms_of(r)) or "no evidence") if r.type == "finding" and r["state"] != "removed" else r["state"]
 
 
+def row_state(cfg, recs, r, today):
+    """What a `flow find` row shows after the id: the state, with an open card's standing and a closed card's pile in
+    brackets; a finding's forms."""
+    if r.type in CARDS:
+        extra = standing_words(cfg, recs, r, today) if r["state"] == "open" else f"{pile_of(r)} pile"
+        return f"{r['state']} ({extra})"
+    return stat(r)
+
+
 def library_keys(cfg):
     """What the bound library answers to `keys`: its cite prefix and each card's state and grade.
     None when the project binds no library; `{"error": …}` when the command does not answer."""
@@ -2533,6 +2716,13 @@ def cmd_find(cfg, recs, a, today):
         raise Refused("--deep follows --refers: flow find --refers ID --deep")
     if a.only and not a.form:
         raise Refused("--only holds the forms of --form: flow find --form stated --only")
+    if a.state in OLD_TASK_STATES:
+        raise Refused(f"--state {a.state} went with the model's states: a task is `open` now, its standing calculated; "
+                      "`flow find --ready` lists the cards a refill may draw, `--held` those in a hand, `--state open` every live card")
+    if a.pile and a.pile not in ("discard", "graveyard"):
+        raise Refused(f"--pile {a.pile!r}: a pile is `discard` (a card closed with success) or `graveyard` (a removed or broken one)")
+    if a.deck and a.deck != COMMON and a.deck not in cfg.owners:
+        raise Refused(f"--deck {a.deck!r} is not one of {', '.join(cfg.owners)}, nor `{COMMON}`")
     target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
     naming = referrers(recs, target, a.deep, cfg.opaque_forms) if a.refers else None
     for r in recs.values():
@@ -2540,7 +2730,7 @@ def cmd_find(cfg, recs, a, today):
             continue
         if a.state and r["state"] != a.state:
             continue
-        if not a.state and r["state"] == "removed" and not a.id_:  # a removed record opens by its id, and is listed when asked by its state
+        if not a.state and r["state"] == "removed" and not a.id_ and not a.pile:  # a removed record opens by its id, and is listed when asked by its state or its pile
             continue
         if a.id_ and r.id not in a.id_:
             continue
@@ -2556,7 +2746,13 @@ def cmd_find(cfg, recs, a, today):
             continue
         if a.blocked and not blocked_now(cfg, recs, r, today):  # the records whose block holds today
             continue
-        if a.held and not ((r.type == "task" and r["state"] == "active") or (r.type == "idea" and r["owner"])):
+        if a.held and not is_held(r):
+            continue
+        if a.ready and card_standing(cfg, recs, r, today) != ["ready"]:  # the cards a refill may draw now
+            continue
+        if a.deck and not (r.type in CARDS and r["state"] == "open" and r["drawn"] is None and deck_of(r) == a.deck):  # in the deck, in no hand
+            continue
+        if a.pile and pile_of(r) != a.pile:
             continue
         if a.ranked and r["rank"] is None:
             continue
@@ -2635,8 +2831,22 @@ def refs(recs, ids):
     return [{"id": i, "summary": recs[i]["summary"] if i in recs else None} for i in ids]
 
 
-def show_text(cfg, recs, r):
-    lines = [f"{rel(cfg, r.path)}", render(r.fm, r.body).rstrip("\n"), "", "links:"]
+def standing_line(cfg, recs, r, today):
+    """What `flow show` says of a card beside its fields: an open card's standing and its deck, a closed card's pile; None for
+    a record that is no card."""
+    if r.type not in CARDS:
+        return None
+    if r["state"] == "open":
+        where = f"in {r['owner']}'s hand" if is_held(r) else f"in {r['owner']}'s deck" if r["owner"] else "in the common deck"
+        return f"standing: {standing_words(cfg, recs, r, today)} ({where})"
+    return f"pile: {pile_of(r)} (a card {r['state']} is in no deck and no hand)"
+
+
+def show_text(cfg, recs, r, today):
+    lines = [f"{rel(cfg, r.path)}", render(r.fm, r.body).rstrip("\n"), ""]
+    if standing_line(cfg, recs, r, today):
+        lines += [standing_line(cfg, recs, r, today), ""]
+    lines.append("links:")
     for f, vals in links(r, recs).items():
         for v in vals:
             lines.append(f"  {f}: {v} — {recs[v]['summary'] if v in recs else 'MISSING'}")
@@ -2690,14 +2900,36 @@ def passed_dates(cfg, recs, today):
     still waits on where it holds on the rest."""
     out = []
     for r in sorted(recs.values(), key=lambda r: r.id):
-        if r.type == "task" and r["state"] in ("ready", "active") and r["due"] is not None and str(r["due"]) <= today:
+        if r.type == "task" and r["state"] == "open" and r["due"] is not None and str(r["due"]) <= today:
             out.append(f"{rel(cfg, cfg.index)}: due {r['due']} has passed: {r.id} — {r['summary']}")
-        b = r["blocked_by"] if r.type in ("question", "task") and r["state"] in ("open", "ready") else None
+        b = r["blocked_by"] if r.type in ("question", "task") and r["state"] == "open" else None
         holds = blocked_now(cfg, recs, r, today)
         for o in blocked_on(b):
             if blocker_kind(cfg, recs, o) == "date" and o <= today:
                 out.append(f"{rel(cfg, cfg.index)}: the block's date has passed: {r.id} waits on {o} no longer"
                            + (f"; it still waits on {', '.join(holds)}" if holds else ""))
+    return out
+
+
+def hand_lines(cfg, recs, today):
+    """Each owner's hand in full with its cards' ages, then each owner's deck with every card's standing, then the common deck
+    as a count, its ranked cards being on the ranked list above.  Computed from the records, since the index never reads the day."""
+    at = rel(cfg, cfg.index)
+    out = [f"{at}: Hand"]
+    for o in cfg.owners:
+        held = held_by(recs, o)
+        lim = int(cfg.hand.get(o, 0) or 0)
+        out.append(f"{at}: {o}'s hand: {len(held)}" + (f" of {lim}" if lim else " held, no limit") + (":" if held else ""))
+        out += [f"{at}:   {r.id} — {r['summary']} ({r.type}, drawn {r['drawn']}, {age_days(r['drawn'], today)}; started {r['started']})"
+                for r in held]
+        deck = in_deck(recs, o)
+        out.append(f"{at}: {o}'s deck: {len(deck)} card{'' if len(deck) == 1 else 's'}" + (":" if deck else ""))
+        out += [f"{at}:   {r.id} — {r['summary']} ({r.type}, {standing_words(cfg, recs, r, today)}"
+                + (f", rank {r['rank']}" if r["rank"] is not None else "") + ")" for r in deck]
+    common = in_deck(recs, None)
+    out.append(f"{at}: the common deck: {len(common)} card{'' if len(common) == 1 else 's'}, "
+               f"{sum(r['rank'] is not None for r in common)} on the ranked list above")
+    out.append("")
     return out
 
 
@@ -2712,7 +2944,11 @@ def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
         out += [f"{rel(cfg, cfg.inbox)}: missing — the person's inbox (`[paths] inbox`)", ""]
     if cfg.index.is_file():
         ls = cfg.index.read_text(encoding="utf-8").split("\n")
+        computed = recs is not None and bool(today)  # the hands and the decks read the day: ages, standings
         for heading in ("Due", "Next (ranked)", "Hand"):
+            if heading == "Hand" and computed:
+                out += hand_lines(cfg, recs, today)
+                continue
             sec = _section(ls, heading)
             if not sec:
                 continue
@@ -2721,7 +2957,7 @@ def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
             if heading == "Due" and cfg.due_within is not None and today:  # the window: passed dates and those within it
                 until = (dt.date.fromisoformat(today) + dt.timedelta(days=cfg.due_within)).isoformat()
                 # the records say which tasks fall after it; the index's lines are what is printed, each by its id
-                after = {r.id for r in (load_all(cfg) if recs is None else recs).values() if r.type == "task" and r["state"] in ("ready", "active")
+                after = {r.id for r in (load_all(cfg) if recs is None else recs).values() if r.type == "task" and r["state"] == "open"
                          and r["due"] is not None and str(r["due"]) > until}
                 row_id = lambda i: (re.match(r"^- `([^`]+)`", ls[i]) or [None, None])[1]
                 later = [i for i in rows if row_id(i) in after]
@@ -2776,12 +3012,12 @@ def git(cfg, *args):
     return r.stdout if r.returncode == 0 else None
 
 
-def hands(cfg, recs):
-    """Each owner's hand as lines for the State paragraph: the active tasks and the ideas drawn."""
+def hands(cfg, recs, today):
+    """Each owner's hand as lines for the State paragraph: the cards held, each with its drawn date and its age in days."""
     out = []
     for o in cfg.owners:
-        for r in sorted(held_by(recs, o), key=lambda r: r.id):
-            out.append(f"{o}: {r.id} — {r['summary']} ({r.type}, drawn {r['drawn']})")
+        for r in held_by(recs, o):
+            out.append(f"{o}: {r.id} — {r['summary']} ({r.type}, drawn {r['drawn']}, {age_days(r['drawn'], today)})")
     return out
 
 
@@ -3190,15 +3426,15 @@ def pages_manifest(cfg):
     for t in cfg.kinds:
         if t == "direction":  # rendered as the owner's list below
             continue
-        live_state = {"idea": "open", "question": "open", "task": "ready", "goal": "open"}.get(t)
+        live_state = {"idea": "open", "question": "open", "task": "open", "goal": "open"}.get(t)
         nav.append({"label": t.capitalize() + "s", "path": f"/flow/list?type={t}" + (f"&state={live_state}" if live_state else "")})
     nav.append({"label": "Directions", "path": "/flow/directions"})
     nav.append({"label": "Artifacts", "path": "/flow/artifacts"})
     nav.append({"label": "Tags", "path": "/flow/tags"})
     nav.append({"label": "Check", "path": "/flow/check"})
-    columns = ["id", "type", "state"] + (["forms"] if cfg.has("finding") else []) + ["owner", "rank", "summary"]
-    params = ["type", "state", "tag", "owner", "grep"] + (["form"] if cfg.has("finding") else []) + ["refers"]
-    flags = ["ranked", "held", "parked", "blocked", "deep"]
+    columns = ["id", "type", "state", "standing"] + (["forms"] if cfg.has("finding") else []) + ["owner", "rank", "summary"]
+    params = ["type", "state", "tag", "owner", "deck", "pile", "grep"] + (["form"] if cfg.has("finding") else []) + ["refers"]
+    flags = ["ranked", "ready", "held", "parked", "blocked", "deep"]
     return {
         "component": "flow", "title": "Records", "mount": "/flow", "nav": nav,
         "links": [{"pattern": ids, "path": "/flow/r/{0}"}],
@@ -3262,6 +3498,8 @@ DOCTOR_CLASSES = {
     "blocked-on": "a block's `on` as one value made a list",
     "direction": "a question's `direction` by name deleted, the direction record's id named in `serves`",
     "ready-hand": "an owner or a drawn date on a ready task cleared",
+    "task-state": "a task's state `ready` or `active` read as `open`: its standing is calculated now",
+    "started": "a `started` written from `drawn`: an active task's and a drawn idea's, which stay held, and a closed task's, whose `drawn` is cleared",
     "closed-owner": "an owner on a closed record cleared",
     "archive": "a closed task moved into the archive",
     "inbox": "the inbox created, a `# Inbox` title and nothing else",
@@ -3425,8 +3663,9 @@ def doctor(cfg, today):
         if st == "decomposed":
             final = "open"
             add("state: decomposed", "state: open (that it was refined is read from its tasks)", "state-decomposed", setter(fm, state="open"))
-        if t == "task" and (r["kind"] == "decision" or "decision" in (r["tags"] or [])) and st in ("ready", "active") and r["parked"] is None:
-            add("kind: decision", "a task waiting on a decision is parked with a reason naming it (`flow park T --reason …`, returned first if active); or removed")
+        if t == "task" and (r["kind"] == "decision" or "decision" in (r["tags"] or [])) and st in ("ready", "active", "open") \
+                and r["parked"] is None and not r["owner"]:
+            add("kind: decision", "a task waiting on a decision is passed to the person's deck with a note naming it (`flow pass T --to OWNER --note …`); or removed")
         by = r["answered_by"] if t == "question" and isinstance(r["answered_by"], list) else None
         if by is not None:
             tasks = [x for x in by if x in recs and recs[x].type == "task"]
@@ -3565,20 +3804,40 @@ def doctor(cfg, today):
             if r.path.parent.resolve() != cfg.dir_of("finding").resolve():
                 add(f"under {rel(cfg, r.path.parent)}/", f"move to {rel(cfg, cfg.dir_of('finding'))}/: findings no longer shard by document", "shard",
                     ("move", cfg.dir_of("finding")))
-        owner = r["owner"] if t in ("task", "idea") else None
-        held = (t == "task" and final == "active") or (t == "idea" and final == "open")
+        owner = r["owner"] if t in CARDS else None
+        held = t in CARDS and final in ("open", "active") and bool(r["drawn"])
+        if t == "task" and final in OLD_TASK_STATES:  # the state held a place in the flow; the standing is calculated now
+            def fix_task_state(fm=fm, active=final == "active"):
+                fm["state"] = "open"
+                if active and fm.get("drawn") and "started" not in fm:
+                    fm["started"] = fm["drawn"]  # an active task's drawn date is the present hold, the best date its work began
+            add(f"state: {final}", "state: open" + (", started: its drawn date (the day its work began, as far as the record shows; it stays held)"
+                                                   if final == "active" else ""), "task-state", fix_task_state)
+            if final == "active" and r["drawn"]:
+                writes.add("started")
         if t == "task" and final == "ready" and (owner or r["drawn"]):
             add(f"owner: {owner or 'null'}, drawn: {r['drawn'] or 'null'} on a ready task", "owner: null and drawn: null (a ready task is in no hand; "
                 "a decision owner's task was minted into that hand)", "ready-hand", setter(fm, owner=None, drawn=None))
         elif t == "task" and final in CLOSED_TASK and owner:
-            add(f"owner: {owner} on a task that is {final}", "owner: null (a closed task is in no hand; its drawn date stays, the day its work began)",
+            add(f"owner: {owner} on a task that is {final}", "owner: null (a closed card is in no deck and no hand)",
                 "closed-owner", setter(fm, owner=None))
         elif t == "idea" and final != "open" and (owner or r["drawn"]):
             add(f"owner: {owner or 'null'}, drawn: {r['drawn'] or 'null'} on an idea that is {final}", "owner: null and drawn: null (a closed idea is in no hand)",
                 "closed-owner", setter(fm, owner=None, drawn=None))
         elif held and owner and owner not in cfg.owners:
-            add(f"owner: {owner}", f"an owner [hand] does not list ({', '.join(cfg.owners)}): `flow return {r.id}`, then draw it into a listed hand "
-                "where it is still worked")
+            add(f"owner: {owner}", f"an owner [hand] does not list ({', '.join(cfg.owners)}): `flow pass {r.id} --to OWNER --note …` moves it into a "
+                "listed deck, from which it is drawn where it is still worked")
+        if t == "task" and final in CLOSED_TASK and r["drawn"]:  # the day its work began is `started` now, and a closed card is in no hand
+            def fix_closed_drawn(fm=fm):
+                fm["started"] = fm.get("started") or fm["drawn"]
+                fm["drawn"] = None
+            add(f"drawn: {r['drawn']} on a task that is {final}", f"started: {r['drawn']} and drawn: null (the day its work began is `started` now, "
+                "and a closed task is in no hand)", "started", fix_closed_drawn)
+            writes.add("started")
+        elif t == "idea" and final == "open" and r["drawn"] and "started" not in fm:
+            add(f"drawn: {r['drawn']} on an idea in a hand", f"started: {r['drawn']} too, the day its work began as far as the record shows (it stays held)",
+                "started", setter(fm, started=r["drawn"]))
+            writes.add("started")
         if t == "task" and final in CLOSED_TASK and r.path.parent.resolve() != cfg.archive.resolve():
             add(f"a {final} task under {rel(cfg, r.path.parent)}/", f"move to {rel(cfg, cfg.archive)}/: a closed task lives in the archive", "archive",
                 ("move", cfg.archive))
@@ -3722,8 +3981,8 @@ direction = "direction"
 id_width = 4
 
 [hand]
-# The records an owner's hand may hold at once, active tasks and ideas drawn, 0 = unlimited: two hands,
-# the agent's (across sessions; a subagent works on it) and the person's.
+# The cards an owner's hand may hold at once, ideas, questions and tasks alike, 0 = unlimited: two hands,
+# the agent's (across sessions; a subagent works on it) and the person's.  `common` names the common deck, no hand's name.
 {owners}
 
 {research}[index]
@@ -4028,15 +4287,16 @@ def selftest():
         recs = load_all(cfg)
         expect("a task and a sub-question minted from a question name it in their references, and the question is left as it was",
                recs[t1]["references"] == [q] and recs[sq]["references"] == [q] and recs[t1]["tags"] == ["research"]
-               and recs[q]["state"] == "open" and recs[t1]["state"] == "ready" and not {"kind", "rider", "dod"} & set(recs[t1].fm))
+               and recs[q]["state"] == "open" and recs[t1]["state"] == "open" and card_standing(cfg, recs, recs[t1], today) == ["ready"]
+               and not {"kind", "rider", "dod"} & set(recs[t1].fm))
         run(["draw", t1, "--owner", "root"])
         run(["draw", t2, "--owner", "root"])
         t3 = new(["task", "third", "--ref", sq])
         run(["draw", t3, "--owner", "root"], ok=False)  # hand full
         run(["return", t2, "--note", "later"])
-        p = run(["return", t3], ok=False)
-        expect("return on a ready task says it is ready and in no hand, as an idea in no hand is answered",
-               "is ready, in no hand" in p["problems"][0]["msg"] and "draw it first" not in p["problems"][0]["msg"])
+        p = run(["return", t3, "--note", "never held"], ok=False)
+        expect("return on a card in no hand says it is in no hand, whatever the kind",
+               "is in no hand" in p["problems"][0]["msg"] and "draw it first" not in p["problems"][0]["msg"])
         tree = lambda: {x: x.read_text(encoding="utf-8") for x in sorted((root / "research").rglob("*.md"))}
         before = tree()
         run(["make", t1, "--resolution", "missing.md"], ok=False)
@@ -4046,8 +4306,8 @@ def selftest():
                "is empty" in p["problems"][0]["msg"] and tree() == before)
         p = run(["make", t1, "--resolution", res])
         recs = load_all(cfg)
-        expect("a made task is archived, its owner cleared, its drawn date kept, its resolution in the body, and nothing minted",
-               "research/archive/" in p["records"][-1]["path"] and recs[t1]["owner"] is None and recs[t1]["drawn"] == today
+        expect("a made task is archived, its owner and its drawn date cleared, its started date kept, its resolution in the body, and nothing minted",
+               "research/archive/" in p["records"][-1]["path"] and recs[t1]["owner"] is None and recs[t1]["drawn"] is None and recs[t1]["started"] == today
                and recs[t1].body.rstrip().endswith(f"{today} — resolution:\n\nIt is done.") and p["created"] == [])
         run(["make", t1, "--resolution", res], ok=False)  # done already
         p = run(["finding", "L holds", "--evidence", "formal:Lib/Foo.lean#lemma_L", "stated:papers/alpha.md#FV-1", "--ref", t1])
@@ -4397,7 +4657,10 @@ def selftest():
         expect("a record waited on that settles holds the block no more; the date still does", rt in ids(["find", "--blocked"]))
         rc, _ = dispatch(cfg, ["draw", rt, "--owner", "root"], today="2026-09-30", as_json=True, quiet=True)
         expect("on the day, nothing holds: the draw goes through and clears the block", rc == 0 and load_all(cfg)[rt]["blocked_by"] is None)
-        dispatch(cfg, ["return", rt], today="2026-09-30", as_json=True, quiet=True)
+        dispatch(cfg, ["return", rt, "--note", "the draw was a test"], today="2026-09-30", as_json=True, quiet=True)
+        back = load_all(cfg)[rt]  # the draw wrote a started date of a later day than the selftest's today: set back by hand
+        back.fm["started"] = None
+        back.path.write_text(render(back.fm, back.body), encoding="utf-8")
         run(["park", rt, "--reason", "r"])
         run(["unpark", rt])
         p = run(["set", rt, "question", q3], ok=False)
@@ -4451,7 +4714,7 @@ def selftest():
         p = run(["remove", qN, "--reason", "r"])
         expect("a question removed names the idea that produced it", noticed(p, qN) == [iN])
         run(["draw", tN, "--owner", "root"])
-        run(["return", tN])
+        run(["return", tN, "--note", "back for a moment"])
         run(["draw", tN, "--owner", "root"])
         p = run(["abort", tN, "--reason", "r"])
         expect("a task aborted names the idea that produced it", noticed(p, tN) == [iN])
@@ -4607,7 +4870,7 @@ def selftest():
         txt = text_of(cfg, ["unpark", q4])
         expect("unpark prints the notice under the changed line, in the owner's words, a referring record that is not removed, "
                "and not the idea that produced the question, an unpark being no end or return of it",
-               f"changed {q4}" in txt and f"  refers to it, may need a follow-up: {rt} (ready)" in txt.split(f"changed {q4}", 1)[1]
+               f"changed {q4}" in txt and f"  refers to it, may need a follow-up: {rt} (open)" in txt.split(f"changed {q4}", 1)[1]
                and load_all(cfg)[q4]["references"][0] not in txt)
         run(["ref", rt, "-" + q4])
         raw = load_all(cfg)[q4]
@@ -4704,15 +4967,13 @@ def selftest():
                and set(p["changed"]) == {q3, q7, q4})
         run(["rank", q7, "--clear", "--insert"], ok=False)  # --insert takes a rank
         run(["rank", q7, "--clear"])
-        run(["rank", idea, "1"], ok=False)  # an idea is never ranked
-        run(["rank", idea, "--clear"], ok=False)
         run(["checked", qw], ok=False)  # a closed question: its read is history
         # a question closed, reopened, answered: none of it asks about the tasks naming it, and the notice names them
         q8 = new(["question", "Q with two tasks"])
         ta, tb = new(["task", "first", "--ref", q8]), new(["task", "second", "--ref", q8])
         p = run(["wrong", q8, "--reason", "badly put"])
-        expect("a question with ready tasks naming it closes, and the notice names them",
-               load_all(cfg)[q8]["state"] == "wrong" and noticed(p, q8) == [ta, tb] and p["notices"][0]["refers"][0] == {"id": ta, "state": "ready"})
+        expect("a question with open tasks naming it closes, and the notice names them",
+               load_all(cfg)[q8]["state"] == "wrong" and noticed(p, q8) == [ta, tb] and p["notices"][0]["refers"][0] == {"id": ta, "state": "open"})
         run(["reopen", q8, "--reason", "put better now"])
         recs = load_all(cfg)
         expect("reopen brings a wrong question back to open, its closing cleared, checked today, a note keeping what it was",
@@ -4890,11 +5151,32 @@ def selftest():
         recs[ff].path.write_text(render(recs[ff].fm, recs[ff].body))
         plant("a body link outside the tree, the file there, on a live record", "V24",
               lambda R: R[li].path.write_text(render(R[li].fm, f"See [it]({R[li].path}) and [up](../x.md).\n")))
-        plant("a hand over its limit, a drawn idea counted", "V9", lambda R: (
-            raw_edit(R, wt, lambda fm: fm.update(state="active", owner="root", drawn=today)),
-            raw_edit(R, t3, lambda fm: fm.update(state="active", owner="root", drawn=today)),
-            raw_edit(R, heap, lambda fm: fm.update(owner="root", drawn=today))))
-        plant("a consumed idea in a hand", "V9", lambda R: raw_edit(R, wi, lambda fm: fm.update(owner="root", drawn=today)))
+        held_by_root = dict(owner="root", drawn=today, started=today)
+        v9 = lambda name, id_, **kv: [x["msg"] for x in plant(name, "V9", lambda R: raw_edit(R, id_, lambda fm: fm.update(kv))) if x["code"] == "V9"]
+        over = [x["msg"] for x in plant("a hand over its limit, the three kinds counted", "V9", lambda R: (
+            raw_edit(R, wt, lambda fm: fm.update(held_by_root)),
+            raw_edit(R, q3, lambda fm: fm.update(held_by_root)),
+            raw_edit(R, heap, lambda fm: fm.update(held_by_root)))) if x["code"] == "V9"]
+        expect("V9 counts an idea, a question and a task alike against the hand's limit", over == ["root holds 3 cards; limit 2"])
+        expect("V9 fails a consumed idea in a hand, and a done task, with its owner or its drawn date",
+               any("carries an owner or a drawn date" in m for m in v9("a consumed idea in a hand", wi, owner="root", drawn=today))
+               and any("carries an owner or a drawn date" in m for m in v9("a done task in a deck", t1, owner="root"))
+               and any("carries an owner or a drawn date" in m for m in v9("a done task with a drawn date", t1, drawn=today)))
+        expect("V9 fails a held card with no owner, and one with no started date",
+               any("has no owner" in m for m in v9("a held card with no owner", wt, owner=None, drawn=today, started=today))
+               and any("has no started date" in m for m in v9("a held card with no started date", wt, owner="root", drawn=today, started=None)))
+        expect("V9 fails a held card that carries a parking or a block, the block holding or not, and a card in a deck is no fault",
+               any("parking or a block" in m for m in v9("a held task parked", wt, **held_by_root, parked={"date": today, "reason": "r", "revival": None}))
+               and any("parking or a block" in m for m in v9("a held question blocked on a settled one", q3, **held_by_root, blocked_by={"date": today, "on": [q5], "reason": "r"}))
+               and (lambda r: (raw_edit(r, wt, lambda fm: fm.update(owner="root", parked={"date": today, "reason": "r", "revival": None})),
+                               not any(x["code"] == "V9" for x in validate(cfg, load_all(cfg), today)[0]))[1])(load_all(cfg)))
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(owner=None, parked=None))
+        plant("a task's state of the model before v0.9.0", "V3", lambda R: raw_edit(R, wt, lambda fm: fm.update(state="ready")))
+        plant("an active task, the state of the model before v0.9.0", "V3", lambda R: raw_edit(R, wt, lambda fm: fm.update(state="active")))
+        plant("a started date in the future", "V20", lambda R: raw_edit(R, wt, lambda fm: fm.update(started="2999-01-01")))
+        plant("a started date that is not a date", "V20", lambda R: raw_edit(R, q3, lambda fm: fm.update(started="then")))
+        plant("a rank on a consumed idea", "V14", lambda R: raw_edit(R, i2, lambda fm: fm.update(rank=4)))
+        plant("a card in a deck of an owner [hand] does not list", "V3", lambda R: raw_edit(R, q3, lambda fm: fm.update(owner="nobody")))
         plant("body not one sentence per line", "V19", lambda R: R[q].path.write_text(render(R[q].fm, "One sentence. Two sentences on a line.\n")))
         plant("a citation of a key the library does not hold", "V23",
               lambda R: R[q].path.write_text(render(R[q].fm, "As lib:nobody2000 states.\n")))
@@ -5048,6 +5330,309 @@ def selftest():
         expect("plain where PyYAML is plain, quoted where it quotes",
                dump_front({"a": fm["a"], "k": fm["k"], "l": fm["l"]}) == "a: plain words, with a comma\nk: it's\nl: lib:key#ex"
                and dump_front({"b": fm["b"], "c": fm["c"], "d": fm["d"], "o": fm["o"]}) == "b: 'with: a colon'\nc: '2026-01-01'\nd: 'yes'\no: '1.5'")
+
+    # the cards' model: ideas, questions and tasks live in decks and hands, their standing calculated, their piles read from the state
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        do_init(root, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        cfg = Config(root)
+        today, yesterday = "2026-11-13", "2026-11-12"
+        (root / "res.md").write_text("Done.\n")
+        res = str(root / "res.md")
+
+        def go(argv, ok=True, day=today):
+            rc, payload = dispatch(cfg, argv, today=day, as_json=True, quiet=True)
+            expect(" ".join(argv[:2]) + (" refused" if not ok else ""), (rc == 0) == ok)
+            if (rc == 0) != ok:
+                for pr in payload["problems"]:
+                    print("      ", pr["code"], pr.get("path") or pr.get("id"), pr["msg"])
+            return payload
+
+        mint = lambda argv, day=today: go(argv, day=day)["created"][0]
+        card = lambda i: load_all(cfg)[i]
+        stand = lambda i: standing_words(cfg, load_all(cfg), card(i), today)
+        said = lambda p: p["problems"][0]["msg"]
+
+        def usage_error(argv):
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    dispatch(cfg, argv, today=today, as_json=True, quiet=True)
+                except SystemExit as e:
+                    return e.code == 2
+            return False
+
+        # the decks: a card lands in the common deck unless it is minted for someone
+        i1, q1, t1 = mint(["idea", "an idea"]), mint(["question", "a question", "--for", "agent"]), mint(["task", "a task", "--for", "owner"])
+        t2, t3 = mint(["task", "a common task", "--for", "common"]), mint(["task", "another common task"])
+        expect("a card is minted into the common deck, owner null, unless --for names an owner, whose deck it lands in; `common` names the common deck",
+               [card(i)["owner"] for i in (i1, q1, t1, t2, t3)] == [None, "agent", "owner", None, None]
+               and all(card(i)["drawn"] is None and card(i)["started"] is None and card(i)["state"] == "open" for i in (i1, q1, t1))
+               and all(stand(i) == "ready" for i in (i1, q1, t1)))
+        go(["task", "x", "--for", "nobody"], ok=False)
+        try:
+            (root / "bad.toml").write_text("[hand]\ncommon = 2\n")
+            shutil.copy(root / "flow.toml", root / "flow.toml.keep")
+            shutil.copy(root / "bad.toml", root / "flow.toml")
+            Config(root)
+            expect("flow.toml's [hand] refuses an owner named common, the word for the common deck", False)
+        except Refused as e:
+            expect("flow.toml's [hand] refuses an owner named common, the word for the common deck", "common" in str(e) and "common deck" in str(e))
+        finally:
+            shutil.copy(root / "flow.toml.keep", root / "flow.toml")
+
+        # drawn into a hand: any of the three kinds, from the common deck or the draw's owner's own; `started` written the first time
+        p = go(["draw", i1, "--owner", "agent"])
+        expect("an idea is drawn into a hand like a task: owner, drawn and started written, the standing held",
+               card(i1)["owner"] == "agent" and card(i1)["drawn"] == today and card(i1)["started"] == today and stand(i1) == "held"
+               and p["records"][0]["standing"] == "held" and p["records"][0]["pile"] is None)
+        p = go(["draw", i1, "--owner", "owner"], ok=False)
+        expect("a card in a hand is refused, the holder named", "in agent's hand already" in said(p) and "flow pass" in said(p))
+        p = go(["draw", t1, "--owner", "agent"], ok=False)
+        expect("a card in another owner's deck is refused, `flow pass` named", "in owner's deck" in said(p) and "flow pass" in said(p))
+        go(["draw", q1, "--owner", "agent"], day=yesterday)
+        expect("a question is drawn from its owner's own deck", card(q1)["drawn"] == yesterday and card(q1)["started"] == yesterday and stand(q1) == "held")
+        # return: out of the hand into the owner's deck, owner kept, the note required
+        expect("return without a note is a usage error", usage_error(["return", q1]))
+        go(["return", q1, "--note", "  "], ok=False)
+        go(["return", q1, "--note", "nothing came of it today"])
+        expect("return puts the card into its owner's deck: drawn cleared, owner and started kept, a returned note in the body, ready again",
+               card(q1)["owner"] == "agent" and card(q1)["drawn"] is None and card(q1)["started"] == yesterday and stand(q1) == "ready"
+               and card(q1).body.rstrip().endswith(f"{today} — returned: nothing came of it today"))
+        p = go(["return", q1, "--note", "again"], ok=False)
+        expect("return on a card in no hand says so", "is in no hand" in said(p))
+        go(["draw", q1, "--owner", "agent"])
+        expect("a second draw writes the new hold and keeps the first started date", card(q1)["drawn"] == today and card(q1)["started"] == yesterday)
+        # pass: one transition between decks, a note required, out of any hand
+        p = go(["pass", i1, "--to", "owner", "--note", "the person's to decide"])
+        expect("pass moves a held card to another deck, out of its hand, started kept, the note dated `passed from A to B`",
+               card(i1)["owner"] == "owner" and card(i1)["drawn"] is None and card(i1)["started"] == today and stand(i1) == "ready"
+               and card(i1).body.rstrip().endswith(f"{today} — passed from agent to owner: the person's to decide") and p["notices"] == [])
+        p = go(["pass", i1, "--to", "owner", "--note", "again"], ok=False)
+        expect("pass refuses a card in that deck already", "in owner's deck already" in said(p))
+        p = go(["pass", q1, "--to", "agent", "--note", "again"], ok=False)
+        expect("pass to the owner whose hand holds the card is a return, named", "flow return" in said(p))
+        go(["pass", t1, "--to", "common", "--note", "  "], ok=False)
+        go(["pass", t1, "--to", "nobody", "--note", "n"], ok=False)
+        expect("pass without a note is a usage error", usage_error(["pass", t1, "--to", "common"]))
+        r = subprocess.run([sys.executable, __file__, "--root", str(root), "pass", t1, "--to", "common", "--note", "nobody is on it"],
+                           capture_output=True, text=True)
+        expect("the command line reads `pass --to` as the pass's flag, never as an abbreviation of the global --today",
+               r.returncode == 0 and card(t1)["owner"] is None and card(t1)["drawn"] is None and "passed from owner to common" in card(t1).body)
+        p = go(["pass", t1, "--to", "common", "--note", "again"], ok=False)
+        expect("a card passed to the common deck has owner null, and pass refuses the common deck's own", card(t1)["owner"] is None and "common deck already" in said(p))
+        # a held card that must wait is returned by the park or the block in the same command, which says so
+        go(["draw", t2, "--owner", "agent"])
+        txt = text_of(cfg, ["block", t2, "--on", "the vendor's reply", "--reason", "needs the vendor"])
+        expect("block on a held card returns it to its owner's deck in the same command and says so; its standing is blocked",
+               card(t2)["drawn"] is None and card(t2)["owner"] == "agent" and stand(t2) == "blocked" and f"returned {t2} to agent's deck" in txt)
+        go(["unblock", t2])
+        expect("a block cleared leaves the card in its owner's deck until a draw", stand(t2) == "ready" and card(t2)["owner"] == "agent")
+        go(["draw", t2, "--owner", "agent"])
+        p = go(["park", t2, "--reason", "set down", "--revival", "when asked"])
+        expect("park on a held card returns it too, `returned` in the answer; the standing is parked, and a parked card is not drawn",
+               p["returned"] == [{"id": t2, "owner": "agent"}] and card(t2)["drawn"] is None and stand(t2) == "parked")
+        go(["draw", t2, "--owner", "agent"], ok=False)
+        go(["block", t3, "--on", "the release", "--reason", "r"])
+        go(["park", t3, "--reason", "r"])
+        expect("a card both parked and blocked reads `parked, blocked`", stand(t3) == "parked, blocked")
+        p = go(["park", i1, "--reason", "r"], ok=False)
+        expect("an idea is never parked or blocked", "never parked or blocked" in said(p))
+        go(["unpark", t3])
+        go(["unblock", t3])
+        go(["unpark", t2])
+        raw = load_all(cfg)[t3]
+        raw.fm.update(owner="agent", drawn=today, started=today, parked={"date": today, "reason": "r", "revival": None})
+        raw.path.write_text(render(raw.fm, raw.body))
+        expect("a held card carrying a wait fails the check, V9", any(x["code"] == "V9" and "parking or a block" in x["msg"] for x in validate(cfg, load_all(cfg), today)[0]))
+        raw.fm.update(owner=None, drawn=None, started=None, parked=None)
+        raw.path.write_text(render(raw.fm, raw.body))
+        go(["index"])
+        # the hand's limit counts the three kinds
+        cfg.hand["agent"] = 2
+        go(["draw", t3, "--owner", "agent"])  # q1 is in the hand already
+        p = go(["draw", t2, "--owner", "agent"], ok=False)
+        expect("the hand's limit counts the three kinds alike", "hand is full (2 of 2)" in said(p))
+        cfg.hand["agent"] = 4
+        go(["return", t3, "--note", "the limit was a test"])
+        go(["return", q1, "--note", "the limit was a test"])
+        # ranks: an idea is ranked beside a question and a task, in every form
+        go(["rank", i1, "1"])
+        go(["rank", q1, "2"])
+        go(["rank", t3, "3"])
+        go(["rank", "--set", t3, i1, q1])
+        go(["rank", i1, "1", "--insert"])
+        expect("an idea is ranked, by number, by --insert and by --set, like a question and a task",
+               [card(x)["rank"] for x in (i1, t3, q1)] == [1, 2, 3])
+        go(["draw", i1, "--owner", "owner"])
+        txt = text_of(cfg, ["index", "--print"])
+        expect("the index marks a held card on the ranked list with its holder, and lists each owner's deck beside the hand",
+               "1. `" + i1 + "` — an idea\n   held by owner" in txt and "agent's deck, " in txt and f"- `{q1}` — a question [question" in txt)
+        # a task minted from a ranked question takes its place, just below it and below the run of its tasks
+        go(["rank", "--set", t3, q1])
+        qa = mint(["question", "a second ranked question"])
+        go(["rank", qa, "3"])
+        p = go(["task", "prove the lemma", "--ref", q1])
+        ta = p["created"][0]
+        expect("a task minted --ref a ranked question is ranked just below it, the rest re-ranked, and the answer says so",
+               card(ta)["rank"] == 3 and card(qa)["rank"] == 4 and p["ranked"] == [{"id": ta, "rank": 3}]
+               and p["reranked"] == [{"id": qa, "from": 3, "to": 4}] and card(ta)["owner"] is None)
+        txt = text_of(cfg, ["task", "second move", "--ref", q1])
+        tb = next(i for i in load_all(cfg) if i.startswith("task-") and card(i)["summary"] == "second move")
+        expect("the next task of the same question goes below the run of tasks under it, and the text prints `ranked` and `re-ranked`",
+               card(tb)["rank"] == 4 and f"ranked {tb} 4" in txt and "re-ranked" in txt and card(qa)["rank"] == 5)
+        tc = mint(["task", "with two questions", "--ref", qa, "--ref", q1])
+        expect("with several ranked questions referenced, the best-ranked one's place is taken", card(tc)["rank"] == 5 and card(qa)["rank"] == 6)
+        td = mint(["task", "from a task and an unranked idea", "--ref", ta, "--ref", i1])
+        te = mint(["task", "from an unranked question", "--ref", mint(["question", "an unranked question"])])
+        expect("no other mint inherits a place: a task referencing a task, an idea or an unranked question is unranked",
+               card(td)["rank"] is None and card(te)["rank"] is None)
+        go(["rank", tc, "--clear"])
+        expect("the agent may clear the inherited place, the list closing up", card(tc)["rank"] is None and card(qa)["rank"] == 5)
+        go(["check"])
+        # closings: a card leaves its deck and its hand, keeps started, and goes to a pile
+        go(["draw", tb, "--owner", "agent"])
+        p = go(["remove", tb, "--reason", "r"], ok=False)
+        expect("remove refuses a started task and names abort", "flow abort" in said(p) and "was started" in said(p))
+        p = go(["abort", td, "--reason", "r"], ok=False)
+        expect("abort refuses a task never started and names remove", "never started" in said(p) and "flow remove" in said(p))
+        go(["return", tb, "--note", "later"])
+        p = go(["make", tb, "--resolution", res], ok=False)
+        expect("make takes a held task: one in a deck is told to draw it", "flow draw" in said(p))
+        go(["abort", tb, "--reason", "a started task, in its deck", "--resolution", res])
+        expect("abort takes a started task that is held or not: it is archived, owner and drawn cleared, started kept, in the graveyard",
+               card(tb)["state"] == "aborted" and card(tb)["owner"] is None and card(tb)["drawn"] is None and card(tb)["started"] == today
+               and "archive" in str(card(tb).path) and pile_of(card(tb)) == "graveyard" and card(tb)["rank"] is None)
+        go(["draw", ta, "--owner", "agent"])
+        go(["make", ta, "--resolution", res])
+        expect("a task made is in the discard pile, in no deck and no hand", pile_of(card(ta)) == "discard" and card(ta)["owner"] is None and card(ta)["started"] == today)
+        go(["remove", td, "--reason", "never started"])
+        expect("a task removed, never started, is in the graveyard", pile_of(card(td)) == "graveyard" and card(td)["started"] is None)
+        go(["check"])
+        go(["draw", q1, "--owner", "agent"])
+        go(["finding", "F", "--evidence", "reference:https://example.org/f", "--answers", q1])
+        expect("a question answered is in the discard pile, its hand and its deck cleared, started kept, its rank closed up",
+               pile_of(card(q1)) == "discard" and card(q1)["owner"] is None and card(q1)["drawn"] is None and card(q1)["started"] == yesterday)
+        go(["reopen", q1, "--reason", "a second look"])
+        expect("reopen brings the card back into the common deck, ready", card(q1)["owner"] is None and stand(q1) == "ready" and pile_of(card(q1)) is None)
+        qw = mint(["question", "to be wrong"])
+        go(["wrong", qw, "--reason", "badly put"])
+        qi = mint(["question", "to be impossible"])
+        go(["impossible", qi, "--by", next(i for i in load_all(cfg) if i.startswith("finding-"))])
+        iw = mint(["idea", "an idea to consume"])
+        go(["question", "from the idea", "--ref", iw])
+        go(["rank", iw, "1", "--insert"])
+        go(["draw", iw, "--owner", "agent"])
+        go(["consume", iw])
+        expect("an idea consumed is in the discard pile and leaves the ranked list; wrong is in the graveyard, impossible in the discard pile",
+               pile_of(card(iw)) == "discard" and card(iw)["rank"] is None and card(iw)["owner"] is None and card(iw)["started"] == today
+               and pile_of(card(qw)) == "graveyard" and pile_of(card(qi)) == "discard")
+        ir = mint(["idea", "an idea to remove"])
+        go(["rank", ir, "1", "--insert"])
+        go(["remove", ir, "--reason", "r"])
+        expect("an idea removed is in the graveyard and leaves the ranked list", pile_of(card(ir)) == "graveyard" and card(ir)["rank"] is None)
+        go(["rank", ir, "1"], ok=False)
+        # the views
+        ready = [r["id"] for r in go(["find", "--ready"])["records"]]
+        expect("find --ready lists the cards a refill may draw, of the three kinds, never a held, parked or blocked one",
+               {q1, t3} <= set(ready) and i1 not in ready and ta not in ready and all(stand(i) == "ready" for i in ready)
+               and {card(i).type for i in ready} >= {"question", "task"})
+        go(["park", t3, "--reason", "r"])
+        expect("a parked card is out of --ready and in --parked", t3 not in [r["id"] for r in go(["find", "--ready"])["records"]]
+               and t3 in [r["id"] for r in go(["find", "--parked"])["records"]])
+        go(["unpark", t3])
+        expect("find --held lists the cards in a hand, of every kind", [r["id"] for r in go(["find", "--held"])["records"]] == [i1])
+        deck_agent = [r["id"] for r in go(["find", "--deck", "agent"])["records"]]
+        deck_common = [r["id"] for r in go(["find", "--deck", "common"])["records"]]
+        expect("find --deck lists an owner's cards that are in no hand, --deck common the common deck's",
+               t2 in deck_agent and i1 not in deck_agent and q1 in deck_common and i1 not in deck_common and t2 not in deck_common)
+        go(["find", "--deck", "nobody"], ok=False)
+        discard = [r["id"] for r in go(["find", "--pile", "discard"])["records"]]
+        grave = [r["id"] for r in go(["find", "--pile", "graveyard"])["records"]]
+        expect("find --pile lists a pile: done, consumed, answered and impossible in the discard, removed, aborted and wrong in the graveyard",
+               {ta, iw, qi} <= set(discard) and {tb, td, qw, ir} <= set(grave) and not set(discard) & set(grave))
+        go(["find", "--pile", "attic"], ok=False)
+        for word in ("ready", "active"):
+            p = go(["find", "--state", word], ok=False)
+            expect(f"--state {word} is refused with the new way", "--ready" in said(p) and "--held" in said(p))
+        txt = text_of(cfg, ["find", "--id", t3, "--id", ta])
+        expect("find's rows show the standing of an open card and the pile of a closed one", f"{t3} | open (ready) |" in txt and f"{ta} | done (discard pile) |" in txt)
+        txt = text_of(cfg, ["show", ta]) + text_of(cfg, ["show", i1])
+        expect("show names a closed card's pile and an open card's standing and place",
+               "pile: discard" in txt and "standing: held (in owner's hand)" in txt)
+        # state: each owner's hand with the ages, each deck with its cards' standings, the common deck as a count
+        lines = state_lines(cfg, recs=load_all(cfg), today="2026-11-16")[0]
+        expect("state prints each owner's hand in full with the ages, each owner's deck with every card's standing, the common deck as a count",
+               any("owner's hand: 1 held, no limit:" in l for l in lines) and any(f"{i1} — an idea (idea, drawn {today}, 3 days; started {today})" in l for l in lines)
+               and any("agent's deck: " in l for l in lines) and any(f"{t2} — a common task (task, ready)" in l for l in lines)
+               and any("the common deck: " in l and "on the ranked list above" in l for l in lines) and not any("## Hand" in l for l in lines))
+        p = dispatch(cfg, ["state", "--check"], today="2026-11-16", as_json=True, quiet=True)[1]
+        expect("state --check prints each held card with its drawn date and its age in days, and fails on none",
+               any(h.startswith(f"owner: {i1}") and f"drawn {today}, 3 days" in h for h in p["hands"]) and not p["problems"])
+        pm = pages_manifest(cfg)
+        lst = next(r for r in pm["routes"] if r["path"] == "/flow/list")
+        expect("the page manifest lists the standing and the new filters, and a task's live state is open",
+               "standing" in lst["columns"] and "ready" in lst["flags"] and "deck" in lst["params"] and "pile" in lst["params"]
+               and any(n["label"] == "Tasks" and "state=open" in n["path"] for n in pm["nav"]))
+        go(["index"])
+        expect("the cards' tree checks green", go(["check"])["problems"] == [])
+
+    # the doctor reads v0.8.0's shape: a task ready or active, a closed task with its drawn date, a question with no owner
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        do_init(root, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        cfg = Config(root)
+        today = "2026-11-13"
+        (root / "res.md").write_text("Done.\n")
+        run8 = lambda argv: dispatch(cfg, argv, today=today, as_json=True, quiet=True)
+        for argv in (["idea", "a drawn idea"], ["question", "a question"], ["task", "a ready task"], ["task", "an active task"],
+                     ["task", "a closed task"], ["task", "a decision task", "--tag", "decision"]):
+            run8(argv)
+        for argv in (["draw", "idea-0001", "--owner", "agent"], ["draw", "task-0002", "--owner", "agent"], ["draw", "task-0003", "--owner", "agent"],
+                     ["make", "task-0003", "--resolution", str(root / "res.md")]):
+            run8(argv)
+        recs = load_all(cfg)
+
+        def v08(id_, fn):
+            fm = dict(recs[id_].fm)
+            fn(fm)
+            recs[id_].path.write_text(render(fm, recs[id_].body))
+        v08("idea-0001", lambda fm: (fm.pop("started"), fm.pop("rank")))
+        v08("question-0001", lambda fm: [fm.pop(k) for k in ("owner", "drawn", "started")])
+        v08("task-0001", lambda fm: fm.update(state="ready") or fm.pop("started"))
+        v08("task-0002", lambda fm: fm.update(state="active") or fm.pop("started"))
+        v08("task-0003", lambda fm: fm.update(drawn="2026-11-10") or fm.pop("started"))
+        v08("task-0004", lambda fm: fm.update(state="ready") or fm.pop("started"))
+        rc, pl = run8(["check"])
+        expect("a v0.8.0 tree fails V3 on a task's old state, with `flow doctor` named",
+               rc == 1 and any(x["code"] == "V3" and "'ready'" in x["msg"] and "flow doctor" in x["msg"] for x in pl["problems"]))
+        rc, pl = run8(["doctor"])
+        said8 = [x["was"] + " — " + x["now"] for x in pl["mechanical"]]
+        expect("the doctor reads a task's ready and active as open, an active task's and a drawn idea's started from drawn, a closed task's drawn as started, "
+               "and adds the fields the three kinds lack",
+               pl["summary"].get("task-state") == 3 and pl["summary"].get("started") == 2 and pl["summary"].get("field") == 6
+               and any("state: active — state: open, started: its drawn date" in x for x in said8)
+               and any("drawn: 2026-11-10 on a task that is done — started: 2026-11-10 and drawn: null" in x for x in said8))
+        if pl["summary"].get("task-state") != 3:
+            print("      ", pl["summary"], "\n       ", "\n        ".join(said8))
+        expect("the doctor's line on a decision task says the pass where it said the park",
+               any("kind: decision" in x["msg"] and "flow pass T --to OWNER --note" in x["msg"] for x in pl["problems"]))
+        rc, pl = run8(["doctor", "--fix"])
+        recs = load_all(cfg)
+        expect("doctor --fix writes the cards' fields: states open, the held cards stay held with their started, the closed task's day moved, a ready task in the common deck",
+               pl["fixed"].get("task-state") == 3 and recs["task-0001"]["state"] == "open" and recs["task-0001"]["owner"] is None and recs["task-0001"]["started"] is None
+               and recs["task-0002"]["state"] == "open" and recs["task-0002"]["owner"] == "agent" and recs["task-0002"]["drawn"] == today
+               and recs["task-0002"]["started"] == today and recs["idea-0001"]["started"] == today and recs["idea-0001"]["drawn"] == today
+               and recs["idea-0001"]["rank"] is None and recs["question-0001"]["owner"] is None and recs["question-0001"]["started"] is None
+               and recs["task-0003"]["drawn"] is None and recs["task-0003"]["started"] == "2026-11-10" and recs["task-0003"]["owner"] is None
+               and all(list(r.fm) == list(SCHEMA[r.type]) for r in recs.values()))
+        rc, pl = run8(["pass", "task-0004", "--to", "owner", "--note", "the person's decision"])
+        rc, pl = run8(["doctor"])
+        expect("a decision task passed to the person's deck settles the doctor's line", not any("kind: decision" in x["msg"] for x in pl["problems"]))
+        rc, pl = run8(["check"])
+        expect("the migrated tree passes the check, and the hands hold what they held", rc == 0 and not pl["problems"]
+               and [r.id for r in held_by(load_all(cfg), "agent")] == ["idea-0001", "task-0002"])
+        rc, pl = run8(["doctor"])
+        expect("and the doctor finds nothing left", rc == 0 and not pl["problems"] and not pl["mechanical"])
 
     # init: a fresh project, checked green at once
     for _ in (0,):
@@ -5538,13 +6123,15 @@ def selftest():
                 dispatch(c2, argv, today=today, as_json=True, quiet=True)
             recs = load_all(c2)
 
-            def old(id_, fn):
+            def old(id_, fn, v09=False):
                 fm = dict(recs[id_].fm)
                 fn(fm)
+                for k in () if v09 else ("started", *(("owner", "drawn") if fm["type"] == "question" else ()), *(("rank",) if fm["type"] == "idea" else ())):
+                    fm.pop(k, None)  # the fields v0.9.0 added: a record of the model before has none
                 recs[id_].path.write_text(render(fm, recs[id_].body))
             old("question-0001", lambda fm: (fm.update(state="decomposed", kill="k", answered_by=[], direction="Bridge"), fm.pop("blocked_by")))
             old("task-0001", lambda fm: fm.update(abandoned={"date": today, "reason": "a wall"}, state="abandoned", drawn=today, owner="prover") or fm.pop("closed"))
-            old("task-0002", lambda fm: fm.update(abandoned=None, drawn=today, question="question-0001", kind="work") or fm.pop("closed"))
+            old("task-0002", lambda fm: fm.update(abandoned=None, state="ready", drawn=today, question="question-0001", kind="work") or fm.pop("closed"))
             old("task-0003", lambda fm: fm.update(abandoned={"date": today, "reason": "given up while ready"}, state="abandoned") or fm.pop("closed"))
             # a record of the first model, with no tags and no references, a kind to carry over and a listed owner on a done task;
             # a consumed idea still in a hand; a question answered by a list of one finding, and an open one naming one
@@ -5554,7 +6141,7 @@ def selftest():
                          ["idea", "k"], ["question", "Q3", "--ref", "idea-0003"]):
                 dispatch(c2, argv, today=today, as_json=True, quiet=True)
             recs = load_all(c2)
-            old("task-0004", lambda fm: (fm.update(kind="survey", owner="agent"), fm.pop("tags"), fm.pop("references"), fm.pop("after")))
+            old("task-0004", lambda fm: (fm.update(kind="survey", owner="agent", drawn=today), fm.pop("tags"), fm.pop("references"), fm.pop("after")))
             old("idea-0002", lambda fm: fm.update(owner="agent", drawn=today))
             old("question-0002", lambda fm: fm.update(answered_by=[fm["answered_by"]]))
             old("question-0003", lambda fm: (fm.update(answered_by=["finding-0002"], blocked={"date": today, "on": "the release", "reason": "r"}), fm.pop("blocked_by")))
@@ -5588,7 +6175,7 @@ def selftest():
                    rc == 1 and all(any(w in x for x in said) for w in want))
             if rc != 1 or not all(any(w in x for x in said) for w in want):
                 print("      ", "\n       ".join(said))
-            ok = (pl["summary"].get("field") == 4 and pl["summary"].get("evidence") == 3 and pl["summary"].get("kind") == 2 and pl["summary"].get("archive") == 1
+            ok = (pl["summary"].get("field") == 19 and pl["summary"].get("task-state") == 1 and pl["summary"].get("started") == 2 and pl["summary"].get("evidence") == 3 and pl["summary"].get("kind") == 2 and pl["summary"].get("archive") == 1
                   and pl["summary"].get("closed-owner") == 3 and pl["summary"].get("answered-by") == 2
                   and any("answered_by: finding-0002 on a question that is open" in x["msg"] for x in pl["problems"])
                   and not any("kill" in x["msg"] or "no blocked" in x["msg"] for x in pl["problems"]) and any("decision_owners" in x["msg"] for x in pl["problems"]))
@@ -5607,7 +6194,8 @@ def selftest():
                    rc == 1 and fixed.get("body") == 1 and fixed.get("abandoned") == 3 and fixed.get("state-abandoned") == 2 and fixed.get("state-decomposed") == 1
                    and fixed.get("kind") == 2 and fixed.get("question") == 1 and fixed.get("status") == 1 and fixed.get("paper") == 1 and fixed.get("evidence") == 3
                    and fixed.get("answered-by") == 2 and fixed.get("consumed-by") == 1 and fixed.get("blocked-on") == 1 and fixed.get("blocked") == 1
-                   and fixed.get("ready-hand") == 1 and fixed.get("closed-owner") == 3 and fixed.get("archive") == 1 and fixed.get("field") == 4
+                   and fixed.get("ready-hand") == 1 and fixed.get("closed-owner") == 3 and fixed.get("archive") == 1 and fixed.get("field") == 19
+                   and fixed.get("task-state") == 1 and fixed.get("started") == 2
                    and any("decision_owners" in m for m in left) and any("- **Bridge**" in m for m in left) and any("direction: Bridge" in m for m in left)
                    and not any("kill" in m or "paper:" in m or "no blocked" in m for m in left))
             if rc != 1 or not left or fixed.get("archive") != 1:
@@ -5618,13 +6206,13 @@ def selftest():
                    and "kill" not in recs["question-0001"].fm
                    and recs["question-0001"]["answered_by"] is None and recs["question-0001"]["blocked_by"] is None and recs["question-0001"]["serves"] == []
                    and recs["task-0001"]["state"] == "aborted" and recs["task-0001"]["closed"] == {"date": today, "reason": "a wall"}
-                   and recs["task-0001"]["owner"] is None and recs["task-0001"]["drawn"] == today and recs["task-0001"].path.parent.resolve() == c2.archive.resolve()
+                   and recs["task-0001"]["owner"] is None and recs["task-0001"]["drawn"] is None and recs["task-0001"]["started"] == today and recs["task-0001"].path.parent.resolve() == c2.archive.resolve()
                    and recs["task-0002"]["tags"] == ["upkeep", "work"] and recs["task-0002"]["references"] == ["question-0001"] and "question" not in recs["task-0002"].fm
                    and recs["task-0002"]["drawn"] is None and recs["task-0002"]["closed"] is None and recs["task-0002"]["due"] is None
                    and recs["idea-0001"]["consumed_by"] == ["question-0001"]
                    and recs["task-0003"]["state"] == "removed" and recs["task-0003"].path.parent.resolve() == c2.archive.resolve()
                    and recs["task-0004"]["tags"] == ["survey"] and recs["task-0004"]["references"] == [] and recs["task-0004"]["after"] is None
-                   and recs["task-0004"]["owner"] is None and recs["task-0004"]["drawn"] == today
+                   and recs["task-0004"]["owner"] is None and recs["task-0004"]["drawn"] is None and recs["task-0004"]["started"] == today
                    and recs["idea-0002"]["owner"] is None and recs["idea-0002"]["drawn"] is None
                    and recs["question-0002"]["answered_by"] == "finding-0002" and recs["question-0003"]["answered_by"] == ["finding-0002"]
                    and recs["question-0003"]["blocked_by"]["on"] == ["the release"]
@@ -5638,7 +6226,7 @@ def selftest():
             (r2 / "records" / "directions.md").unlink()
             c2 = Config(r2)
             recs = load_all(c2)
-            old("question-0003", lambda fm: fm.update(answered_by=None))
+            old("question-0003", lambda fm: fm.update(answered_by=None), v09=True)
             dispatch(c2, ["direction", "Bridge"], today=today, as_json=True, quiet=True)
             dispatch(c2, ["direction", "Bridge"], today=today, as_json=True, quiet=True)
             stamp = c2.index.stat().st_mtime_ns
@@ -5848,10 +6436,11 @@ def build_parser():
         p.add_argument("--source", help="where it came from, in words, a URL or a repository path of the tree")
         p.add_argument("--body", metavar="FILE", help=BODY_HELP)
         return p
-    mint("idea", "an open idea")
-    p = mint("question", "an open question; its body says what counts as an answer")
+    for_help = "the owner whose deck it lands in, `common` or none for the common deck"
+    p = mint("idea", "an open idea"); p.add_argument("--for", dest="for_", metavar="OWNER", help=for_help)
+    p = mint("question", "an open question; its body says what counts as an answer"); p.add_argument("--for", dest="for_", metavar="OWNER", help=for_help)
     p.add_argument("--serves", action="append", metavar="ID", help="an open goal or direction it serves; repeatable"); p.add_argument("--size")
-    p = mint("task", "a ready task; its body says what done means")
+    p = mint("task", "an open task; its body says what done means"); p.add_argument("--for", dest="for_", metavar="OWNER", help=for_help)
     p.add_argument("--size"); p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
     p.add_argument("--after", help="what follows its completion, in words; printed at the close")
     p = mint("finding", "a standing finding, with its evidence")
@@ -5860,7 +6449,10 @@ def build_parser():
     mint("goal", "the owner's goal: the summary names the outcome, the body what reached means and how far out it lies")
     mint("direction", "the owner's direction, its words the body")
     p = sp.add_parser("draw"); p.add_argument("id"); p.add_argument("--owner", required=True)
-    p = sp.add_parser("return"); p.add_argument("id"); p.add_argument("--note")
+    p = sp.add_parser("return"); p.add_argument("id"); p.add_argument("--note", required=True, help="what the session did on the card and why it goes back")
+    p = sp.add_parser("pass", help="a card into another deck, with a note, and out of its hand"); p.add_argument("id")
+    p.add_argument("--to", required=True, metavar="OWNER|common", help="the deck it goes to")
+    p.add_argument("--note", required=True, help="why it goes there, written into the body")
     p = sp.add_parser("make"); p.add_argument("task"); p.add_argument("--resolution", required=True, metavar="FILE", help=RESOLUTION_HELP + "; required")
     p = sp.add_parser("abort"); p.add_argument("task"); p.add_argument("--reason", required=True); p.add_argument("--resolution", metavar="FILE", help=RESOLUTION_HELP)
     p = sp.add_parser("answer"); p.add_argument("question"); p.add_argument("--by", required=True, help="the standing finding that settles it")
@@ -5905,7 +6497,10 @@ def build_parser():
     p.add_argument("--deep", action="store_true", help="with --refers: the records naming those, and so on")
     p.add_argument("--parked", action="store_true"); p.add_argument("--ranked", action="store_true")
     p.add_argument("--blocked", action="store_true", help="the records whose block holds today")
-    p.add_argument("--held", action="store_true", help="the active tasks and the ideas in a hand")
+    p.add_argument("--held", action="store_true", help="the cards in a hand")
+    p.add_argument("--ready", action="store_true", help="the cards a refill may draw now: open, in no hand, not parked, not blocked")
+    p.add_argument("--deck", metavar="OWNER|common", help="the cards of that deck that are in no hand")
+    p.add_argument("--pile", metavar="discard|graveyard", help="the closed cards of a pile")
     p.add_argument("--id", action="append", dest="id_", metavar="ID", help="these records, a removed one among them; repeatable")
     p = sp.add_parser("show"); p.add_argument("id")
     p = sp.add_parser("graph"); p.add_argument("--from", dest="frm"); p.add_argument("--dot", action="store_true")
@@ -5939,7 +6534,7 @@ def build_parser():
 
 
 TRANSITIONS = {"idea": cmd_idea, "question": cmd_question, "task": cmd_task, "finding": cmd_finding, "goal": cmd_goal,
-               "direction": cmd_direction, "draw": cmd_draw, "return": cmd_return, "make": cmd_make, "abort": cmd_abort,
+               "direction": cmd_direction, "draw": cmd_draw, "return": cmd_return, "pass": cmd_pass, "make": cmd_make, "abort": cmd_abort,
                "answer": cmd_answer, "impossible": cmd_impossible, "wrong": cmd_wrong, "reopen": cmd_reopen,
                "consume": cmd_consume, "remove": cmd_remove, "reach": cmd_reach, "giveup": cmd_giveup, "drop": cmd_drop,
                "park": cmd_park, "unpark": cmd_unpark, "block": cmd_block, "unblock": cmd_unblock,
@@ -5980,11 +6575,14 @@ def notices(recs, before, created, changed):
     return out
 
 
-def summary_of(cfg, r):
+def summary_of(cfg, r, recs=None, today=None):
     d = dict(r.fm)
     d["path"] = rel(cfg, r.path)
     if r.type == "finding":
         d["forms"] = stat(r)
+    if r.type in CARDS and recs is not None and today:  # calculated, never stored: an open card's standing, a closed card's pile
+        d["standing"] = standing_words(cfg, recs, r, today) or None
+        d["pile"] = pile_of(r)
     return d
 
 
@@ -6073,6 +6671,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             _JOURNAL.clear()
             _RERANKED.clear()
             _SET_RANKS.clear()
+            _RETURNED.clear()
             before = {i: json.dumps([r.fm.get(k) for k in NOTICED], sort_keys=True, default=str) for i, r in recs.items()}
             try:
                 created, changed = TRANSITIONS[a.cmd](cfg, recs, a, today)
@@ -6082,11 +6681,15 @@ def _dispatch(cfg, a, today, as_json, quiet):
             _JOURNAL.clear()
             out["created"] = [r.id for r in created]
             out["changed"] = [r.id for r in changed]
-            out["records"] = [summary_of(cfg, r) for r in created + changed]
+            out["records"] = [summary_of(cfg, r, recs, today) for r in created + changed]
             out["notices"] = notices(recs, before, created, changed)
             said = {n["id"]: n["refers"] for n in out["notices"]}
             for r in created:
                 emit(f"created {r.id} — {r['summary']}  ({rel(cfg, r.path)})")
+            if a.cmd == "task":  # a task minted from a ranked question takes its place on the list
+                out["ranked"] = [{"id": i, "rank": n} for w, i, n in _SET_RANKS if w == "ranked"]
+                for w, i, n in _SET_RANKS:
+                    emit(f"ranked {i} {n}")
             if a.cmd == "rank" and a.set:  # an order written: each record said as placed or cleared, never as plain `changed`
                 out["ranked"] = [{"id": i, "rank": n} for w, i, n in _SET_RANKS if w == "ranked"]
                 out["unranked"] = [{"id": i, "was": n} for w, i, n in _SET_RANKS if w == "unranked"]
@@ -6094,9 +6697,12 @@ def _dispatch(cfg, a, today, as_json, quiet):
                     emit(f"ranked {i} {n}" if w == "ranked" else f"unranked {i} (was {n})")
             else:
                 for r in changed:
-                    emit(f"changed {r.id} — {stat(r) or ''} ({rel(cfg, r.path)})")
+                    emit(f"changed {r.id} — {row_state(cfg, recs, r, today) or ''} ({rel(cfg, r.path)})")
                     if r.id in said:  # who refers to it, for the session to decide on: never a refusal
                         emit("  refers to it, may need a follow-up: " + ", ".join(f"{x['id']} ({x['state']})" for x in said[r.id]))
+            out["returned"] = [{"id": i, "owner": o} for i, o in _RETURNED]
+            for i, o in _RETURNED:  # a held card made to wait goes back to its owner's deck in the same command
+                emit(f"returned {i} to {o}'s deck: a held card that waits is not held")
             out["reranked"] = [{"id": i, "from": f, "to": n} for i, f, n in _RERANKED]
             for i, f, n in _RERANKED:
                 emit(f"re-ranked {i} {f} → {n}")
@@ -6111,21 +6717,21 @@ def _dispatch(cfg, a, today, as_json, quiet):
             emit(f"index refreshed: {rel(cfg, cfg.index)}")
         elif a.cmd == "find":
             hits = cmd_find(cfg, recs, a, today)
-            out["records"] = [summary_of(cfg, r) for r in hits]
+            out["records"] = [summary_of(cfg, r, recs, today) for r in hits]
             for r in hits:
-                emit(f"{r.id} | {stat(r)} | {r['summary']}")
+                emit(f"{r.id} | {row_state(cfg, recs, r, today)} | {r['summary']}")
             emit(f"{len(hits)} record(s)")
         elif a.cmd == "show":
             r = get(recs, a.id)
-            out["records"] = [summary_of(cfg, r)]
+            out["records"] = [summary_of(cfg, r, recs, today)]
             out["body"] = r.body
             out["links"] = {f: refs(recs, ids) for f, ids in links(r, recs).items()}
             out["backlinks"] = {f: refs(recs, ids) for f, ids in backlinks(recs, r.id).items()}
-            emit(show_text(cfg, recs, r))
+            emit(show_text(cfg, recs, r, today))
         elif a.cmd == "state" and a.check:
             problems, checked, undecided = close_check(cfg, recs, today)
             out["problems"], out["checked"], out["undecided"] = problems, checked, undecided
-            out["hands"] = hands(cfg, recs)
+            out["hands"] = hands(cfg, recs, today)
             for h in out["hands"]:
                 emit(f"hand: {h}")
             for p in problems:
@@ -6302,8 +6908,8 @@ USUAL_WORDS = {
     "capture": "an idea is minted by `idea SUMMARY`",
     "frame": "a question is minted by `question SUMMARY`, `--ref ID` for an idea, a finding or a question it comes from; `consume IDEA` closes an idea once it is fully processed",
     "refine": "a question's tasks are minted by `task SUMMARY --ref Q`, a sub-question by `question SUMMARY --ref Q`",
-    "kill": "`remove ID --reason R` for an idea, an open question or a ready task; `abort T --reason R` for an active task",
-    **dict.fromkeys(("out", "release", "putback"), "`return ID --note N` puts a drawn record back"),
+    "kill": "`remove ID --reason R` for an idea, an open question or a task never started; `abort T --reason R` for a started task",
+    **dict.fromkeys(("out", "release", "putback"), "`return ID --note N` puts a held card back into its deck, `pass ID --to O --note N` moves a card to another deck"),
     **dict.fromkeys(("start", "take", "claim"), "`draw ID --owner O`"),
     **dict.fromkeys(("list", "ls", "search"), "`find` lists records, `state` prints the cold-start bundle"),
     "status": "`state` prints the cold-start bundle, `show ID` one record",
@@ -6346,7 +6952,7 @@ def main():
 def _main():
     if "--selftest" in sys.argv:
         return selftest()
-    pre = argparse.ArgumentParser(add_help=False)
+    pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)  # `pass --to` is no abbreviation of `--today`
     pre.add_argument("--root")
     pre.add_argument("--json", action="store_true")
     pre.add_argument("--today")
