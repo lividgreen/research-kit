@@ -30,7 +30,7 @@ A research thread, from a remark at a talk to a result, looks like this:
   Nothing settled last week is asked again, and a question shown wrong or impossible is listed as settled.
 
 With the `formal` plugin and a Lean 4 library, the proof step changes hands without you saying anything new.
-When the task drawn is a Lean target, the agent mints it, keeps it in its own hand while the prover works on it, composes the handoff statement-first from your document's text with the declarations quoted, passes it through the check, commits the records and dispatches it to the prover subagent as the last act of its turn.
+For a Lean target, the agent holds the task in its hand while the prover works (a parallel draw is yours to rule), composes the handoff statement-first from your document's text with the declarations quoted, passes it through the check, commits the records and dispatches it to the prover subagent as the last act of its turn.
 When the report comes back, the agent lands it: the manifest diff and a cold read-back of every landed statement are read from the built tree, the document's rows are written from the landed proof, the task is made, the finding minted from the landed proof with the declaration itself as its evidence, and the question it settles closes.
 Say **"Give me a prompt for the prover"** and the handoff is printed for a session of your own instead; paste the report back and the landing runs the same way.
 

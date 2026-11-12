@@ -13,7 +13,9 @@ The [`handoff`](../../plugins/formal/skills/handoff/SKILL.md) skill, `/formal:ha
 
 It assigns no work on the root's side, restates no standing rule, carries none of the phrases `formal.toml` bans, writes every path relative to the workspace (`../papers/x.md`), and names the drawn task's id nowhere, since a session cites what it was given; a record it names as a source carries the docstring-register warning.
 The turn has two parts and nothing after them: first the records, the gates and the commit; then the draft, its check and the dispatch, or the prompt emitted as the turn's last output.
-Where the research plugin is set up, the work is minted among the records, in the flow, and kept in the agent's hand: a task from its question (`flow task "…" --ref Q --tag research`), drawn with `flow draw T --owner agent`, active while the prover works and counted toward the agent's hand limit, the handoff's log entry saying where it went; the landing closes it.
+Where the research plugin is set up, the work is among the records, in the flow, as the prover's task in the agent's hand: where the hand already holds the task it is handed over as it is, and where the hand holds the question the task is minted into the agent's deck (`flow task "…" --ref Q --tag research --for agent`).
+Its draw for a prover that runs in parallel while the session works on something else is a deviation from the session, so the agent proposes it and draws on your word (`flow draw T --owner agent`), a project's instructions possibly carrying your standing ruling for it.
+The drawn task is held in the agent's hand while the prover works and counts toward the hand's limit, the handoff's log entry says where it went, and the landing closes it.
 One handoff is in flight at a time, since the prover session leaves its work uncommitted in the shared tree: the log's top State paragraph says whether one is.
 
 ## The prover agent
