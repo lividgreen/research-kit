@@ -118,7 +118,7 @@ sizes = ["small", "medium", "large"]
 
 [evidence]
 # The forms a finding's evidence takes, each item `form:target`, the finding's trust the forms it carries.
-# The kit ships five: formal (a declaration of the manifest, machine-checked), statistical (a probe of the
+# The kit ships five: formal (a declaration of the prover's library, machine-checked), statistical (a probe of the
 # register, or a committed result by its path), peer-reviewed (a card of the library), stated (a row, a
 # statement or a heading of a document of the project: its own word, the trust to raise) and reference (any
 # other source, a link).  Keep the ones the project accepts and add its own words; the instructions say what
@@ -129,14 +129,15 @@ forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 # row_id (`doc.md#FV-1`).  Unset, the words and the id shown.
 # statement_words = ["Theorem", "Proposition", "Lemma", "Corollary", "Definition", "Remark", "Fact", "Conjecture", "Example"]
 # row_id = "[A-Z]{2,3}-[A-Za-z0-9]+"
-# A declaration manifest: a text file listing `Module.Path name` per line (a prover library's
-# declaration list is the instance); `manifest_roots` are the directories a `Path.ext#name`
-# item is looked up under.  Absent, declaration evidence is unchecked and the check says so.
-# manifest = ["scripts/decls.txt"]
-# manifest_roots = ["src"]
-# manifest_extension = "lean"   # required beside manifest: the extension the cited paths carry
 # A probes register: a Markdown table whose first column names each self-asserting script.
 # probes = "probes/README.md"
+# A form whose targets another tool owns is asked of that tool: one request on its standard input holds every item
+# of the form, one answer on its standard output says each resolves or why not (the flow's page names the
+# protocol).  Unset, `formal` is asked of the formal plugin installed beside the research one, else `formal` on PATH,
+# either only where a formal.toml stands at the root; `formal = []` asks none.  Another prover's, or a form of the
+# project's own, binds the whole command here, run at the project root.
+# [evidence.resolvers]
+# formal = ["formal", "resolve", "--protocol"]
 
 [library]
 # The reference library, when the project has one: the command that answers `keys`.  Unset, the
@@ -156,6 +157,32 @@ oldest_ideas = 5
 release = "vX.Y.Z"
 ```
 
+### Evidence resolvers
+
+An evidence item is `form:target`.
+The flow resolves what it owns: a path of the tree, a document's anchor, a URL's shape, a probe of the register, a card of the library.
+A form whose targets another tool owns is asked of that tool, as the library is asked `keys` and never read: `formal` evidence is asked of the `formal` plugin, and the flow reads no manifest.
+It runs the form's resolver once with every item of that form on the standard input, one JSON object, and reads back one on the standard output:
+
+```json
+{"protocol": 1, "form": "formal", "items": ["Lib/Foo.lean#lemma_L", "Lib/Foo.lean"]}
+{"protocol": 1, "items": {"Lib/Foo.lean#lemma_L": {"ok": true}, "Lib/Foo.lean": {"ok": false, "why": "module Lib.Foo is not in the manifest"}}}
+```
+
+Each item is the target as written after `form:`, and the answer holds one key of `items` for each target asked: `{"ok": true}`, `{"ok": false, "why": "…"}` or `{"unchecked": "…"}`, with exit 0 whenever the resolver answered, whatever the items say.
+An answer in another protocol than the flow's own (the number `RESOLVER_PROTOCOL`, both scripts carrying it) leaves every item unchecked, with that reason, and is no problem.
+A resolver that does not answer (a nonzero exit, the limit of 60 seconds passed, no JSON object, a target asked and not answered) leaves its items unchecked at a mint, as the library does, and `flow check` reports one problem, V6 with no record, `the resolver for formal did not answer: …`.
+
+The `formal` resolver is found in this order, the last two only where a `formal.toml` stands at the root:
+
+1. the binding `[evidence.resolvers] formal = […]`, the whole command as a list of strings (one string is one word), run as written at the project root; `formal = []` asks none;
+2. the `formal` plugin installed beside the research one, its `skills/land/scripts/formal.py` run as `formal resolve --protocol`: next to the research plugin's directory in a checkout, in the directory of the same version beside it in Claude Code's cache, or in the `land` skill's directory beside the `flow` skill where the skills were installed flat;
+3. `formal` on PATH, where the package installs it beside `flow`, which is the hooks' environment.
+
+With none found, `formal` evidence is reported unchecked, as `peer-reviewed` is with no library, and the coverage line says which route answered or why none did.
+Another prover, or a form of the project's own, binds a command that speaks the protocol under its form's word, any form but `statistical`, `peer-reviewed`, `stated` and `reference`, which the flow resolves itself.
+The targets of a bound form are the resolver's, so the flow reads no path out of them (`flow artifacts` and `flow find --refers` name none) and holds the item to `form:target` and `[evidence] forms` alone.
+
 ### The release a project was brought to
 
 `[kit] release` is a committed fact of the project, so a script on any machine reads the same answer.
@@ -170,7 +197,7 @@ A `flow.toml` without the line, written before v0.7.0, is a thing for `flow doct
 Every check exits 0 when clean, 1 when it found problems, each printed with its place, and 2 when it could not run: no bindings file at the root, or one that does not parse.
 The 2 is its own code so that a hook or a CI job never reads "did not run" as "clean".
 `flow reflow --check` given a path that is not there exits 2 as well; `flow state --check` exits 1 when a part fails, else 2 when a part could not be decided, else 0; `flow doctor` exits 1 when it names anything.
-Each check ends with coverage lines saying what it looked at and what it did not — which evidence resolvers were bound, whether the library answered — so a green says what it did not look at; on a failure, `flow check` adds a line naming the command that reproduces it, for a session where no skill is loaded.
+Each check ends with coverage lines saying what it looked at and what it did not — which route answered for each form asked of a resolver, whether the library answered — so a green says what it did not look at; on a failure, `flow check` adds a line naming the command that reproduces it, for a session where no skill is loaded.
 `flow.py --selftest` plants one defect per code and fails when a code it can report is planted nowhere, and the kit's tests hold the table below to the script.
 
 ### `flow check`
@@ -181,7 +208,7 @@ Each check ends with coverage lines saying what it looked at and what it did not
 | V1 | the record's type is not one of the six, it has no id, or its id does not match its filename or its type's prefix |
 | V2 | `references` or `consumed_by` names an id that does not exist, `answered_by` names a record that is not a finding, or `serves` one that is not a goal or a direction, or is one value instead of a list |
 | V3 | a field is missing or unknown, a field of an older model among them (`flow doctor` says what it reads now), or a state, a size, an owner, an origin or a rank is not a legal value |
-| V6 | a finding has no evidence, an evidence item has no form or a form `[evidence] forms` does not list, does not resolve by its form's shape (a document's anchor among them: a row, a numbered statement or a heading; a path outside the tree, absolute or climbing above the root by `..`, never resolves), or appears twice |
+| V6 | a finding has no evidence, an evidence item has no form or a form `[evidence] forms` does not list, does not resolve by its form's shape (a document's anchor among them: a row, a numbered statement or a heading; a path outside the tree, absolute or climbing above the root by `..`, never resolves), appears twice, or is of a form a resolver answers for and the resolver did not answer (once, with no record named: `the resolver for formal did not answer: …`) |
 | V9 | an active task has no owner, a ready task carries an owner or a drawn date, an idea in a hand is not open or has no drawn date, an idea in no hand has one, or an owner holds more records than its hand limit |
 | V11 | the index is missing or stale — run `flow index`; or in another version's form, its records unchanged — run `flow index` once after an upgrade |
 | V12 | an open question has no last-checked date |
@@ -197,9 +224,9 @@ Each check ends with coverage lines saying what it looked at and what it did not
 
 The codes are names, not a sequence: V4, V5, V7, V8, V10, V13, V16 and V22 are unassigned.
 No link has a cycle rule, an open task may reference a closed question, a question may serve a closed goal or direction, and a removed finding's evidence is not resolved: the notice names who refers to a record whose state changes, and the rest is the session's.
-Warnings do not fail the check: an open question that tasks reference, all of them closed, which needs refine or answer; a task whose due date has passed; a closed or removed record whose body links a path that is gone; and evidence reported unchecked because no manifest, register or library is bound for its form, or because its form is the project's own and its target no path.
+Warnings do not fail the check: an open question that tasks reference, all of them closed, which needs refine or answer; a task whose due date has passed; a closed or removed record whose body links a path that is gone; and evidence reported unchecked because no resolver, register or library is found for its form, because a resolver answered in a protocol the flow does not read, or because its form is the project's own and its target no path.
 
-A declaration resolves when it exists in the manifest, whatever its row's kind, a private declaration's included: the flow's claim is existence.
+A declaration resolves when it exists in the manifests, whatever its row's kind, a private declaration's included: the flow's claim is existence, and the [`formal`](../formal/land.md) plugin's resolver answers it.
 Whether a document may cite it is another claim, the [`formal`](../formal/land.md) plugin's gates' at the document row and the citation, and a finding resting on a private declaration is one no document row can cite.
 
 ### `flow state --check`
@@ -223,7 +250,7 @@ Under `--json` each failure is a problem of code `STATE`, and the hands are a li
 
 `flow doctor` prints one line per thing an older model wrote, with what it reads now.
 Of v0.7.0's model: `derived_from` (now `references`), a question's `parent`, a task's `requires` and a finding's `depends_on` (each value added to `references` where it is not there, the field dropped), a question's `direction` (added to `serves`, which becomes a list), `blocked` (now `blocked_by`; an item of words holding a date stays words, and `flow doctor` and `flow doctor --fix` print a line for each such record, with or without `--all`, saying a date waited on is an item written alone), a question's or a goal's `criterion`, a task's `dod`, a goal's `horizon`, `why_now` and `first_move` (the words appended to the body as a dated line, `DATE — criterion (moved from the field): …`, in that order, a null or an empty one dropped with no line), a question's `kind` (the tag `conjecture` where it was that), a task's `rider` (the tag `rider` where it was true), and a finding with no `state` (`standing`) or `closed` (`null`).
-Of the models before it: a record's `abandoned` field (now `closed`) or state (now `removed`, or `aborted` for a task that was drawn), `decomposed` (now `open`), `kill` (the body's words, as `criterion`), a task or several findings in a question's `answered_by`, `answered_by` written as a list (now one value), `consumed_by` written as one id (now a list), a task's or a finding's `question` field (it goes, and the question is added to `references` where it is not there, unless the question names that finding as its answer), a task's `kind` (a tag now), a finding's `status` (it goes, the forms of its evidence standing for it; a refuted one gains the tag `refuted`) and `paper` (it goes; the document is a reference `flow find --refers PATH` groups by), an evidence item with no form (the prefix read off its shape: `formal:` for a declaration, `statistical:` for a probe, `stated:` for a statement or row), a `statistical` or `reference` item whose document anchor is no row, numbered statement or heading's anchor (checked as a `stated` item's is since v0.5.0; the line names the nearest heading, and the hand rewrites the item), a finding under a shard directory (one `findings/` directory now), a question's `direction` holding a bold name (the id of a direction record, named in `serves`), a task of the `decision` kind or tag that is not parked, an owner or a drawn date on a ready task, an owner `[hand]` does not list on a task or an idea, a field the record lacks; the directions file and `[paths] directions` (directions are records, `flow direction NAME --body FILE` for each bullet, which it lists), the `[task]` section's `kinds`, `default_kind`, `decision_kinds`, `decision_owners` and `question_optional_kinds`, the `[finding]` section, a missing `[evidence] forms`, a third hand, the directions file's `## Inbox` section, a missing inbox, and a missing `[kit] release`.
+Of the models before it: a record's `abandoned` field (now `closed`) or state (now `removed`, or `aborted` for a task that was drawn), `decomposed` (now `open`), `kill` (the body's words, as `criterion`), a task or several findings in a question's `answered_by`, `answered_by` written as a list (now one value), `consumed_by` written as one id (now a list), a task's or a finding's `question` field (it goes, and the question is added to `references` where it is not there, unless the question names that finding as its answer), a task's `kind` (a tag now), a finding's `status` (it goes, the forms of its evidence standing for it; a refuted one gains the tag `refuted`) and `paper` (it goes; the document is a reference `flow find --refers PATH` groups by), an evidence item with no form (the prefix read off its shape: `formal:` for a declaration, `statistical:` for a probe, `stated:` for a statement or row), a `statistical` or `reference` item whose document anchor is no row, numbered statement or heading's anchor (checked as a `stated` item's is since v0.5.0; the line names the nearest heading, and the hand rewrites the item), a finding under a shard directory (one `findings/` directory now), a question's `direction` holding a bold name (the id of a direction record, named in `serves`), a task of the `decision` kind or tag that is not parked, an owner or a drawn date on a ready task, an owner `[hand]` does not list on a task or an idea, a field the record lacks; the directions file and `[paths] directions` (directions are records, `flow direction NAME --body FILE` for each bullet, which it lists), the `[task]` section's `kinds`, `default_kind`, `decision_kinds`, `decision_owners` and `question_optional_kinds`, the `[finding]` section, a missing `[evidence] forms`, the three manifest bindings `[evidence] manifest`, `manifest_roots` and `manifest_extension` (the manifests are `formal.toml`'s alone, and the lines are deleted by hand), a third hand, the directions file's `## Inbox` section, a missing inbox, and a missing `[kit] release`.
 The lines are of two classes: the mechanical ones, whose line states the exact edit (a field the record lacks, a word renamed, a state read into this model's, a link folded into `references` or `serves`, a field's words moved to the body, a kind or a rider made a tag, a finding given its state, `status` and `paper` deleted, an evidence item prefixed by its shape, a finding moved out of a shard, a closed task moved into the archive, `answered_by` and `consumed_by` between a list and one value, a direction's name rewritten to its record's id once that record exists, an owner cleared on a ready or a closed record, the inbox created), and the judgment ones (a task or several findings in `answered_by`, a decision task, the directions file's bullets, a third hand, an owner on a held record, the bindings, `[kit] release` among them).
 After them it prints the notes, which never fail: each key `flow init` writes now, set or commented, that the project's `flow.toml` has neither set nor commented, as an earlier init wrote it — `[paths] log_archive`, `[evidence] statement_words` and `[evidence] row_id` for a file of v0.5.0 — with the default the template carries and the command that reads it; under `--json` they are the list `notes`, and the setup probe relays their count.
 `flow doctor` prints the judgment lines one per record and the mechanical classes as one line each with a count (`--all` lists each edit); `flow doctor --fix` writes every mechanical edit in place — each record's edits together, its front matter re-ordered to the schema, no lint, and the reflow only on a body a field's words were appended to — refreshes the index, and prints what it fixed by class and what is left to the hand; it exits 1 while anything is left, 0 otherwise, and a second run after the hand's part settles what the first could not (a direction's name, once its record exists).
@@ -268,12 +295,13 @@ The built-in reflow leaves a sentence unsplit after the common scholarly abbrevi
 - **the log** — dated entries, newest first, each opening with a State paragraph; the top one is what a cold session trusts; `flow log add` writes one at the top, `flow log archive` moves the old ones to one file per month.
 - **the freeze** — a session's end: what a machine can see of it, `flow state --check` decides — the log's date and the records it names — and the rest is the session's, `/research:freeze`.
 - **the registry** — the one place the project's deliverables and their order are stated; the ranked list orders the work, the registry the products.
-- **evidence, form, trust** — a finding's evidence items, each `form:target`; the form one of the words `[evidence] forms` lists — the kit ships `formal` (a declaration of the manifest), `statistical` (a probe or a committed result), `peer-reviewed` (a card of the library), `stated` (a row, a numbered statement or a heading of a document of the project, its own word) and `reference` (any other source) — and the project adds its own; the set of forms a finding carries is its trust, words with no rank, and a finding resting on `stated` alone is the trust to raise.
-- **declaration manifest** — a text file a prover's build regenerates, one `Module.Path name` line per declaration; the evidence resolver for `formal` items, whose claim is existence, not citability.
+- **evidence, form, trust** — a finding's evidence items, each `form:target`; the form one of the words `[evidence] forms` lists — the kit ships `formal` (a declaration or a module of the prover's library, asked of the resolver), `statistical` (a probe or a committed result), `peer-reviewed` (a card of the library), `stated` (a row, a numbered statement or a heading of a document of the project, its own word) and `reference` (any other source) — and the project adds its own; the set of forms a finding carries is its trust, words with no rank, and a finding resting on `stated` alone is the trust to raise.
+- **declaration manifest** — a text file a prover's build regenerates, one `Module.Path name` line per declaration, in the [`formal`](../formal/land.md) plugin's grammar; the flow never reads it, and the plugin's resolver answers `formal` items from it, whose claim is existence, not citability.
+- **resolver** — the command that answers for the evidence items of one form, as `formal resolve --protocol` does for `formal`; it speaks the protocol under [Evidence resolvers](#evidence-resolvers), and the flow asks it once for every item of its form.
 - **probe** — a self-asserting script, exiting non-zero when its own checks fail, listed in the project's probes register; a `statistical` item.
 - **do-not-reopen** — a tag on a question the index lists under "Settled, do not re-open", so a settled matter is seen before it is asked again; `flow reopen` refuses it, and the agent asks the person.
 - **legacy** — the `origin` of a record imported from before the flow, the one record written by hand; an answered legacy question may name no finding.
 - **text gates** — the project's own checks on prose, such as a linter or a one-sentence-per-line rule, run on a draft before a body or a row is written.
 - **clone test** — a session is frozen when a clone of the repository on another computer could continue from it; the agent's memory, the scratchpad and a running subagent do not travel.
 - **annex** — an optional directory for the artifacts a recorded claim depends on that no other container owns.
-- **coverage line** — the last line of a check, saying which resolvers it looked at, so a green says what it did not look at (also `library`).
+- **coverage line** — the last line of a check, saying which route answered for each form asked of a resolver, so a green says what it did not look at (also `library`).

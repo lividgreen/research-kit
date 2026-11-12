@@ -22,6 +22,8 @@ This page is the tool — its commands, the generator and the manifest it reads,
 | --- | --- |
 | `formal handback [--base REV] [--handoff DRAFT]` | the manifest diff against HEAD: the new public and private declarations, the removals, the visibility flips, the field changes and the per-module counts; the instantiations of an existing generic; the joint-satisfiability witnesses owed; the guards added and removed in the workspace diff with the live total after the change; every document site citing a declaration of a touched module; and the commission, every name of the handoff's `Commissioned:` line sorted into four classes, landed, private (in the tree, not citable), already at base and absent; exit 1 on a document citing a name now private or removed |
 | `formal readback NAME… [-o FILE] [--depth N]` | the packet a cold reader writes each landed statement out from: the statement with its modifiers and scope lines, every project-local definition its elaborated statement refers to, to depth two (a definition's value too), read from the manifests' `uses` rows, so a projection, an inherited field, dot notation and an instance are Lean's and not guessed from the text, docstrings and comments stripped; a manifest without the `uses` section is refused with the command that regenerates it, exit 2 |
+| `formal rows [--json]` | every row of the manifests with its kind and fields, as `{"schema": 1, "rows": […]}` under `--json`, else each manifest's count per kind: the one read of the manifests outside the plugin; exit 1 where a row matches no kind |
+| `formal resolve [--public] [--protocol] TARGET…` | whether each target (`Path.lean#name`, `Path.lean`, or a name; `-` reads them from the standard input) is a declaration or a module of the manifests, a line and the count for each that is not; `--public` also fails a private one; `--protocol` is the research flow's call; exit 1 where one does not resolve, 2 where it could not run |
 | `formal check` | the manifests parse and are the tree's, each read its named conditions under the project's own roots, the umbrellas import their modules, the packages import in order, the bindings resolve |
 | `formal cite`, `formal anchors`, `formal register` | the three gates over the documents and what ships, each a pre-commit hook |
 | `formal hypotheses [--base REV \| --baseline FILE [--update]]` | no public theorem shipped at the base gained a named condition |
@@ -33,7 +35,7 @@ The [skill](../../plugins/formal/skills/land/SKILL.md) names every flag, and the
 ## The manifest
 
 `scripts/DeclManifest.lean` beside the CLI generates a Lean package's declaration manifest after a genuine build: from the workspace, `lake env lean --run DeclManifest.lean --roots Root1,Root2 --out ../scripts/decls.txt`, with `--own` naming the roots whose Prop-valued definitions count as named conditions, by default every root built in the workspace's own packages; the roots taken are printed and written as the manifest's second line, `# own roots: A,B`, which `formal check` holds against `[packages]`, so a generate command passes `--own` only where the default is not the project's.
-The setup copies the file into the workspace once and binds one command per package in `formal.toml`'s `[manifest] generate`; the prover session regenerates the manifests after the last declaration change, and the [flow](../research/flow.md) resolves declaration evidence against the same files.
+The setup copies the file into the workspace once and binds one command per package in `formal.toml`'s `[manifest] generate`; the prover session regenerates the manifests after the last declaration change, and the [flow](../research/flow.md) asks `formal resolve` about declaration evidence and reads none of them.
 A manifest is a text file in a row grammar any prover's declaration list may follow, seven row kinds:
 
 ```text
@@ -53,6 +55,19 @@ The `uses` rows are the elaborated environment's answer to what a statement refe
 
 The `formal` plugin's checks report in words rather than codes.
 Each exits 0 when clean, 1 when it found problems, each printed with its place, and 2 when it could not run, so a hook or a CI job never reads "did not run" as "clean"; each ends with a coverage line saying what it looked at.
+
+### `formal rows` and `formal resolve`
+
+`formal rows --json` prints `{"schema": 1, "rows": [{"kind": "decl", "file": "scripts/decls.txt", "line": 12, "module": "Lib.Foo", "name": "lemma_L"}, …]}`: every row in the manifests' order with `kind`, `file`, `line` and `module`, and the kind's own fields under the names the grammar gives them — `count` for `module`; `name` for `decl`, `private` and `field`; `theorem` and `condition` for `hypothesis`; `theorem` and `class` for `instance`; `decl` and `const` for `uses`.
+A project's own script reads the manifests through it and filters the rows by the kinds it knows: a new kind is a new value of `kind` under the same schema number, which moves only when a kind's fields change, so an old reader ignores it.
+A row matching no kind exits 1 with its file and line and prints no JSON, since a row is never absorbed into another kind; `formal check` stays the strict validator of a manifest.
+
+`formal resolve` answers for a list of names of the project's own and for the research flow's `formal` evidence.
+A target is `Path.lean#name`, `Path.lean` (a module) or a name with no path, the module scope left out.
+The module is the path without `.lean`, `/` read as `.`, and its file under the package directory `[packages]` binds for its root must exist; a module resolves where a `module` row names it, and a name where a `decl`, `private` or `field` row's name is it or ends in `.` and it, among the rows of the module where a `module` row names it.
+It prints one line for each target that does not resolve, with why, then the count, and exits 0 where all resolve, 1 where one does not, and 2 where it could not run: no `formal.toml`, a manifest missing, or a row matching no kind.
+`--public` also fails a target whose every reading is a private declaration; without it a private one resolves, which is the flow's claim, existence.
+`--protocol` is the flow's call: one JSON request on the standard input, `{"protocol": 1, "form": "formal", "items": […]}`, one JSON answer on the standard output, `{"protocol": 1, "items": {TARGET: {"ok": true} | {"ok": false, "why": "…"} | {"unchecked": "…"}}}`, with exit 0 whenever it answered; a manifest that is missing leaves every item unchecked, with the command that regenerates it, and the protocol is described on [the flow's page](../research/flow.md#evidence-resolvers).
 
 ### `formal check`
 

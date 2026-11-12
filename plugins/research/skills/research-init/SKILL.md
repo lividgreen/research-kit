@@ -61,7 +61,7 @@ The probe runs `flow doctor` and `flow index --check`, which write nothing; a st
 3. Install what was chosen, with the proposal's command as shown, then run the probe again.
 4. Write the bindings.
    `flow init --log LOG` where `flow.toml` is absent; `library init --scan RECORDS --scan LOG --documents GLOB…` where `library.toml` is absent, RECORDS the records directory `flow init` named, the globs those the probe found with a References section, `--kept` only when ruled.
-   Where `formal.toml` stands (the `formal` plugin is set up), bind the flow's `[evidence]` to its manifests (`manifest`, `manifest_roots`, `manifest_extension = "lean"`) or propose running `/formal:formal-init` again, which fills its own `[handoff]` bindings from the files just written.
+   Where `formal.toml` stands (the `formal` plugin is set up), propose running `/formal:formal-init` again, which fills its own `[handoff]` bindings from the files just written; the flow binds nothing of the plugin's manifests, since it asks `formal resolve` for its formal evidence.
    An `init` refuses over an existing bindings file; `--force` is used only when the person asks for the file to be rewritten.
    `flow init` writes the five evidence forms the kit ships in `[evidence] forms` (`formal`, `statistical`, `peer-reviewed`, `stated`, `reference`): ask the person, in the one question of step 2, which the project accepts and which words of its own to add (a project with a prover keeps `formal`, one with datasets `statistical`, one with a library `peer-reviewed`; `stated` is the project's own word and the trust to raise), edit the list, and put what each form means for the project into the instructions section of step 5.
 5. Write the instructions.

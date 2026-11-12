@@ -24,6 +24,7 @@ Besides the scripts themselves and the Python that runs them, the kit runs these
 - `markdownlint`, where it is on PATH, over a record or a log entry `flow` just wrote, reverting the write if it added a violation, and over a draft `flow reflow --as` checks;
 - the command `library.toml` binds for a kept PDF's text (`pdftotext`, as `init` binds it), over the kept file;
 - the library, asked for its keys by `flow check`: the `[library] command` of `flow.toml`, else the library skill installed beside the flow skill, else `library` on PATH (as in the hooks' environment), the last two only where a `library.toml` stands at the root;
+- the resolver of a form, asked by `flow check` and the evidence mints with every item of that form: the `[evidence.resolvers]` command of `flow.toml`, else, for `formal`, the `formal` plugin installed beside the research plugin (`formal resolve --protocol`), else `formal` on PATH, the last two only where a `formal.toml` stands at the root;
 - the `reflow_module` a bindings file names, imported and run over the text a command writes and the files `flow reflow --check` reads;
 - `git`, from `formal handback`, `formal hypotheses` and `formal witnesses` for the manifests and the diff at a base revision, from `formal check` and `formal register` for the tracked and the ignored files, and from `flow state --check` for the log's history;
 - each component the dashboard mounts: the scripts of the skills installed beside it, `flow` and `library` on PATH, and what `dashboard.toml` or `--component` names.
