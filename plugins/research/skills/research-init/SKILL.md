@@ -48,6 +48,7 @@ The report's `upgrade` section names the steps a move to another release still a
 - `instructions`: pending while the project has documents with a References section and the instructions file no `### Reviews` part, its command this skill's step 5.
 
 The probe runs `flow doctor` and `flow index --check`, which write nothing; a step it could not check reads NOT RUN with the reason, and one with nothing to bring reads `--`.
+Where `formal.toml` stands at the project root, the section ends with one more line, no step of its own: the formal plugin is set up here and `/formal:formal-init` is to run too, since the probe reads none of that plugin's files; under `--json` it is `upgrade.formal`, the line or null.
 
 ## The procedure
 

@@ -10,6 +10,7 @@ This page is what it does, the check under it, and its words.
 Its one rule is to save what is important for the work; its test is the clone: could a session reading only the inbox, the ranked list and the log's top State paragraph go on without asking?
 
 1. The records say what the session knows: the log's top State paragraph is current, and its next action names the next session's first move.
+   The State paragraph says where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
 2. What only the conversation holds is flushed, turn by turn, your messages and the replies both: an idea in your words, a ruling where the rules live, a reading into the record it is about, a correction as a dated line, an open question as a question or an idea; then everything the session created is closed or left with a note.
    A freeze ranks nothing; a directive for the next session goes to the inbox, one directive, never a summary.
 3. The surfaces a reader sees are swept for what the session made stale, by meaning, not only in the files it touched; a stale claim the session may not correct, in a document only you change, goes to an idea or a task with the place and the proposed edit, and is named in the log entry.

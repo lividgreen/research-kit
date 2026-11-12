@@ -1,6 +1,6 @@
 ---
 title: research-kit
-summary: A kit for doing research with a coding agent — a project's ideas, questions, tasks, findings and cited works kept as checked Markdown in its own repository.
+summary: "A kit for doing research with a coding agent: a project's ideas, questions, tasks, findings and cited works kept as checked Markdown in its own repository."
 tags: [coding-agents, agent-skills, research, lean4]
 status: active
 ---

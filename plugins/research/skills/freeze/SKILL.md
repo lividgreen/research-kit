@@ -18,6 +18,7 @@ The one rule is to save what is important for the work, anything useful the sess
 
 1. **The records say what the session knows.**
    The log's top State paragraph is current and its next action names the fresh session's first move; where work happened after the entry, it is extended or a new entry added with `flow log add FILE`.
+   The State paragraph says where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
    `flow touched --unnamed` lists the records changed since the newest committed entry that no entry names yet, the ids the entry is to name; `--ids` prints them on one line, and a record only re-ranked by a renumbering is left out, not to be named.
    The entry may write the ids out or name a run of them as a range, `finding-0015…0035` (an en dash or three dots for the ellipsis, written with no spaces around it), which the check reads as every id of that prefix from 0015 to 0035; `touched` lists each id on its own.
    At the month's first freeze, `flow log archive --before DATE` moves the older entries.
