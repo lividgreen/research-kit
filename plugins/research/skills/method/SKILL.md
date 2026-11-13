@@ -92,8 +92,12 @@ These invariants keep that honest.
 
 ## Working with the owner
 
-- A question goes to the owner through the agent's question tool where it has one, with its options and one recommendation first, never as a prose list; an item the owner owns, and a call the agent is unsure of, is asked before the agent decides alone.
+- A question goes to the owner through the agent's question tool where it has one, with its options and one recommendation first, never as a prose list; an item the owner owns, and a call the agent is still unsure of after the test below, is asked before the agent decides alone.
 - The owner's items are what only they can do (a send, a registration) and what only they should decide; the rest is the agent's.
+- Before a question is put to the owner, or a piece of work handed to them as their decision (in the flow, a card passed to their deck), the agent asks whether a test settles it: what each option does for the goal, or whether the object meets the criterion as written.
+  Where there is such a test the agent runs it, decides, and records the decision with the test; what is correct is never the owner's choice.
+  A check that stops at a term the criterion leaves open makes a question of that term.
+  What goes to the owner is the goal and the directions, an outward act, and options a test leaves apart that lead to different programmes, each put with what it leads to.
 - A design answer is a recommendation, its consequences and the alternatives, briefly, with the evidence after.
 - A ruled decision is not put to the owner again: executing a ruling is the agent's.
 - Reversible options are paths, not forks: take the one of highest benefit and go; a wall is a pivot, not a question.

@@ -4,6 +4,36 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+Five changes from the consumers' first day at v0.9.0: the setup probe reads the install in a linked git worktree, the flow names an open question with every task closed as needing a task or an answer, the probe names the changelog at the release's tag, the paragraph `flow init --print-instructions` prints stops restating what the skills say, and the skills say how to tell whether a decision is the person's.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says and restart, then run `flow index` to regenerate the index, whose section heading is renamed, before `flow check`.
+A project that copied the paragraph `flow init --print-instructions` prints into its instructions may drop the three lines it no longer prints (the hand filled from the top of the ranked list, what `flow state` prints, and the steps of the two session skills in parentheses), and take the shorter ones; nothing fails where it keeps them.
+At its next `whatsnext`, a project reads the person's deck against the new test of the `method` skill, and takes back the cards a test of the agent's settles.
+
+The flow:
+
+- The warning of `flow check` on an open question whose every task is closed reads `needs a task (`flow task SUMMARY --ref ID`) or an answer (every task closed)`, and the index's section is `Needs a task or an answer`, where both said `refine`, an act the flow has not had since v0.8.0; regenerating the index (`flow index`) writes the new heading.
+- The paragraph `flow init --print-instructions` prints holds the project's bindings and the rules that stand before a skill is loaded, and no longer restates a skill's steps or a command's output: the ranked list is the schedule of the work, `flow state` prints the cold-start bundle a session reads first, and a session starts with the `whatsnext` skill and ends with the `freeze` skill.
+  The sentences on the person's bare words and on a request ending "… and freeze" are as they were.
+
+The setup probes:
+
+- A probe run in a linked git worktree reads the install of the main work tree as its own: an entry of scope local or project whose `projectPath` is the root's counterpart in the main work tree, found from `git worktree list --porcelain` and nothing else, is read as the root's, the root's own entry first, and the entry's clause in the `pins` item says it was read for the main work tree; the probe said no plugin was installed there, and proposed an install, where the `freeze` skill sends a session to commit.
+  Nothing is read where git is not on PATH, the root is in the main work tree or the main one is a bare repository's.
+- The probe's line on the Upgrading paragraphs names the changelog at the tag that ends its range, the latest release, the installed one or the pins' target, where it named `blob/main`, which carries the Unreleased section and any wording revised after a tag; `main` stays only for a target that is no release tag.
+  `KIT_CHANGELOG`, the constant, is the function `kit_changelog(tag)` of the pins block in both scripts.
+
+The `research` plugin:
+
+- The `method` skill says how to tell whether a decision is the person's: before a question is put to them, or a piece of work handed to them as their decision, the agent asks whether a test settles it, what each option does for the goal or whether the object meets the criterion as written, runs it, decides and records the decision with the test; what is correct is never their choice, a term the criterion leaves open is a question, and what goes to them is the goal and the directions, an outward act and options a test leaves apart that lead to different programmes.
+- The `flow` skill's section "The session" and `whatsnext` apply it where a card is passed to the person's deck: the note names the decision and why no test of the agent's settles it, and `whatsnext` reads each card of the person's deck against the test before proposing it, taking a card a test settles back with `flow pass ID --to agent --note`, without asking, the note saying the test.
+- The pages of the flow, `whatsnext`, the working rules and the research setup say the same, and the setup's step 5 and the flow's skill say what the instructions paragraph holds.
+
+The `formal` plugin:
+
+- `formal probe` has the two changes of the setup probes above, as it has their pins block.
+
 ## v0.9.0 — 2026-11-13
 
 The flow's cards: ideas, questions and tasks live in decks and hands, a card's standing is calculated, and a closed card is in a pile.

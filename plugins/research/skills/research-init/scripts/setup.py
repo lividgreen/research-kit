@@ -361,7 +361,6 @@ def proposals(env, hook_runner, installers, managed=None):
 # them so) -------------------------------------------------------------------------------------------------
 
 KIT_REPO = "lividgreen/research-kit"
-KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
 KIT_LATEST = "https://api.github.com/repos/lividgreen/research-kit/releases/latest"
 KIT_FOLLOW = "latest"  # the branch the release workflow moves to each release tag, which a marketplace follows
 
@@ -436,11 +435,12 @@ def install_record():
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "installed_plugins.json"
 
 
-def kit_installed(root, record):
+def kit_installed(root, record, main=None):
     """The plugins of the research-kit marketplace Claude Code installed for the project, name -> entry (its
     `version`, `scope` and `installPath`), from the install record (`plugins` -> name -> entries): the entry of
-    scope local, else project, whose `projectPath` is the root, else the user one.  None where the record is
-    absent or unreadable."""
+    scope local, else project, whose `projectPath` is the root or, where the root is in a linked work tree, `main`,
+    its counterpart in the main work tree (the root's own entry first), else the user one.  None where the record
+    is absent or unreadable."""
     try:
         raw = json.loads(Path(record).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -448,14 +448,15 @@ def kit_installed(root, record):
     plugins = raw.get("plugins") if isinstance(raw, dict) else None
     if not isinstance(plugins, dict):
         return None
-    root, out = Path(root).resolve(), {}
+    roots, out = [Path(root).resolve()] + ([Path(main).resolve()] if main else []), {}
     for name, entries in sorted(plugins.items()):
         if not name.endswith("@research-kit"):
             continue
         entries = [e for e in (entries if isinstance(entries, list) else [entries]) if isinstance(e, dict)]
         for scope in ("local", "project", "user"):
             hit = [e for e in entries if e.get("scope") == scope
-                   and (scope == "user" or bool(e.get("projectPath")) and Path(str(e["projectPath"])).resolve() == root)]
+                   and (scope == "user" or bool(e.get("projectPath")) and Path(str(e["projectPath"])).resolve() in roots)]
+            hit.sort(key=lambda e: scope != "user" and roots.index(Path(str(e["projectPath"])).resolve()))
             if hit:
                 out[name] = hit[0]
                 break
@@ -466,6 +467,12 @@ def kit_tag(tag):
     """A release tag as a tuple to order by (`v0.4.3` -> (0, 4, 3)); None for anything else, a commit or a branch."""
     m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", str(tag or ""))
     return tuple(int(g) for g in m.groups()) if m else None
+
+
+def kit_changelog(tag):
+    """The kit's changelog at a release tag, where the Upgrading paragraphs of that release stand as released; at
+    `main`, which carries the Unreleased section, only where `tag` is no release tag."""
+    return f"https://github.com/lividgreen/research-kit/blob/{tag if kit_tag(tag) else 'main'}/CHANGELOG.md"
 
 
 def kit_latest():
@@ -507,7 +514,30 @@ def kit_dirty(root):
     return sorted({q[len(pre):] if q.startswith(pre) else q for q in paths}), None
 
 
-def kit_pins(root, version, record=None, latest=None, dirty=None):
+def kit_main_tree(root):
+    """The root's counterpart in the main work tree where the root is in a linked work tree of a git repository, the
+    path of the main work tree (the first `worktree` line of `git worktree list --porcelain`) joined with the root's
+    path under its own top level, read from git alone; None where git is not on PATH, the root is in no work tree or
+    in the main one, the main one is a bare repository's, or git fails or does not answer in 30 s."""
+    if not shutil.which("git"):
+        return None
+    try:
+        top = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=30)
+        trees = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    first = trees.stdout.split("\n\n")[0].splitlines()
+    if top.returncode or trees.returncode or not top.stdout.strip() or not first or not first[0].startswith("worktree ") or "bare" in first[1:]:
+        return None
+    main, top = Path(first[0][len("worktree "):]).resolve(), Path(top.stdout.strip()).resolve()
+    try:
+        under = Path(root).resolve().relative_to(top)
+    except ValueError:
+        return None
+    return None if main == top else main / under
+
+
+def kit_pins(root, version, record=None, latest=None, dirty=None, main_tree=None):
     """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
     settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
     install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
@@ -517,7 +547,8 @@ def kit_pins(root, version, record=None, latest=None, dirty=None):
     paragraphs lie between.  A marketplace at `ref` KIT_FOLLOW follows the releases and is no pin to compare; one
     at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  A pin file with uncommitted
     changes is named (`dirty`, a callable answering as `kit_dirty`, defaults to it), since a clone reads its committed
-    pin.  It writes nothing."""
+    pin.  A root in a linked work tree reads the install of its counterpart in the main work tree as its own (`main_tree`,
+    a callable answering as `kit_main_tree`, defaults to it), the entry's clause saying so.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
     newest, unread = (latest or kit_latest)()
@@ -565,14 +596,18 @@ def kit_pins(root, version, record=None, latest=None, dirty=None):
     if why:
         said.append(f"whether the pin files differ from the commit is unread ({why})")
     enabled = st.get("enabledPlugins") if isinstance(st.get("enabledPlugins"), dict) else {}
-    inst, me, runs_installed = kit_installed(root, record), Path(__file__).resolve(), False
+    main = (main_tree or kit_main_tree)(root)
+    inst, me, runs_installed = kit_installed(root, record, main), Path(__file__).resolve(), False
     if inst is None:
         said.append(f"Claude Code's install record {record} is absent or unreadable, so no installed plugin is compared (another agent, or no install)")
     else:
         for name, e in inst.items():
             mine = bool(e.get("installPath")) and me.is_relative_to(Path(str(e["installPath"])).resolve())
             runs_installed = runs_installed or mine
-            said.append(f"{name} is installed at v{e.get('version')} ({e.get('scope')} scope)" + (", which this runs from" if mine else ""))
+            via = main and e.get("scope") != "user" and Path(str(e.get("projectPath"))).resolve() != root
+            said.append(f"{name} is installed at v{e.get('version')} ({e.get('scope')} scope"
+                        + (f", read for the main work tree {main}, of which this root is a linked one" if via else "") + ")"
+                        + (", which this runs from" if mine else ""))
             tags[name] = f"v{e.get('version')}"
         if not inst:
             said.append(f"no plugin of research-kit is installed for this project in {record}")
@@ -606,7 +641,7 @@ def kit_pins(root, version, record=None, latest=None, dirty=None):
         steps.append("restart the session, then read the pins again")
         oldest = min((t for t in tags.values() if kit_tag(t)), key=kit_tag, default=None)
         if oldest and kit_tag(T) and kit_tag(oldest) < kit_tag(T):
-            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {KIT_CHANGELOG}"
+            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {kit_changelog(T)}"
     named = off[0] if len(off) == 1 else ", ".join(off[:-1]) + " and " + off[-1] if off else ""
     which = ", the latest release" if newest else ", the newest of them" if ordered and len(tags) > 1 else ""
     detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}{which}: move every pin to it" if off else "")
@@ -642,7 +677,7 @@ def kit_setup(root, version):
         return step("ok", f"the setup was last brought to {marker}, the installed release", release=marker)
     if kit_tag(marker) < kit_tag(me):
         return step("pending", f"the setup was last brought to {marker}; the installed release is {me}",
-                    [f"read the Upgrading paragraph of each release after {marker} up to {me}, in {KIT_CHANGELOG}",
+                    [f"read the Upgrading paragraph of each release after {marker} up to {me}, in {kit_changelog(me)}",
                      f"run `/research:research-init`, whose verify step moves `[kit] release` to {me}"], marker)
     return step("pending", f"the project was brought to {marker} on another machine or checkout, and this plugin is {me}, behind it: "
                 "the flow's scripts refuse to write until it moves",
@@ -696,7 +731,7 @@ def beyond(installed, target):
     installed one up to the pins' target, the setup step naming the ones from the marker up to the installed; none
     where the target is not past the installed release."""
     if kit_tag(installed) and kit_tag(target) and kit_tag(target) > kit_tag(installed):
-        return [f"read the Upgrading paragraph of each release after {installed} up to {target}, in {KIT_CHANGELOG}"]
+        return [f"read the Upgrading paragraph of each release after {installed} up to {target}, in {kit_changelog(target)}"]
     return []
 
 
@@ -855,7 +890,7 @@ def installed_scenarios(tmp, v, expect):
     expect("an installed plugin behind the pins is named, with the update that moves it and the releases between to read",
            not r["ok"] and "formal@research-kit differs from" in r["detail"]
            and r["commands"][:2] == ["claude plugin marketplace update research-kit", "claude plugin update formal@research-kit --scope project"]
-           and "update research@" not in " ".join(r["commands"]) and f"after v0.0.1 up to v{v}" in str(r["releases"]) and KIT_CHANGELOG in str(r["releases"]),
+           and "update research@" not in " ".join(r["commands"]) and f"after v0.0.1 up to v{v}" in str(r["releases"]) and kit_changelog(f"v{v}") in str(r["releases"]),
            f"{r['detail']} {r['commands']} {r['releases']}")
     r = against({"research@research-kit": [entry("project", v)]})
     expect("a plugin the settings enable and the record lacks is named with its install",
@@ -1058,6 +1093,36 @@ def marker_scenarios(tmp, v, expect):
         expect("kit_dirty names a modified and an untracked pin file by its path from the project root, a subdirectory's its own",
                kit_dirty(g) == ([".claude/settings.json", ".pre-commit-config.yaml"], None) and kit_dirty(g / "sub") == ([".pre-commit-config.yaml"], None),
                str(kit_dirty(g / "sub")))
+        run("add", "-A")
+        run("commit", "-q", "-m", "pins")
+        w = tmp / "linked"
+        run("worktree", "add", "--detach", "-q", str(w))
+        expect("kit_main_tree answers None in the main work tree and in no work tree, and the main tree's counterpart from a linked one, a subdirectory keeping its prefix",
+               kit_main_tree(g) is None and kit_main_tree(g / "sub") is None and kit_main_tree(tmp / "marker") is None
+               and kit_main_tree(w) == g.resolve() and kit_main_tree(w / "sub") == g.resolve() / "sub", f"{kit_main_tree(w)} {kit_main_tree(w / 'sub')}")
+        rec = tmp / "linked.json"
+        for scope in ("project", "local"):
+            rec.write_text(json.dumps({"version": 2, "plugins": {"research@research-kit": [
+                {"scope": scope, "projectPath": str(q), "installPath": str(tmp / "cache"), "version": v} for q in (g, g / "sub")]}}), encoding="utf-8")
+            expect(f"a linked work tree reads the main work tree's {scope} entry as its own, the entry's clause saying so, from its root and from a subdirectory of it",
+                   all(f"research@research-kit is installed at v{v} ({scope} scope, read for the main work tree {g.resolve() / sub}, of which this root is a linked one)"
+                       in kit_pins(w / sub, v, rec)["detail"] for sub in ("", "sub")), kit_pins(w / "sub", v, rec)["detail"])
+        expect("the main work tree reads the entry as its own, with no clause of the kind",
+               f"research@research-kit is installed at v{v} (local scope)" in kit_pins(g, v, rec)["detail"] and "linked" not in kit_pins(g, v, rec)["detail"])
+        rec.write_text(json.dumps({"version": 2, "plugins": {"research@research-kit": [
+            {"scope": "project", "projectPath": str(g), "installPath": str(tmp / "cache"), "version": "0.0.1"},
+            {"scope": "project", "projectPath": str(w), "installPath": str(tmp / "cache"), "version": v}]}}), encoding="utf-8")
+        expect("a linked work tree's own entry is read before the main work tree's",
+               f"installed at v{v} (project scope)" in kit_pins(w, v, rec)["detail"] and "linked" not in kit_pins(w, v, rec)["detail"])
+    rec = tmp / "standin.json"
+    rec.write_text(json.dumps({"version": 2, "plugins": {"research@research-kit": [
+        {"scope": "project", "projectPath": "/main/tree", "installPath": str(tmp / "cache"), "version": v}]}}), encoding="utf-8")
+    expect("a stand-in for kit_main_tree is read where git is not on PATH, and with none a root has its own entry alone",
+           f"(project scope, read for the main work tree {Path('/main/tree')}, of which this root is a linked one)" in kit_pins(p, v, rec, main_tree=lambda root: Path("/main/tree"))["detail"]
+           and "no plugin of research-kit is installed" in kit_pins(p, v, rec, main_tree=lambda root: None)["detail"])
+    expect("kit_changelog names the changelog at a release tag, and at main only for what is no release tag",
+           kit_changelog("v0.9.1") == "https://github.com/lividgreen/research-kit/blob/v0.9.1/CHANGELOG.md"
+           and kit_changelog("<tag>") == kit_changelog(None) == "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md")
     # the release the setup last brought the project to
     toml = lambda text: (p / "flow.toml").write_text(text, encoding="utf-8")
     expect("no flow.toml is no marker", kit_setup(p, v)["state"] == "none")
@@ -1069,7 +1134,7 @@ def marker_scenarios(tmp, v, expect):
     toml('[kit]\nrelease = "v0.0.1"\n')
     s = kit_setup(p, v)
     expect("a marker behind names the paragraphs to read after it, then the setup whose verify step moves it",
-           s["state"] == "pending" and s["commands"][0] == f"read the Upgrading paragraph of each release after v0.0.1 up to v{v}, in {KIT_CHANGELOG}"
+           s["state"] == "pending" and s["commands"][0] == f"read the Upgrading paragraph of each release after v0.0.1 up to v{v}, in {kit_changelog(f'v{v}')}"
            and s["commands"][1] == f"run `/research:research-init`, whose verify step moves `[kit] release` to v{v}", str(s))
     kit_hooks(p, "v0.0.1")
     pins = kit_pins(p, v, tmp / "none.json", latest=lambda: (f"v{v}", None), dirty=clean)
@@ -1080,7 +1145,7 @@ def marker_scenarios(tmp, v, expect):
     pins = kit_pins(p, v, tmp / "none.json", latest=lambda: ("v99.0.0", None), dirty=clean)
     steps = {x["item"]: x for x in upgrade(p, pins, tmp / "nowhere.py")}
     expect("with a marker read and a latest release past the installed one, the pins step names the paragraphs after the installed release",
-           steps["pins"]["commands"][0] == f"read the Upgrading paragraph of each release after v{v} up to v99.0.0, in {KIT_CHANGELOG}"
+           steps["pins"]["commands"][0] == f"read the Upgrading paragraph of each release after v{v} up to v99.0.0, in {kit_changelog('v99.0.0')}"
            and steps["setup"]["commands"][0].startswith("read the Upgrading paragraph of each release after v0.0.1 up to"), str(steps["pins"]["commands"]))
     kit_hooks(p, f"v{v}")
     expect("the report counts the setup step among the pending ones",

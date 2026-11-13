@@ -241,7 +241,7 @@ A consumed idea is in the discard pile, a removed one in the graveyard.
 
 Every closing clears the owner, the hand, the rank, the parking and the block, keeps `started`, and none is refused for a task that references the question: a question's closing is its own act.
 A question may be parked and blocked at once, and is closed in either position.
-An open question that tasks reference, all of them closed, is listed as needing refine or answer.
+An open question that tasks reference, all of them closed, is listed as needing a task or an answer.
 A question that is not open refuses `--answers`, `answer` and `impossible`: it is reopened first.
 An answered or impossible question is in the discard pile, a wrong or removed one in the graveyard.
 `rank`, `checked`, `flow serves` and `flow set` act on an open question without changing its state; reaching or giving up a goal and dropping a direction leave every question's `serves` as it is.
