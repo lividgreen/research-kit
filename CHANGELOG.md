@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.9.1 — 2026-11-13
 
 Five changes from the consumers' first day at v0.9.0: the setup probe reads the install in a linked git worktree, the flow names an open question with every task closed as needing a task or an answer, the probe names the changelog at the release's tag, the paragraph `flow init --print-instructions` prints stops restating what the skills say, and the skills say how to tell whether a decision is the person's.
 
