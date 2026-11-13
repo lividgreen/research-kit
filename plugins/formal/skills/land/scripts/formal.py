@@ -3339,7 +3339,37 @@ def selftest_cases():
             r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
             expect("pins at one tag behind the latest release move to it",
                    not r["ok"] and r["target"] == "v99.0.0" and "claude plugin update formal@research-kit --scope project" in r["commands"]
-                   and f"after v{ver} up to v99.0.0" in str(r["releases"]), r["detail"])
+                   and f"after v{ver} up to v99.0.0, in {kit_changelog('v99.0.0')}" in str(r["releases"]), r["detail"])
+            expect("kit_changelog names the changelog at a release tag, and at main only for what is no release tag",
+                   kit_changelog("v0.9.1") == "https://github.com/lividgreen/research-kit/blob/v0.9.1/CHANGELOG.md"
+                   and kit_changelog("<tag>") == kit_changelog(None) == "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md")
+            if shutil.which("git"):
+                with tempfile.TemporaryDirectory() as gt:
+                    g, w = Path(gt).resolve() / "main", Path(gt).resolve() / "linked"
+                    (g / "sub").mkdir(parents=True)
+                    (g / "sub" / "f").write_text("x", encoding="utf-8")
+                    git = lambda *a: subprocess.run(["git", "-C", str(g), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True)
+                    git("init", "-q")
+                    git("add", "-A")
+                    git("commit", "-q", "-m", "x")
+                    git("worktree", "add", "--detach", "-q", str(w))
+                    expect("kit_main_tree answers None in the main work tree and in no work tree, and the main tree's counterpart from a linked one, a subdirectory keeping its prefix",
+                           kit_main_tree(g) is None and kit_main_tree(root) is None and kit_main_tree(w) == g and kit_main_tree(w / "sub") == g / "sub",
+                           f"{kit_main_tree(w)} {kit_main_tree(w / 'sub')}")
+                    rec.write_text(json.dumps({"version": 2, "plugins": {"formal@research-kit": [
+                        {"scope": "project", "projectPath": str(q), "installPath": str(root / "cache" / ver), "version": ver} for q in (g, g / "sub")]}}), encoding="utf-8")
+                    expect("a linked work tree reads the main work tree's entry as its own, the entry's clause saying so, from its root and from a subdirectory of it",
+                           all(f"formal@research-kit is installed at v{ver} (project scope, read for the main work tree {g / sub}, of which this root is a linked one)"
+                               in kit_pins(w / sub, ver)["detail"] for sub in ("", "sub")), kit_pins(w / "sub", ver)["detail"])
+                    expect("the main work tree reads the entry as its own, with no clause of the kind",
+                           f"formal@research-kit is installed at v{ver} (project scope)" in kit_pins(g, ver)["detail"] and "linked" not in kit_pins(g, ver)["detail"])
+                    installed(ver)
+            rec.write_text(json.dumps({"version": 2, "plugins": {"formal@research-kit": [
+                {"scope": "project", "projectPath": "/main/tree", "installPath": str(root / "cache" / ver), "version": ver}]}}), encoding="utf-8")
+            expect("a stand-in for kit_main_tree is read where git is not on PATH, and with none a root has its own entry alone",
+                   f"(project scope, read for the main work tree {Path('/main/tree')}, of which this root is a linked one)" in kit_pins(root, ver, main_tree=lambda r_: Path("/main/tree"))["detail"]
+                   and "no plugin of research-kit is installed" in kit_pins(root, ver, main_tree=lambda r_: None)["detail"])
+            installed(ver)
             expect("a remote rev is stated, and no rev-less claim made", f"the hooks pin rev v{ver}" in r["detail"] and "no hook pins" not in r["detail"], r["detail"])
             (root / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: formal-check\n    language: system\n    entry: scripts/kit.py formal check\n", encoding="utf-8")
             r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
@@ -3456,7 +3486,6 @@ def manifest_commands(root, ws, packages):
 # them so) -------------------------------------------------------------------------------------------------
 
 KIT_REPO = "lividgreen/research-kit"
-KIT_CHANGELOG = "https://github.com/lividgreen/research-kit/blob/main/CHANGELOG.md"
 KIT_LATEST = "https://api.github.com/repos/lividgreen/research-kit/releases/latest"
 KIT_FOLLOW = "latest"  # the branch the release workflow moves to each release tag, which a marketplace follows
 
@@ -3531,11 +3560,12 @@ def install_record():
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "installed_plugins.json"
 
 
-def kit_installed(root, record):
+def kit_installed(root, record, main=None):
     """The plugins of the research-kit marketplace Claude Code installed for the project, name -> entry (its
     `version`, `scope` and `installPath`), from the install record (`plugins` -> name -> entries): the entry of
-    scope local, else project, whose `projectPath` is the root, else the user one.  None where the record is
-    absent or unreadable."""
+    scope local, else project, whose `projectPath` is the root or, where the root is in a linked work tree, `main`,
+    its counterpart in the main work tree (the root's own entry first), else the user one.  None where the record
+    is absent or unreadable."""
     try:
         raw = json.loads(Path(record).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -3543,14 +3573,15 @@ def kit_installed(root, record):
     plugins = raw.get("plugins") if isinstance(raw, dict) else None
     if not isinstance(plugins, dict):
         return None
-    root, out = Path(root).resolve(), {}
+    roots, out = [Path(root).resolve()] + ([Path(main).resolve()] if main else []), {}
     for name, entries in sorted(plugins.items()):
         if not name.endswith("@research-kit"):
             continue
         entries = [e for e in (entries if isinstance(entries, list) else [entries]) if isinstance(e, dict)]
         for scope in ("local", "project", "user"):
             hit = [e for e in entries if e.get("scope") == scope
-                   and (scope == "user" or bool(e.get("projectPath")) and Path(str(e["projectPath"])).resolve() == root)]
+                   and (scope == "user" or bool(e.get("projectPath")) and Path(str(e["projectPath"])).resolve() in roots)]
+            hit.sort(key=lambda e: scope != "user" and roots.index(Path(str(e["projectPath"])).resolve()))
             if hit:
                 out[name] = hit[0]
                 break
@@ -3561,6 +3592,12 @@ def kit_tag(tag):
     """A release tag as a tuple to order by (`v0.4.3` -> (0, 4, 3)); None for anything else, a commit or a branch."""
     m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", str(tag or ""))
     return tuple(int(g) for g in m.groups()) if m else None
+
+
+def kit_changelog(tag):
+    """The kit's changelog at a release tag, where the Upgrading paragraphs of that release stand as released; at
+    `main`, which carries the Unreleased section, only where `tag` is no release tag."""
+    return f"https://github.com/lividgreen/research-kit/blob/{tag if kit_tag(tag) else 'main'}/CHANGELOG.md"
 
 
 def kit_latest():
@@ -3602,7 +3639,30 @@ def kit_dirty(root):
     return sorted({q[len(pre):] if q.startswith(pre) else q for q in paths}), None
 
 
-def kit_pins(root, version, record=None, latest=None, dirty=None):
+def kit_main_tree(root):
+    """The root's counterpart in the main work tree where the root is in a linked work tree of a git repository, the
+    path of the main work tree (the first `worktree` line of `git worktree list --porcelain`) joined with the root's
+    path under its own top level, read from git alone; None where git is not on PATH, the root is in no work tree or
+    in the main one, the main one is a bare repository's, or git fails or does not answer in 30 s."""
+    if not shutil.which("git"):
+        return None
+    try:
+        top = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=30)
+        trees = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    first = trees.stdout.split("\n\n")[0].splitlines()
+    if top.returncode or trees.returncode or not top.stdout.strip() or not first or not first[0].startswith("worktree ") or "bare" in first[1:]:
+        return None
+    main, top = Path(first[0][len("worktree "):]).resolve(), Path(top.stdout.strip()).resolve()
+    try:
+        under = Path(root).resolve().relative_to(top)
+    except ValueError:
+        return None
+    return None if main == top else main / under
+
+
+def kit_pins(root, version, record=None, latest=None, dirty=None, main_tree=None):
     """The places a project pins the kit — the hooks' `rev`, the Claude Code marketplace's `ref` in the project's
     settings, the version of each plugin of the marketplace Claude Code installed for the project (`record`, the
     install record, defaults to Claude Code's) — beside the version of the plugin this script runs from (None for
@@ -3612,7 +3672,8 @@ def kit_pins(root, version, record=None, latest=None, dirty=None):
     paragraphs lie between.  A marketplace at `ref` KIT_FOLLOW follows the releases and is no pin to compare; one
     at a tag, or at no ref (the default branch), is off, its step the move to KIT_FOLLOW.  A pin file with uncommitted
     changes is named (`dirty`, a callable answering as `kit_dirty`, defaults to it), since a clone reads its committed
-    pin.  It writes nothing."""
+    pin.  A root in a linked work tree reads the install of its counterpart in the main work tree as its own (`main_tree`,
+    a callable answering as `kit_main_tree`, defaults to it), the entry's clause saying so.  It writes nothing."""
     root = Path(root).resolve()
     record = Path(record) if record else install_record()
     newest, unread = (latest or kit_latest)()
@@ -3660,14 +3721,18 @@ def kit_pins(root, version, record=None, latest=None, dirty=None):
     if why:
         said.append(f"whether the pin files differ from the commit is unread ({why})")
     enabled = st.get("enabledPlugins") if isinstance(st.get("enabledPlugins"), dict) else {}
-    inst, me, runs_installed = kit_installed(root, record), Path(__file__).resolve(), False
+    main = (main_tree or kit_main_tree)(root)
+    inst, me, runs_installed = kit_installed(root, record, main), Path(__file__).resolve(), False
     if inst is None:
         said.append(f"Claude Code's install record {record} is absent or unreadable, so no installed plugin is compared (another agent, or no install)")
     else:
         for name, e in inst.items():
             mine = bool(e.get("installPath")) and me.is_relative_to(Path(str(e["installPath"])).resolve())
             runs_installed = runs_installed or mine
-            said.append(f"{name} is installed at v{e.get('version')} ({e.get('scope')} scope)" + (", which this runs from" if mine else ""))
+            via = main and e.get("scope") != "user" and Path(str(e.get("projectPath"))).resolve() != root
+            said.append(f"{name} is installed at v{e.get('version')} ({e.get('scope')} scope"
+                        + (f", read for the main work tree {main}, of which this root is a linked one" if via else "") + ")"
+                        + (", which this runs from" if mine else ""))
             tags[name] = f"v{e.get('version')}"
         if not inst:
             said.append(f"no plugin of research-kit is installed for this project in {record}")
@@ -3701,7 +3766,7 @@ def kit_pins(root, version, record=None, latest=None, dirty=None):
         steps.append("restart the session, then read the pins again")
         oldest = min((t for t in tags.values() if kit_tag(t)), key=kit_tag, default=None)
         if oldest and kit_tag(T) and kit_tag(oldest) < kit_tag(T):
-            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {KIT_CHANGELOG}"
+            releases = f"read the Upgrading paragraph of each release after {oldest} up to {T}, in {kit_changelog(T)}"
     named = off[0] if len(off) == 1 else ", ".join(off[:-1]) + " and " + off[-1] if off else ""
     which = ", the latest release" if newest else ", the newest of them" if ordered and len(tags) > 1 else ""
     detail = "; ".join(said) + (f" — {named} {'differ' if len(off) > 1 else 'differs'} from {T}{which}: move every pin to it" if off else "")

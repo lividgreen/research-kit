@@ -90,7 +90,8 @@ A task it spawns may be a side story, off the list (`flow rank T --clear`); it b
 A design round on a question is the held question itself: its record is a dated note on the question (`flow note Q --body FILE`), its discarded options one line each inside it, and no design task is minted for the round; the round mints tasks where a piece of the work is too big.
 A round on no question, on tooling or a process, is a task tagged `design`, its record the resolution.
 Where the agent needs the person's answer it asks.
-If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry; if the person postpones, the waiting card is passed to the person's deck (`flow pass ID --to owner --note "…"`, the note naming the decision), or into the person's hand at their word, and leaves the agent's hand at that moment; a decision is no card and no kind.
+Before it asks, or passes a card for the person's decision, it applies the `method` skill's test under "Working with the owner": a choice a test settles is the agent's, run, decided and recorded, and what is correct is never put to the person as a choice.
+If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry; if the person postpones, the waiting card is passed to the person's deck (`flow pass ID --to owner --note "…"`, the note naming the decision and why no test of the agent's settles it), or into the person's hand at their word, and leaves the agent's hand at that moment; a decision is no card and no kind.
 Parking stays for a card set down by decision, and for nothing waited on: a date and an outside event's words are items of a block.
 Deviations are the person's to rule and the agent's to propose: drawing a card in the middle of a session, taking another after one that took little effort, or drawing a task straight from the deck for a prover that runs in parallel while the session works on something else.
 A card drawn by a deviation counts against the hand's limit, one number and no second class of held card; a deviation that finds the hand full is the person's to settle with the ruling, a card returned or the limit raised.
@@ -342,7 +343,7 @@ Findings live in one directory, and the document a finding belongs to is a refer
 ## Questions in practice
 
 On the usual path a task is made first and its finding minted after it: `flow make T --resolution FILE`, then `flow finding … --evidence … --ref T --answers Q`.
-An open question whose tasks are all closed is listed as needing refine or answer: its next tasks are minted, or it is answered.
+An open question whose tasks are all closed is listed as needing a task or an answer: its next tasks are minted, or it is answered.
 A question asks one thing, and its body says what answers it.
 A question in a hand is worked where it stands: a design round on it is a dated note (`flow note Q --body FILE`), and the tasks the work needs are minted where a piece is too big.
 An open end a round finds beyond that is a question of its own, referencing the finding that exposed it (`flow question "…" --ref finding-0001`) or minted from an idea captured first (`--ref IDEA`), and is never appended to the first question's body as what stays open: a question that gathers its residues has no answer anyone can reach, and the next list can no longer rank it by how near it is to done.
@@ -380,6 +381,7 @@ Reaching, giving up or dropping clears nothing on the questions: each keeps what
 
 `flow init` in an empty project writes `flow.toml` with the bindings filled in and the optional ones commented, the record directories under `records/` (`--records DIR` for another), the inbox, the log where `--log FILE` names one, and the index, and prints the paragraph the project's instructions should carry; `--force` overwrites a bindings file that exists.
 `flow init --print-instructions` prints that paragraph for the bindings as they stand, the records directory and the log read from `flow.toml` where it exists, the defaults otherwise, and writes nothing and refuses nothing, so an existing instructions section is compared with it.
+The paragraph holds the project's bindings and the rules that stand before a skill is loaded, and a project's instructions do not restate a skill's steps or a command's output, which the skills carry.
 
 `flow init` writes `[kit] release`, the release the setup last brought the project to, at this script's version (read from this skill's `metadata.version`); the setup's verify step (`/research:research-init`) moves it once every step up to the installed release is taken, on the person's word, and a value that is no `vN.N.N` is refused when `flow.toml` is read.
 Where it is newer than this script, the project was migrated on another machine or checkout and this plugin, or the hooks' pinned tag, is behind: every write (a transition, `init --force`, `doctor --fix`, `log add`, `index`) is refused and `flow check` reports the mismatch as a problem (exit 1), each naming both releases and the commands that move the plugin, `claude plugin marketplace update research-kit`, `claude plugin update research@research-kit --scope project` and a restart, or `prek autoupdate` for remote hooks; the reads answer, with a warning on the standard error first.

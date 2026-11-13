@@ -18,6 +18,7 @@ A focus the person gives with the command, "let's focus on the research tasks", 
 1. **Review the agent's hand.**
    `flow state` prints each hand's held cards with their drawn dates and ages.
    For each card the agent's hand holds, decide with a note: keep it, where its work goes on and the focus does not put it behind; return it, `flow return ID --note "…"`, where nothing is under way on it; pass it, `flow pass ID --to OWNER --note "…"`, where its remaining steps belong to another deck, the person's among them.
+   A card is passed to the person for a decision only where the `method` skill's test under "Working with the owner" leaves the decision theirs, and its note names the decision and why no test of the agent's settles it.
    The note says what was done on the card and why it goes, and the log entry names each card kept, returned or passed, one clause each.
    A task handed to a prover session stays held, since its handoff's landing closes it.
    A card whose work landed was closed by its own transition, which cleared its rank and took it out of the hand; one that stalled is returned or passed here, and parked only where it is set down by decision.
@@ -38,7 +39,7 @@ A focus the person gives with the command, "let's focus on the research tasks", 
    Never so biased toward a direction or a goal that the rest is not seen: then whole-project value, then a fresh landing's cheap follow-on; a task's due date never moves a rank, but the `Due` list is read first and a passed date is named.
    A finding resting on `stated` evidence alone (`flow find --form stated --only`) is work waiting, a proof to formalize, a probe to run, a work to cite, and a candidate task.
    Nothing is ranked down, parked or left off for lacking a route: a card with no known route is ranked, and finding the route is its first round's job.
-   A parked or blocked card keeps its rank, and the list shows the wait; a card whose remaining steps wait on the person's decision is passed to the person's deck and keeps its rank, and the refill of the agent's hand passes over it.
+   A parked or blocked card keeps its rank, and the list shows the wait; a card whose remaining steps wait on the person's decision is passed to the person's deck, with the decision named and why no test of the agent's settles it, and keeps its rank, and the refill of the agent's hand passes over it.
    Where the project pairs documents with a machine-checked library, the `method` skill's rules under "With a prover" order ties among its formal targets.
 5. **Write the ranks.**
    A rank is a number alone: `flow rank ID N` for one item, `flow rank ID 1 --insert` to take a rank another record holds, moving that record and the ones below it down by one, or `flow rank --set ID …` for the whole order at once, which clears every other rank, writes an order only, refreshing no question's checked date, and prints each record as `ranked ID N` or `unranked ID (was N)`.
@@ -47,7 +48,7 @@ A focus the person gives with the command, "let's focus on the research tasks", 
    A list whose ranked records have not changed since its last refresh is left as it is, and the log entry says so with that refresh's date.
    Draft the entry in a scratch file and pass it through the project's text gates before writing it.
 6. **Intake.**
-   Park or unpark only for a card set down by decision, with a reason the record carries with a date — `flow park ID --reason "…" --revival "…"`, `flow unpark ID` — never "no route"; a card waiting on the person's decision is passed, `flow pass ID --to owner --note "…"` with the decision named, and never parked for it.
+   Park or unpark only for a card set down by decision, with a reason the record carries with a date — `flow park ID --reason "…" --revival "…"`, `flow unpark ID` — never "no route"; a card waiting on the person's decision is passed, `flow pass ID --to owner --note "…"` with the decision named and why no test of the agent's settles it, and never parked for it.
    Mint newly seen residues, each into a deck and never into the hand: `flow idea "…"` for an idea, `flow question "…" --ref IDEA` for a question from one (`flow consume IDEA` once the idea is fully processed), or `flow question "…" --ref FINDING` from the finding that exposed it — a question of its own, its body saying what counts as an answer, never a line added to the question it came from — and the ones that are plainly the person's or the agent's `--for` that owner.
    Record the read of each question the session opened in step 3 or touched here with `flow checked ID …`, where no `flow rank ID N` refreshed it already; `--set` asserts no read.
    Goals and directions are the person's: propose in the log entry, and mint or close one (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal reached or given up, or a direction dropped, clears nothing on its questions, and the notice it prints names them: each is decided on here, re-ranked, given another goal or direction with `flow serves`, or left.
@@ -58,6 +59,8 @@ A focus the person gives with the command, "let's focus on the research tasks", 
    A hand left under its limit is explained in the log entry for the ranking, from the lines the command printed: which cards it passed over and why, and the ready cards that stand unranked.
 8. **The person's side.**
    Name the person's deck in rank order and what the person's hand holds, both printed by `flow state`.
+   Read each card of the person's deck against the `method` skill's test under "Working with the owner" before proposing it: a card a test of the agent's settles is taken back, `flow pass ID --to agent --note "…"`, the note saying the test, named in the log entry and not proposed, and the next refill draws it by rank.
+   The take-back is made without asking, a pass being reversible.
    Propose which cards of the deck go into the person's hand in one multi-select question, asked with the agent's question tool where it has one and in the turn otherwise.
    A draw into the person's hand, `flow draw ID --owner owner`, is made only on that answer.
 

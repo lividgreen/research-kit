@@ -26,8 +26,8 @@ SCRIPTS = {"flow": SKILLS / "flow/scripts/flow.py", "library": SKILLS / "library
            "setup": SKILLS / "research-init/scripts/setup.py"}
 SHARED = ("_SENT", "BUILTIN_ABBREVIATIONS", "FENCE_RUN", "fence_after", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
 # the pins' helpers, duplicated into the two setup probes (research's setup.py, formal's `formal probe`)
-PINS = ("KIT_REPO", "KIT_CHANGELOG", "KIT_LATEST", "KIT_FOLLOW", "skill_version", "hooks_pin", "install_record", "kit_installed", "kit_tag",
-        "kit_latest", "kit_dirty", "kit_pins")
+PINS = ("KIT_REPO", "KIT_LATEST", "KIT_FOLLOW", "skill_version", "hooks_pin", "install_record", "kit_installed", "kit_tag", "kit_changelog",
+        "kit_latest", "kit_dirty", "kit_main_tree", "kit_pins")
 # the probes ask GitHub for the kit's latest release; nothing these tests run asks the network
 os.environ["RESEARCH_KIT_OFFLINE"] = "1"
 failures = []

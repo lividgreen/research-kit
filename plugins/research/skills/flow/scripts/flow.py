@@ -1593,7 +1593,7 @@ def validate(cfg, recs, today):
             if r["state"] == "open":
                 ts = tasks_of.get(r.id, [])
                 if ts and all(x["state"] in CLOSED_TASK for x in ts):
-                    warnings.append(f"{r.id}: needs refine or answer (every task closed)")
+                    warnings.append(f"{r.id}: needs a task (`flow task SUMMARY --ref {r.id}`) or an answer (every task closed)")
         if t == "idea":
             into = consumed_list(r)
             if not isinstance(r["consumed_by"], list) and r["consumed_by"]:
@@ -1768,7 +1768,7 @@ def render_index(cfg, recs):
                 tasks_of[x].append(r)
         need = [r for r in R if r.type == "question" and r["state"] == "open" and tasks_of[r.id]
                 and all(x["state"] in CLOSED_TASK for x in tasks_of[r.id])]
-        section("Needs refine or answer", [_line(r, f"{len(tasks_of[r.id])} tasks, all closed") for r in sorted(need, key=lambda r: r.id)])
+        section("Needs a task or an answer", [_line(r, f"{len(tasks_of[r.id])} tasks, all closed") for r in sorted(need, key=lambda r: r.id)])
 
     if cfg.has("finding"):
         fnd = sorted((r for r in R if r.type == "finding" and r["state"] != "removed"), key=lambda r: r.id, reverse=True)[:cfg.recent_findings]
@@ -4101,13 +4101,12 @@ INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should 
   and `flow state`, never by a glob; `flow.toml` binds the names.
 - A record's state changes only through a `flow` transition; bodies are edited by hand,
   one sentence per line; `flow check` runs before a commit (a hook where the project has them).
-- The ranked list in `{records}/INDEX.md` is the schedule: the agent's hand is filled from its top, and a session works its hand.
+- The ranked list in `{records}/INDEX.md` is the schedule of the work.
 {log_line}- Where the project keeps a registry of its deliverables — what it produces and in what order —
   that file is named here and nowhere else; none is needed to start.
 - `INBOX.md` is where the person leaves items between sessions; a session reads it at its start.
-- `flow state` prints the cold-start bundle: the inbox, the ranked list, the hands and the log's top entry.
-- A session starts with the `whatsnext` skill (the hand reviewed, the inbox read, the list ranked, the hand refilled)
-  and ends with the `freeze` skill (what the conversation holds saved, `flow state --check`, a commit).
+- `flow state` prints the cold-start bundle a session reads first.
+- A session starts with the `whatsnext` skill and ends with the `freeze` skill.
   When the person says "whatsnext" or "freeze", they mean these skills: each is called every time, even if it
   ran earlier in the session, and every step is taken; a request ending "… and freeze" is two requests, the work
   and then the `freeze` skill.
@@ -5263,6 +5262,14 @@ def selftest():
         _, warnings, _ = validate(cfg, load_all(cfg), today)
         expect("a due date that has passed is warned of, a block's date that has passed is not",
                any(f"{wt}: due 2026-09-01 has passed" in w for w in warnings) and not any(q4 in w for w in warnings))
+        was = {k: load_all(cfg)[wt][k] for k in ("state", "references")}
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="done", references=[q4]))
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        run(["index"])
+        expect("an open question whose every task is closed is warned of as needing a task or an answer, and the index's section says so",
+               f"{q4}: needs a task (`flow task SUMMARY --ref {q4}`) or an answer (every task closed)" in warnings
+               and "## Needs a task or an answer" in cfg.index.read_text(encoding="utf-8"))
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(**was))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(blocked_by={"date": today, "on": ["2026-09-01", q3], "reason": "both"}))
         recs = load_all(cfg)
         said = [l for l in passed_dates(cfg, recs, today) if q4 in l]
@@ -6207,6 +6214,9 @@ def selftest():
                        r.returncode == 0 and "The records are `records/`" in r.stdout and "The log is not bound yet" in r.stdout and not any(Path(t4).iterdir()))
             expect("the paragraphs say the person's bare words mean the session skills, called every time, and a request ending in a freeze is two",
                    "they mean these skills" in INSTRUCTIONS and "is two requests" in INSTRUCTIONS)
+            expect("the paragraphs name neither a skill's steps nor what flow state lists, which the skills and the command carry",
+                   "the hands" not in INSTRUCTIONS and "the hand reviewed" not in INSTRUCTIONS and "the hand is filled" not in INSTRUCTIONS
+                   and "the cold-start bundle a session reads first" in INSTRUCTIONS)
             # a flow.toml of the v0.5.0 shape: the keys a later init writes are noted, never failed
             older = re.sub(r"(?m)^(log_archive|# statement_words|# row_id) = .*\n", "", toml3)
             # a prose comment that reads like `key = words` is no commented key, so the key it resembles is still noted
