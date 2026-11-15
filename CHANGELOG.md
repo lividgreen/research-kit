@@ -4,6 +4,41 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A record's two fields for what it is: the field that was its `summary`, a line, is its `title` now, and a new `summary` explains it in a paragraph.
+
+**Upgrading**: a breaking release for the records and for anything that reads `summary` from `--json`, which is now the explanation, the title being `title`.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart; then run `flow doctor --fix`, which renames every record's `summary` to `title` and adds `summary: null` to it, then `flow index` and `flow check`.
+The doctor's two notes count the live records whose title is over 100 characters and the live ideas, questions, tasks and findings with no summary, which the project writes by hand, record by record; nothing refuses a tree not yet fixed, and `flow check` fails V3 on a record that still has no `title`.
+A mint of an idea, a question, a task or a finding is refused without `--summary`, so a script or a project's instructions that mint one add it, and the positional is the title.
+A project's `flow.toml` needs no `[card]` section, the limits being 100 and 500 characters where it is missing, and `flow doctor` notes the two keys `flow init` writes now.
+
+The flow:
+
+- A record carries `title`, a line of at most `[card] title_max` characters (100 where unset), never empty, and `summary`, one paragraph of at most `[card] summary_max` characters (500) on one line of the file, or `null`, in the front matter where `summary` stood: `id`, `type`, `state`, `title`, `summary`, then the rest.
+  The check reads neither limit on a record already written, and a record lacking either field fails V3 as ever.
+- `flow init` writes the `[card]` section with `title_max = 100` and `summary_max = 500`; a mint or a set over a limit is refused with the length, the limit and where the rest goes, the summary for a title and the body for a summary, and a newline in a summary is refused.
+- The mints take the title as their positional and `--summary S`; an idea, a question, a task and a finding are refused with none, a goal and a direction may have none.
+- `flow set ID title "…"` and `flow set ID summary "…"`: a title set appends `title set; it read: OLD` to the body under the date, with `--note`'s words after it, as a summary set did; a summary set keeps nothing of what it read, `--note N` appends `summary set: N`, and `none` clears a summary.
+  `flow set ID title "NEW" --to-summary` makes what the title read the summary and writes no such note; it is refused where the record has a summary and where what the title read is over the summary's limit.
+- The index, `flow state`, `flow show`, a row of `flow find`, `flow touched`, the notice and every refusal that named a record by its summary name it by its title, and the slug of a new file is cut from the title; under `--json` a record's keys are `title` and `summary`, and a link and a back-reference of `flow show`, and the cards `flow draw --refill` drew, are `{"id", "title"}` and carry a `title`.
+- The built-in markdownlint configuration reads `title:` as the document's title, where it read `summary:`.
+- `flow doctor` reads a record with `summary` and no `title` as the older model's, its line mechanical, and `--fix` renames the field and adds `summary: null`; after its lines it prints two notes that never fail, each one line with a count, `--all` listing the records and `--json` carrying them as `card_notes`: the live records whose title is over the limit, and the live ideas, questions, tasks and findings with no summary.
+  The doctor's note on a key `flow init` writes now names `[card]`'s two where a project's `flow.toml` has neither.
+
+The `research` plugin:
+
+- The `flow` skill's new part "Writing a title and a summary": a title says what the card is to a reader of the project with no other record open, a question's the question, a task's the act with its verb first, a finding's the claim as one sentence, an idea's the thought, a goal's the outcome, a direction's its name, never an id, a section number or a bare label of a topic as its subject and never ending with a colon; a summary is one to four sentences saying what the record states, asks or does, in which setting and what it is for, naming another record by what it is, and leaving where the thing is stated and its history to the body.
+  The `method` skill refers to it where it says how a record is written, and `whatsnext` mints with `--summary`.
+- The `dashboard` reads `title` where it read `summary`, for the flow's list and its record pages and for a `refs` section's items, the summary shown as one more field of a record's page.
+
+The `formal` plugin:
+
+- Its `handoff` and `land` skills mint the prover's task, a finding and a residue with `--summary`.
+
+The pages:
+
+- [The flow](docs/research/flow.md) (the commands, `[card]`, the doctor and its notes, the words *title* and *summary*), [Flow cards](docs/research/flow-cards.md) (the common fields, the form and each transition's table) and [Getting started](docs/research/getting-started.md) say the same, and the dashboard's protocol names a `refs` section's items `{"id", "title"}`.
+
 ## v0.9.1 — 2026-11-13
 
 Five changes from the consumers' first day at v0.9.0: the setup probe reads the install in a linked git worktree, the flow names an open question with every task closed as needing a task or an answer, the probe names the changelog at the release's tag, the paragraph `flow init --print-instructions` prints stops restating what the skills say, and the skills say how to tell whether a decision is the person's.

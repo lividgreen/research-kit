@@ -40,7 +40,7 @@ So "no findings at migration, the results stay in the reports" is not a start: t
 A roadmap is two things the model keeps apart.
 Its order of deliverables, what ships and when, is the project's registry, which stays the roadmap's and is named in the instructions; its open items are the work, which become records, ranked on the next list, the roadmap pointing at no record and no record copying it.
 How the records point at the roadmap's workstreams is the project's own: the survey asks the person, and the mapping message says it (a tag per workstream, a goal for an outcome the person commits to, or nothing).
-A design record that raises a question, an ADR's open point, is minted from the document itself, `flow question "…" --source doc/adr/0010.md`, its body saying what counts as an answer, with no idea first.
+A design record that raises a question, an ADR's open point, is minted from the document itself, `flow question "…" --summary "…" --source doc/adr/0010.md`, its body saying what counts as an answer, with no idea first.
 
 ## A worked survey
 

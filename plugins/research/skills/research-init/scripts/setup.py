@@ -1029,7 +1029,7 @@ def upgrade_scenarios(tmp, v, expect):
         return
     flow = lambda *a: subprocess.run([sys.executable, str(FLOW), *a], capture_output=True, text=True, cwd=u)
     flow("init", "--log", "WORKLOG.md")
-    flow("task", "a chore", "--tag", "upkeep")
+    flow("task", "a chore", "--summary", "A chore of the project's own.", "--tag", "upkeep")
     s = steps()
     expect("a tree the flow wrote has no upgrade step pending", s["records"]["state"] == "ok" and s["index"]["state"] == "ok", str(s))
     task = next((u / "records").rglob("task-0001-*.md"))

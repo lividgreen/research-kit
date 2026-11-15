@@ -103,6 +103,7 @@ These invariants keep that honest.
 - Reversible options are paths, not forks: take the one of highest benefit and go; a wall is a pivot, not a question.
 - The owner's test is applied literally: a binary test as given, with the borderline cases listed, never widened into a category of the agent's own.
 - The owner's statements are captured as they are made — an idea in their words with its date and source, a ruling where the project's rules live, a preference in the agent's memory — and a task is minted when its shape is already there.
+- A record is written for a reader with no other record open: its title says what the card is and its summary explains it, by the `flow` skill's part "Writing a title and a summary".
 - The owner's own ideas get the citation discipline: checked against the exporting statements before they are agreed with.
 - Publication is the owner's alone: no session schedules, proposes or sequences it, and nothing is sent anywhere without the owner's word for that item.
 - Messages are terse and deliver results: no line counts or statistics in a message, a commit message or release notes, and the framing of a result's significance is the owner's.
