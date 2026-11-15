@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.10.0 — 2026-11-15
 
 The dashboard becomes a card table: the flow's table of hands and decks, its lists and its records and the library's works, laid as cards.
 A card gains what the table shows: a `title`, which is what its `summary` was, a new `summary` that explains it in a paragraph, and for an idea, a question and a task a `value`.
