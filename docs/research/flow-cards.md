@@ -75,7 +75,7 @@ A closed card is in a pile, read from its state with no file moved for it: the d
 ## The fields
 
 The tables give each kind's fields in the order its front matter carries them, and who writes each.
-*Minted* is the transition that creates the record, `flow idea`, `flow question`, `flow task`, `flow finding`, `flow goal` or `flow direction`; *transition* names the ones that change the field after; *`flow set`*, *`flow ref`*, *`flow serves`* and *`flow tag`* change a field at any time.
+*Minted* is the transition that creates the record, `flow idea`, `flow question`, `flow task`, `flow finding`, `flow goal` or `flow direction`; *transition* names the ones that change the field after; *`flow set`* (`flow set --from FILE` for many in one run), *`flow ref`*, *`flow serves`* and *`flow tag`* change a field at any time.
 Every field is written by its command, and `tags` alone also by hand: the check does not read who wrote a field, but a hand edit that leaves a record without what its transition would have written fails it.
 
 Every kind carries these:
@@ -85,8 +85,8 @@ Every kind carries these:
 | `id` | the record's id, matching its filename | minted |
 | `type` | `idea`, `question`, `task`, `finding`, `goal` or `direction` | minted |
 | `state` | the kind's states, below | minted; the transitions |
-| `title` | one line of at most `[card] title_max` characters (100), never empty: what the card is, to a reader with no other record open; a goal's outcome, a direction's name | minted (the positional); `flow set`, which keeps what it read in the body, or makes it the summary with `--to-summary` |
-| `summary` | one paragraph of at most `[card] summary_max` characters (500), on one line of the file, or `null`: a brief explanation of the card, what it states, asks or does, in which setting, and what it is for; an idea, a question, a task and a finding are minted with one, a goal and a direction may have none | minted (`--summary`); `flow set`, which keeps nothing of what it read; `none` clears it |
+| `title` | one line of at most `[card] title_max` characters (100), never empty: what the card is, to a reader with no other record open; a goal's outcome, a direction's name | minted (the positional); `flow set` or `flow set --from FILE`, which keeps what it read in the body, or makes it the summary with `--to-summary` |
+| `summary` | one paragraph of at most `[card] summary_max` characters (500), on one line of the file, or `null`: a brief explanation of the card, what it states, asks or does, in which setting, and what it is for; an idea, a question, a task and a finding are minted with one, a goal and a direction may have none | minted (`--summary`); `flow set` or `flow set --from FILE`, which keeps nothing of what it read; `none` clears it |
 | `references` | the records it references, any kind, any state | minted (`--ref`); `flow ref` |
 | `origin` | `current` for a record the flow minted, `legacy` for one imported from before it and written by hand, which lets an answered question name no finding | minted; hand, for a legacy record alone |
 | `source` | where it came from: a talk, a paper; a repository path of the tree, such as the document a question was minted from, is a reference `flow artifacts` and `flow find --refers` read; a source with a path's shape (no space, no URL, a `/` or an extension) is held to the tree when the record is minted, so one in words takes a space (`arXiv 2301.12345`), and one outside the tree is words | minted (`--source`) |

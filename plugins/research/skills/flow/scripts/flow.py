@@ -64,6 +64,9 @@ no --summary, a goal and a direction may have none:
   flow set ID FIELD VALUE        title (every kind, the old one kept in the body, or made the summary with --to-summary),
                                  summary (every kind; none clears it), size (question, task), value (idea, question,
                                  task; none clears it), due | after (task)
+  flow set --from FILE           many sets in one run: FILE, or `-` for the standard input, holds one JSON object a row,
+                                 {"id", "field", "value"} with "note" and "to_summary": true where there are any; a row
+                                 refused stops nothing, one markdownlint run and one index rebuild close the run
   flow ref ID +X -Y...           a record's references: +X adds one, -Y removes one
   flow serves Q +G -D...         an open question's goals and directions
   flow tag ID +T -U...           a record's tags after its mint: +T adds one, -U removes one, the rest kept
@@ -106,6 +109,7 @@ The index is a pure function of the records; `check` fails when the committed co
 
 import argparse
 import contextlib
+import copy
 import datetime as dt
 import difflib
 import hashlib
@@ -873,7 +877,8 @@ _MDLINT_ROOT_CONFIGS = (".markdownlint.jsonc", ".markdownlint.json", ".markdownl
 _MDLINT_TEMP = [None]
 
 
-def mdlint(cfg, path):
+def mdlint_cmd(cfg):
+    """The markdownlint command with the configuration a record's write runs under, or None where it is absent."""
     exe = shutil.which("markdownlint")  # the path itself, so a Windows `markdownlint.cmd` runs too
     if not exe:
         return None
@@ -887,11 +892,47 @@ def mdlint(cfg, path):
                 fh.write(MDLINT_DEFAULT)
             _MDLINT_TEMP[0] = Path(name)
         cmd += ["-c", str(_MDLINT_TEMP[0])]
+    return cmd
+
+
+def mdlint(cfg, path):
+    cmd = mdlint_cmd(cfg)
+    if not cmd:
+        return None
     try:
         r = subprocess.run(cmd + [str(path)], capture_output=True, text=True, cwd=cfg.root)
     except OSError:  # on PATH and yet not runnable: as absent
         return None
     return Counter(re.findall(r"\b(MD\d{3})\b", r.stdout + r.stderr)), (r.stdout + r.stderr).strip()
+
+
+def mdlint_many(cfg, paths, chunk=20000):
+    """markdownlint over many files in one run (more only where the command line would be too long): {path: (a Counter
+    of its codes, its report lines)}, or None where markdownlint is absent."""
+    cmd = mdlint_cmd(cfg)
+    if not cmd:
+        return None
+    found = {p: (Counter(), []) for p in paths}
+    groups, size = [[]], 0
+    for p in paths:
+        if groups[-1] and size + len(str(p)) + 1 > chunk:
+            groups.append([])
+            size = 0
+        groups[-1].append(p)
+        size += len(str(p)) + 1
+    for group in groups:
+        try:
+            r = subprocess.run(cmd + [str(p) for p in group], capture_output=True, text=True, cwd=cfg.root)
+        except OSError:
+            return None
+        for ln in (r.stdout + r.stderr).splitlines():
+            for p in group:
+                if ln.startswith(f"{p}:"):
+                    codes = re.findall(r"\b(MD\d{3})\b", ln)
+                    found[p][0].update(codes[:1])
+                    found[p][1].append(ln)
+                    break
+    return found
 
 
 # The files one transition has touched, oldest first, so a transition refused halfway is undone whole:
@@ -915,14 +956,18 @@ def rollback():
                 shutil.move(str(dest), str(src))
 
 
-def write_record(cfg, rec, reflow=True):
-    """Write `rec` to its path: reflow the body, then refuse (and revert) on a NEW markdownlint code."""
+def record_text(cfg, rec, reflow=True):
+    """The text a record is written as: the empty lists of its list fields, its body reflowed (and kept so in `rec`)."""
     for f in LIST_FIELDS:
         if f in rec.fm and rec.fm[f] is None:
             rec.fm[f] = []
-    body = cfg.reflow(rec.body) if reflow and rec.body else rec.body
-    rec.body = body
-    write_linted(cfg, {rec.path: render(rec.fm, body)})
+    rec.body = cfg.reflow(rec.body) if reflow and rec.body else rec.body
+    return render(rec.fm, rec.body)
+
+
+def write_record(cfg, rec, reflow=True):
+    """Write `rec` to its path: reflow the body, then refuse (and revert) on a NEW markdownlint code."""
+    write_linted(cfg, {rec.path: record_text(cfg, rec, reflow)})
     return rec.path
 
 
@@ -955,8 +1000,12 @@ def write_linted(cfg, texts):
 def write_whole(path, text):
     """The file replaced in one step: a reader never sees it half-written, and a failure leaves the old file."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:  # no temporary file is left behind
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def rel(cfg, path):
@@ -2661,44 +2710,49 @@ SET_GONE = {**dict.fromkeys(BODY_FIELDS, "its words go in the body: `flow note I
             "rider": "the tag `rider` marks a hand-off: `flow tag T +rider`", "kind": "the tag `conjecture` marks one: `flow tag Q +conjecture`"}
 
 
-def cmd_set(cfg, recs, a, today):
-    r = get(recs, a.id)
-    if a.field not in SETTABLE:
-        raise Refused(f"set takes one of {', '.join(SETTABLE)}; {a.field!r} is a transition's or no field"
-                      + (f": {SET_GONE[a.field]}" if a.field in SET_GONE else ""))
-    if r.type not in SETTABLE[a.field]:
-        raise Refused(f"{r.id} is {kind_word(r.type)}; {a.field} is a field of {', '.join(SETTABLE[a.field])}")
-    v = a.value.strip()
-    if a.to_summary and a.field != "title":
+def apply_set(cfg, r, field, text, note, to_summary, today, skip_standing=False):
+    """One `set` on the record `r`, in memory: the field and its value checked, the note and the body's note written, the
+    field set.  Refused with `r` as it was.  Shared by `flow set` and by each row of `flow set --from`, which passes
+    `skip_standing`: a value that stands already changes nothing, no note, and the answer is False (True where `r` changed)."""
+    if field not in SETTABLE:
+        raise Refused(f"set takes one of {', '.join(SETTABLE)}; {field!r} is a transition's or no field"
+                      + (f": {SET_GONE[field]}" if field in SET_GONE else ""))
+    if r.type not in SETTABLE[field]:
+        raise Refused(f"{r.id} is {kind_word(r.type)}; {field} is a field of {', '.join(SETTABLE[field])}")
+    v = text.strip()
+    if to_summary and field != "title":
         raise Refused("--to-summary goes with `flow set ID title \"NEW\"`: what the title read becomes the summary")
-    if a.field == "title":
+    if field == "title":
         value = check_title(cfg, v)
         if v == "none":
             raise Refused("a title is never empty, and `none` clears a summary: `flow set ID title \"…\"` takes the words")
-    elif a.field == "summary":
+    elif field == "summary":
         value = None if v == "none" else check_summary(cfg, v)
-    elif a.field == "size":
+    elif field == "size":
         if v not in (*cfg.sizes, "none"):
             raise Refused(f"size takes one of {', '.join(cfg.sizes)} or none")
         value = None if v == "none" else v
-    elif a.field == "value":
+    elif field == "value":
         if v not in (*cfg.values, "none"):
             raise Refused(f"value takes one of {', '.join(cfg.values)} or none")
         value = None if v == "none" else v
-    elif a.field == "due":
+    elif field == "due":
         value = None if v == "none" else check_due(v)
-    elif a.field == "after":
+    elif field == "after":
         value = None if v == "none" else v
         if value == "":
-            raise Refused(f"{a.field} takes words, or none")
+            raise Refused(f"{field} takes words, or none")
     else:
         if not v:
-            raise Refused(f"{a.field} cannot be empty")
+            raise Refused(f"{field} cannot be empty")
         value = v
-    if a.note is not None and not a.note.strip():
+    if note is not None and not note.strip():
         raise Refused("set takes --note in words: an empty one says nothing")
-    old = r[a.field]
-    if a.to_summary:  # what the title read becomes the summary, which the record has none of yet
+    old = r[field]
+    if skip_standing and (value is None and old is None or value is not None and old is not None and str(value) == str(old)) \
+            and not (to_summary and r["summary"] is None):  # a title that stands, its row asking the summary too, still has that to write
+        return False
+    if to_summary:  # what the title read becomes the summary, which the record has none of yet
         if r["summary"] is not None:
             raise Refused(f"{r.id} has a summary already: --to-summary would overwrite it; `flow set {r.id} summary \"…\"` sets one, "
                           f"and `flow set {r.id} title \"…\"` without the flag keeps what the title read in the body")
@@ -2709,16 +2763,119 @@ def cmd_set(cfg, recs, a, today):
         if "\n" in old or "\r" in old:
             raise Refused("what the title reads has a newline in it, and a summary is one line of the file: write the summary by hand")
         r.fm["summary"] = old
-        if a.note:
-            append_note(r, today, f"title set: {a.note.strip()}")
-    elif a.field == "title" and value != old:
+        if note:
+            append_note(r, today, f"title set: {note.strip()}")
+    elif field == "title" and value != old:
         # the title says what the card is: what it read before stays in the body, dated, with the words for the change
-        append_note(r, today, f"title set; it read: {code_span(old)}" + (f". {a.note.strip()}" if a.note else ""))
-    elif a.note:
-        append_note(r, today, f"{a.field} set: {a.note.strip()}")
-    r.fm[a.field] = value
+        append_note(r, today, f"title set; it read: {code_span(old)}" + (f". {note.strip()}" if note else ""))
+    elif note:
+        append_note(r, today, f"{field} set: {note.strip()}")
+    r.fm[field] = value
+    return True
+
+
+def cmd_set(cfg, recs, a, today):
+    r = get(recs, a.id)
+    apply_set(cfg, r, a.field, a.value, a.note, a.to_summary, today)
     save(cfg, r)
     return [], [r]
+
+
+# The keys of a row of `flow set --from`, and the ones it must have.
+SET_ROW_KEYS = ("id", "field", "value", "note", "to_summary")
+
+
+def set_row(line):
+    """A row of the file as (id, field, value, note, to_summary), each the type `set` takes; refused, the refusal saying
+    what is wrong, for a line that is not a JSON object, a key it lacks or does not know, a value of the wrong type.
+    The refusal carries the id and the field the row names, where it names them, as `.ident`."""
+    ident = [None, None]
+    try:
+        try:
+            row = json.loads(line)
+        except ValueError as e:
+            raise Refused(f"not valid JSON ({e})")
+        if not isinstance(row, dict):
+            raise Refused("a row is a JSON object: {\"id\", \"field\", \"value\"}, with \"note\" and \"to_summary\" where there are any")
+        ident = [row.get("id") if isinstance(row.get("id"), str) else None, row.get("field") if isinstance(row.get("field"), str) else None]
+        for k in ("id", "field", "value"):
+            if k not in row:
+                raise Refused(f"the row has no \"{k}\"")
+        unknown = [k for k in row if k not in SET_ROW_KEYS]
+        if unknown:
+            raise Refused(f"the row has no key {', '.join(map(json.dumps, unknown))}; its keys are {', '.join(SET_ROW_KEYS)}")
+        for k in ("id", "field", "value") + (("note",) if "note" in row else ()):
+            if not isinstance(row[k], str):
+                raise Refused(f"\"{k}\" is a string" + (" (`none` clears a field)" if k == "value" else ""))
+        if not isinstance(row.get("to_summary", False), bool):
+            raise Refused("\"to_summary\" is true or false")
+        return row["id"], row["field"], row["value"], row.get("note"), row.get("to_summary", False)
+    except Refused as e:
+        e.ident = ident
+        raise
+
+
+def batch_set(cfg, recs, source, today):
+    """`flow set --from FILE`: the rows of FILE (`-`, the standard input) applied to the tree `recs`, read once, as a
+    `flow set` applies one each; the changed records written whole, markdownlint run once over them, a record that fails put
+    back as it was; the index written once.  A row refused never stops the run.  Returns the answer's fields."""
+    if source == "-":
+        text = sys.stdin.read()
+    else:
+        p = Path(source)
+        if not p.is_file():
+            raise Refused(f"rows file not found: {source}")
+        try:
+            text = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
+            raise Refused(f"{source}: not UTF-8 ({e.reason} at byte {e.start})")
+    written, unchanged, refused, applied, first = 0, 0, [], {}, {}
+    for n, line in enumerate(text.splitlines(), 1):  # a row's number is its line's in the file; blank lines are no rows
+        if not line.strip():
+            continue
+        ident = [None, None]
+        try:
+            id_, field, value, note, to_summary = set_row(line)
+            ident = [id_, field]
+            r = get(recs, id_)
+            was = first.get(id_) or (copy.deepcopy(r.fm), r.body)
+            if apply_set(cfg, r, field, value, note, to_summary, today, skip_standing=True):
+                first.setdefault(id_, was)
+                applied.setdefault(id_, []).append((n, field))
+            else:
+                unchanged += 1
+        except Refused as e:
+            who = getattr(e, "ident", None) or ident
+            refused.append({"row": n, "id": who[0], "field": who[1], "msg": str(e)})
+    changed = {i: recs[i] for i in applied}
+    texts = {i: record_text(cfg, r) for i, r in changed.items()}
+    olds = {i: r.path.read_text(encoding="utf-8") for i, r in changed.items()}
+    paths = [r.path for r in changed.values()]
+    before = mdlint_many(cfg, paths) if paths else None
+    try:
+        for i, r in changed.items():
+            write_whole(r.path, texts[i])
+        after = mdlint_many(cfg, paths) if before is not None else None
+    except BaseException:  # the run happens whole or not at all: each record as it was
+        for i, r in changed.items():
+            write_whole(r.path, olds[i])
+        raise
+    failed = {}
+    if before is not None and after is not None:
+        for i, r in changed.items():
+            rose = [k for k, v in after[r.path][0].items() if v > before[r.path][0].get(k, 0)]
+            if rose:
+                failed[i] = next(ln for ln in after[r.path][1] if re.search(rf"\b{rose[0]}\b", ln)).replace(f"{r.path}:", f"{rel(cfg, r.path)}:", 1)
+    for i, line in failed.items():  # a record whose lint fails is put back whole, and each of its rows is refused
+        write_whole(changed[i].path, olds[i])
+        changed[i].fm, changed[i].body = first[i]
+        refused += [{"row": n, "id": i, "field": field, "msg": f"markdownlint reports new violations, the record put back as it was: {line}"}
+                    for n, field in applied[i]]
+    kept = [i for i in changed if i not in failed]
+    written = sum(len(applied[i]) for i in kept)
+    refused.sort(key=lambda x: x["row"])
+    half = [i for i in kept if any(x["id"] == i for x in refused)]
+    return {"written": written, "unchanged": unchanged, "refused": refused, "half": half, "changed": [recs[i] for i in kept]}
 
 
 def code_span(text):
@@ -7335,6 +7492,160 @@ def selftest():
                and pm["nav"][0]["path"] == "/flow" and pm["nav"][7]["path"] == "/flow/index")
         expect("a record's page asks for the links as refs, each {id, title}",
                all(set(x) == {"id", "title"} for x in say(["show", q_serves])[1]["links"]["serves"]))
+    # `flow set --from FILE`: many sets in one run, each row validated and applied as a single `flow set` is
+    with tempfile.TemporaryDirectory() as t8:
+        r8 = Path(t8)
+        do_init(r8, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        c8 = Config(r8)
+        say8 = lambda argv, **kw: dispatched(c8, argv, today=today, as_json=True, quiet=True, **kw)
+        tree8 = lambda: {x: x.read_text(encoding="utf-8") for x in sorted((r8 / "records").rglob("*.md"))}
+        ids8 = [say8(["idea", f"Street trees, block {n}", "--summary", f"Shade on block {n}."])[1]["created"][0] for n in range(1, 7)]
+        i1, i2, i3, i4, i5, i6 = ids8
+        say8(["set", i6, "summary", "none"])
+        rows = r8 / "rows.jsonl"
+
+        def batch(lines, **kw):
+            rows.write_text("".join(json.dumps(x) + "\n" if not isinstance(x, str) else x + "\n" for x in lines), encoding="utf-8")
+            return say8(["set", "--from", str(rows)], **kw)
+
+        def row(id_, field, value, **more):
+            return {"id": id_, "field": field, "value": value, **more}
+
+        # a single set of the same, for the rows to be read against
+        say8(["set", i5, "title", "Shade by species", "--note", "shorter"])
+        single_body = load_all(c8)[i5].body
+        counts = {"load": 0, "index": 0}
+        real_load, real_index = load_all, render_index
+
+        def counting_load(*a, **kw):
+            counts["load"] += 1
+            return real_load(*a, **kw)
+
+        def counting_index(*a, **kw):
+            counts["index"] += 1
+            return real_index(*a, **kw)
+
+        over = "t" * 101
+        first = [row(i1, "title", "Shade by species", **{"note": "shorter"}), row(i1, "summary", "Which species shade block 1."),
+                 row(i2, "value", "high"), row(i2, "summary", "Shade on block 2, by species."),
+                 row(i3, "title", over), row(i3, "value", "low"),
+                 row(i4, "title", "Shade, block 4"), row(i4, "summary", "s" * 501),
+                 row(i6, "title", "Block 6 shade", to_summary=True),
+                 row(i5, "title", "Shade by species", note="shorter")]
+        index_before = (r8 / "records" / "INDEX.md").read_text(encoding="utf-8") if (r8 / "records" / "INDEX.md").is_file() else ""
+        globals()["load_all"], globals()["render_index"] = counting_load, counting_index
+        try:
+            rc, p = batch(first)
+        finally:
+            globals()["load_all"], globals()["render_index"] = real_load, real_index
+        recs8 = load_all(c8)
+        expect("planted: a file of several records is applied row by row and exits 1 where a row was refused; the closing counts and the records changed",
+               rc == 1 and p["written"] == 7 and p["unchanged"] == 1 and len(p["refused"]) == 2 and sorted(p["changed"]) == sorted([i1, i2, i3, i4, i6])
+               and recs8[i1]["title"] == "Shade by species" and recs8[i1]["summary"] == "Which species shade block 1."
+               and recs8[i2]["value"] == "high" and recs8[i2]["summary"] == "Shade on block 2, by species." and recs8[i4]["title"] == "Shade, block 4")
+        expect("planted: an over-limit title among good rows is refused with the row's number, id, field and the single set's words, and the good rows around it are written",
+               [(x["row"], x["id"], x["field"]) for x in p["refused"] if x["row"] == 5] == [(5, i3, "title")]
+               and "101 characters" in [x for x in p["refused"] if x["row"] == 5][0]["msg"] and recs8[i3]["title"] == "Street trees, block 3"
+               and recs8[i3]["value"] == "low")
+        expect("planted: a title and a summary of one record with the summary refused leave the record half written, and `half` names it, "
+               "as it names the record whose title was refused beside a value written",
+               p["half"] == [i3, i4] and [x["row"] for x in p["refused"] if x["id"] == i4] == [8] and recs8[i4]["summary"] == "Shade on block 4.")
+        expect("a row is validated and applied as a single `flow set` is: the title's note in its code span and `to_summary` alike, a value that stands unchanged and noteless",
+               recs8[i1].body.replace("block 1", "block 5") == single_body and recs8[i6]["summary"] == "Street trees, block 6" and "title set" not in recs8[i6].body
+               and recs8[i5].body == single_body and recs8[i5]["title"] == "Shade by species")
+        expect("the tree is read once, the index rendered and written once, at the end",
+               counts == {"load": 1, "index": 1} and (r8 / "records" / "INDEX.md").read_text(encoding="utf-8") != index_before
+               and (r8 / "records" / "INDEX.md").read_text(encoding="utf-8") == real_index(c8, recs8))
+        before = tree8()
+        rc, p = batch(first)
+        expect("planted: a second run of the same file writes nothing: every row that stood is unchanged and noteless, the two refused are refused again, no record and no index written",
+               rc == 1 and p["written"] == 0 and p["unchanged"] == 8 and [x["row"] for x in p["refused"]] == [5, 8] and p["changed"] == []
+               and p["half"] == [] and p["index"] is None and tree8() == before)
+        expect("rows of one record are applied in the file's order, each read against what the rows before it wrote",
+               batch([row(i1, "title", "First"), row(i1, "title", "Second"), row(i1, "title", "First")])[1]["written"] == 3
+               and load_all(c8)[i1]["title"] == "First" and load_all(c8)[i1].body.count("title set; it read:") == 4)
+        # a line that is not JSON, a row missing a key, naming an unknown id, a field that is none, a key it does not know: each a refused row, none stops the run
+        lines = ["this is not JSON", "[1, 2]", json.dumps({"id": i2}), json.dumps(row(i2, "title", None)), json.dumps({**row(i2, "value", "low"), "colour": "red"}),
+                 json.dumps(row(i2, "value", "low", to_summary="yes")), json.dumps(row("idea-0099", "title", "None such")), json.dumps(row(i2, "colour", "red")),
+                 json.dumps(row(i2, "value", "enormous")), json.dumps(row(i2, "title", "none")), "", json.dumps(row(i2, "value", "low"))]
+        rc, p = batch(lines)
+        expect("planted: a line that is not JSON, a row missing a key or of the wrong type, or naming an unknown id or field is a refused row like any other, and the run goes on to the row after",
+               rc == 1 and p["written"] == 1 and [x["row"] for x in p["refused"]] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+               and "not valid JSON" in p["refused"][0]["msg"] and p["refused"][0]["id"] is None and "JSON object" in p["refused"][1]["msg"]
+               and p["refused"][2]["msg"] == 'the row has no "field"' and p["refused"][2]["id"] == i2
+               and p["refused"][6]["msg"] == "idea-0099 does not exist" and p["refused"][6]["id"] == "idea-0099"
+               and "set takes one of" in p["refused"][7]["msg"] and "value takes one of" in p["refused"][8]["msg"] and "a title is never empty" in p["refused"][9]["msg"]
+               and load_all(c8)[i2]["value"] == "low")
+        # standard input: `-`
+        had_stdin = sys.stdin
+        sys.stdin = io.StringIO(json.dumps(row(i2, "value", "medium")) + "\n")
+        try:
+            rc, p = say8(["set", "--from", "-"])
+        finally:
+            sys.stdin = had_stdin
+        expect("`--from -` reads the rows from the standard input", rc == 0 and p["written"] == 1 and load_all(c8)[i2]["value"] == "medium")
+        rc, p = say8(["set", "--from", str(r8 / "nowhere.jsonl")])
+        expect("a rows file that is not there is refused whole", rc == 1 and "not found" in p["problems"][0]["msg"])
+        for argv in (["set", i1, "title", "x", "--from", str(rows)], ["set", "--from", str(rows), "--note", "x"], ["set", i1], ["set"]):
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    dispatched(c8, argv, today=today, as_json=True, quiet=True)
+                usage = False
+            except SystemExit as e:
+                usage = e.code == 2
+            expect(f"`flow set` takes ID FIELD VALUE or --from FILE, not both and not neither ({' '.join(argv[:3])})", usage)
+        i7 = say8(["idea", "Block seven", "--summary", "Shade on block 7."])[1]["created"][0]
+        say8(["set", i7, "summary", "none"])
+        rc, p = batch([row(i7, "title", "Block seven", to_summary=True)])
+        expect("a title that stands, its row asking for the summary too, writes the summary where the record has none",
+               rc == 0 and p["written"] == 1 and load_all(c8)[i7]["summary"] == "Block seven" and "title set" not in load_all(c8)[i7].body)
+        before, calls, real_whole, real_replace = tree8(), [], write_whole, os.replace
+
+        def failing_whole(path, text):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("no space left")
+            return real_whole(path, text)
+
+        def failing_replace(src, dst):
+            raise OSError("no rename")
+
+        globals()["write_whole"] = failing_whole
+        try:
+            batch([row(i1, "value", "low"), row(i2, "value", "low")])
+            broke = False
+        except OSError:
+            broke = True
+        finally:
+            globals()["write_whole"] = real_whole
+        expect("planted: a write that fails halfway through the batch leaves every record as it was", broke and tree8() == before and not list((r8 / "records").rglob("*.tmp")))
+        os.replace = failing_replace
+        try:
+            write_whole(r8 / "records" / "ideas" / "probe.md", "x")
+            broke = False
+        except OSError:
+            broke = True
+        finally:
+            os.replace = real_replace
+        expect("planted: a whole-file write that fails leaves no temporary file behind", broke and not list((r8 / "records").rglob("*.tmp")) and tree8() == before)
+        if shutil.which("markdownlint"):
+            before = tree8()
+            rc, p = batch([row(i1, "value", "high"), row(i2, "title", "Block 2 shade", note="see <b>this</b>"), row(i2, "value", "none"), row(i3, "value", "high")])
+            now = tree8()
+            changed_files = [x.name for x in now if now[x] != before[x]]
+            expect("planted: a record whose lint fails is put back whole with all its rows refused with the lint's line, the other records written",
+                   rc == 1 and p["written"] == 2 and [(x["row"], x["id"], x["field"]) for x in p["refused"]] == [(2, i2, "title"), (3, i2, "value")]
+                   and all("MD033" in x["msg"] and f"{i2}-" in x["msg"] for x in p["refused"]) and p["half"] == []
+                   and sorted(n for n in changed_files if n.startswith("idea-")) == sorted(x.name for x in now if x.name.startswith((i1, i3)))
+                   and sorted(p["changed"]) == sorted([i1, i3])
+                   and load_all(c8)[i2]["value"] == "medium" and load_all(c8)[i2]["title"] == "Street trees, block 2" and load_all(c8)[i1]["value"] == "high"
+                   and not list((r8 / "records").rglob("*.tmp")))
+            expect("a put-back record stays out of the index",
+                   (r8 / "records" / "INDEX.md").read_text(encoding="utf-8") == real_index(c8, load_all(c8)) and "see <b>" not in tree8()[load_all(c8)[i2].path])
+        elif os.environ.get("CI"):
+            expect("markdownlint is on PATH in CI, where the batch's lint is tested", False)
+        else:
+            print("  --  the batch's lint not tested: no markdownlint on PATH")
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
 
@@ -7406,7 +7717,11 @@ def build_parser():
     p = sp.add_parser("rank"); p.add_argument("id", nargs="?"); p.add_argument("n", nargs="?", type=int); p.add_argument("--set", nargs="+")
     p.add_argument("--clear", action="store_true"); p.add_argument("--insert", action="store_true")
     p = sp.add_parser("checked"); p.add_argument("ids", nargs="+")
-    p = sp.add_parser("set"); p.add_argument("id"); p.add_argument("field"); p.add_argument("value")
+    p = sp.add_parser("set"); p.add_argument("id", nargs="?"); p.add_argument("field", nargs="?"); p.add_argument("value", nargs="?")
+    p.set_defaults(set_parser=p)
+    p.add_argument("--from", dest="from_file", metavar="FILE",
+                   help="many sets in one run instead of ID FIELD VALUE: FILE (`-` for the standard input) holds one JSON object a row, "
+                        "{\"id\", \"field\", \"value\"} with \"note\" and \"to_summary\": true where there are any")
     p.add_argument("--note", help="words appended to the body under the date: why, the owner's own for a goal's title")
     p.add_argument("--to-summary", action="store_true", dest="to_summary",
                    help="with `set ID title`: what the title read becomes the record's summary, and no note keeps it; refused where the record has a summary")
@@ -7712,6 +8027,11 @@ def project_lock(cfg, directory, tool):
 
 def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
     a = build_parser().parse_args(argv)
+    if a.cmd == "set":  # ID FIELD VALUE, or --from FILE: one of the two
+        if a.from_file is not None and (a.id or a.field or a.value is not None or a.note is not None or a.to_summary):
+            a.set_parser.error("set takes ID FIELD VALUE (with --note, --to-summary) or --from FILE, whose rows carry their own, not both")
+        if a.from_file is None and (a.id is None or a.field is None or a.value is None):
+            a.set_parser.error("set takes ID FIELD VALUE, or --from FILE for many")
     writes = a.cmd in TRANSITIONS or a.cmd == "log" or (a.cmd == "index" and not a.print_ and not a.check) or (a.cmd == "reflow" and a.write)
     with project_lock(cfg, cfg.research, "flow") if writes else contextlib.nullcontext():
         return _dispatch(cfg, a, today, as_json, quiet)
@@ -7737,7 +8057,28 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 print(f"flow: warning — {ahead}", file=sys.stderr)
         broken = []
         recs = load_all(cfg, broken) if a.cmd == "check" else {} if a.cmd in ("log", "reflow", "doctor") else load_all(cfg)
-        if a.cmd in TRANSITIONS:
+        if a.cmd == "set" and a.from_file is not None:
+            out.update(written=0, unchanged=0, refused=[], half=[])  # on every path, a refusal of the whole file's too
+            res = batch_set(cfg, recs, a.from_file, today)
+            for k in ("written", "unchanged", "refused", "half"):
+                out[k] = res[k]
+            out["changed"] = [r.id for r in res["changed"]]
+            out["records"] = [summary_of(cfg, r, recs, today) for r in res["changed"]]
+            index_text = render_index(cfg, recs)
+            index_new = not cfg.index.is_file() or cfg.index.read_text(encoding="utf-8") != index_text
+            if index_new:
+                cfg.index.parent.mkdir(parents=True, exist_ok=True)
+                write_whole(cfg.index, index_text)
+            out["index"] = rel(cfg, cfg.index) if index_new else None
+            emit(f"flow set --from {a.from_file}: {res['written']} row(s) written, {res['unchanged']} unchanged, {len(res['refused'])} refused; "
+                 f"{len(res['changed'])} record(s) changed" + (f"; index refreshed: {rel(cfg, cfg.index)}" if index_new else ""))
+            for x in res["refused"]:
+                emit(f"  row {x['row']}" + (f", {x['id']}" if x["id"] else "") + (f", {x['field']}" if x["field"] else "") + f": {x['msg']}")
+            if res["half"]:
+                emit(f"  left half written (a row written, another refused): {', '.join(res['half'])}")
+            if res["refused"]:
+                out["ok"] = False
+        elif a.cmd in TRANSITIONS:
             if a.cmd == "rank" and not a.set and not a.id:
                 raise Refused("rank takes ID N, --set ID..., or ID --clear")
             if getattr(a, "reason", None) is not None and not a.reason.strip():  # what V15 and the closings need, refused here
