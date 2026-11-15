@@ -5,13 +5,13 @@ Each release is a tag; the version is read from the tag and the version fields `
 ## Unreleased
 
 What a session does with the person's own words: a thought they call an idea, a question or a task is minted as that card, a fresh project starts from the idea of the project, and a session starts with the flow's state and then does what their message asks.
-The flow reads a question and a task from either side, three commands change, `flow set --from FILE` writes many sets in one run, and a round of fixes from the first days at v0.10.0 follows.
 Three more things change in how a session works: a decision that waits on the person is a task in their deck, a session commits at its freeze, and the freeze carries its commit past another session's edits in the tree.
+The flow reads a question and a task from either side, three commands change, `flow set --from FILE` writes many sets in one run, and a round of fixes from the first days at v0.10.0 follows.
 
 **Upgrading**: not a breaking release.
 Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
-A project's instructions that carry "A session starts with the `whatsnext` skill and ends with the `freeze` skill" take the sentences `flow init --print-instructions` prints now.
 Then run `flow index` and `flow check`, since the index's section on a question's tasks reads a reference from either side now.
+A project's instructions that carry "A session starts with the `whatsnext` skill and ends with the `freeze` skill" take the sentences `flow init --print-instructions` prints now.
 A project with a markdownlint configuration of its own adds `"MD001": {"front_matter_title": ""}` and `"MD025": {"front_matter_title": ""}`, where its records' bodies open below `##` or hold a `#` heading.
 `flow make` no longer refuses a task that is not held, and a task minted with `--ref` to a ranked question gets no rank by itself, so a ranking places it.
 A project still writing its titles and summaries by hand after the v0.10.0 migration writes them with `flow set --from FILE`.
