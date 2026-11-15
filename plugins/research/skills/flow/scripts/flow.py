@@ -28,16 +28,17 @@ it keeps its rank, and the lists mark the wait.  A card closed with success is i
 one in the graveyard; no file moves for a pile.
 
 Every record carries a `title`, a line of at most `[card] title_max` characters (100) that says what the card is, and a
-`summary`, one paragraph of at most `[card] summary_max` characters (500) that explains it, or null.
+`summary`, one paragraph of at most `[card] summary_max` characters (500) that explains it, or null.  An idea, a question
+and a task carry a `value`, one of `[card] values` (low, medium, high, in rising order) or null while nobody has judged it.
 
 Transitions (the only writers of state and links).  Every mint takes the title as its positional, --summary S, --ref ID
 (repeatable), --tag T (repeatable), --source S and --body FILE; an idea, a question, a task and a finding are refused with
 no --summary, a goal and a direction may have none:
 
-  flow idea TITLE [--for O]                                    an open idea, in O's deck (the common deck without --for)
-  flow question TITLE [--serves ID]... [--size s] [--for O]    an open question
-  flow task TITLE [--size s] [--due YYYY-MM-DD] [--after A] [--for O]  an open task, placed below the ranked
-                                 question it references
+  flow idea TITLE [--value V] [--for O]                        an open idea, in O's deck (the common deck without --for)
+  flow question TITLE [--serves ID]... [--size s] [--value V] [--for O]    an open question
+  flow task TITLE [--size s] [--value V] [--due YYYY-MM-DD] [--after A] [--for O]  an open task, placed below the
+                                 ranked question it references
   flow finding TITLE --evidence FORM:TARGET... [--answers Q]   a standing finding; --answers Q closes Q answered by it
   flow goal TITLE  |  flow direction TITLE                     the owner's, minted and closed on the owner's word
   flow draw ID --owner O         a ready idea, question or task into O's hand (hand limit from flow.toml)
@@ -61,7 +62,8 @@ no --summary, a goal and a direction may have none:
   flow rank ID N [--insert]  |  rank --set ID...  |  rank ID --clear     an open idea, question or task
   flow checked ID...             refresh an open question's last-checked date
   flow set ID FIELD VALUE        title (every kind, the old one kept in the body, or made the summary with --to-summary),
-                                 summary (every kind; none clears it), size (question, task), due | after (task)
+                                 summary (every kind; none clears it), size (question, task), value (idea, question,
+                                 task; none clears it), due | after (task)
   flow ref ID +X -Y...           a record's references: +X adds one, -Y removes one
   flow serves Q +G -D...         an open question's goals and directions
   flow tag ID +T -U...           a record's tags after its mint: +T adds one, -U removes one, the rest kept
@@ -136,11 +138,13 @@ STATES = {
 CLOSED_TASK = ("done", "aborted", "removed")
 SETTLED = (*CLOSED_TASK, "answered", "wrong", "impossible")  # a record a block waits on no longer holds it
 SCHEMA = {
-    "idea": ("id", "type", "state", "title", "summary", "source", "references", "owner", "drawn", "started", "rank", "consumed_by",
-             "closed", "origin", "created", "tags"),
-    "question": ("id", "type", "state", "title", "summary", "references", "size", "owner", "drawn", "started", "checked", "parked",
+    "idea": ("id", "type", "state", "title", "summary", "source", "references", "value", "owner", "drawn", "started", "rank",
+             "consumed_by", "closed", "origin", "created", "tags"),
+    "question": ("id", "type", "state", "title", "summary", "references", "size", "value", "owner", "drawn", "started", "checked",
+                 "parked",
                  "blocked_by", "rank", "serves", "answered_by", "closed", "origin", "source", "created", "tags"),
-    "task": ("id", "type", "state", "title", "summary", "references", "size", "owner", "drawn", "started", "due", "after", "rank",
+    "task": ("id", "type", "state", "title", "summary", "references", "size", "value", "owner", "drawn", "started", "due", "after",
+             "rank",
              "parked", "blocked_by", "closed", "origin", "source", "created", "tags"),
     "finding": ("id", "type", "state", "title", "summary", "evidence", "references", "closed", "origin", "source", "created", "tags"),
     "goal": ("id", "type", "state", "title", "summary", "references", "closed", "origin", "source", "created", "tags"),
@@ -149,6 +153,8 @@ SCHEMA = {
 LIST_FIELDS = ("references", "serves", "evidence", "consumed_by", "tags")
 # The limits of a card's title and summary, in characters, where `[card]` of flow.toml binds none.
 TITLE_MAX, SUMMARY_MAX = 100, 500
+# The levels of a card's value, in rising order, where `[card] values` of flow.toml binds none.
+VALUES = ("low", "medium", "high")
 # The kinds whose mint is refused with no summary: a goal and a direction may have none.
 NEEDS_SUMMARY = ("idea", "question", "task", "finding")
 # The five links between records: `references` the general one, with no rule; the others each with its own.
@@ -405,10 +411,11 @@ class Config:
                           "(`flow pass ID --to common`, `flow find --deck common`): name the hand otherwise")
         self.owners = tuple(self.hand.keys()) or ("agent",)
         self.sizes = tuple(raw.get("question", {}).get("sizes", ("small", "medium", "large")))
-        # [card]: how long a card's title and its summary may be, in characters; those numbers where the section or a key is unset
+        # [card]: how long a card's title and its summary may be, in characters, and the levels of its value in rising order;
+        # those where the section or a key is unset
         card = raw.get("card", {})
         if not isinstance(card, dict):
-            raise Refused("flow.toml: [card] is a table of title_max and summary_max, each a number of characters")
+            raise Refused("flow.toml: [card] is a table of title_max and summary_max, each a number of characters, and values, a list of words")
         limits = {}
         for key, default in (("title_max", TITLE_MAX), ("summary_max", SUMMARY_MAX)):
             v = card.get(key, default)
@@ -416,6 +423,12 @@ class Config:
                 raise Refused(f"flow.toml: [card] {key} {v!r} is not a number of characters (1 or more)")
             limits[key] = v
         self.title_max, self.summary_max = limits["title_max"], limits["summary_max"]
+        values = card.get("values", list(VALUES))
+        if (not isinstance(values, list) or not values or not all(isinstance(v, str) and v.strip() and v == v.strip() for v in values)
+                or len(set(values)) != len(values) or "none" in values):
+            raise Refused(f"flow.toml: [card] values {values!r} is not a list of distinct words, in rising order, none of them `none` "
+                          "(the word that clears a value)")
+        self.values = tuple(values)
         # The reference library, when the project has one: the command that answers `keys`
         # with its cite prefix and every card's state and grade.  The flow knows no more of it.
         lib_cmd = raw.get("library", {}).get("command")
@@ -959,9 +972,17 @@ def check_summary(cfg, summary):
     return t
 
 
+def check_value(cfg, value):
+    """A value as a mint or a check reads it: one of `[card] values`, or None; refused otherwise, with the list."""
+    if value not in (None, *cfg.values):
+        raise Refused(f"value {value!r} is not one of {', '.join(cfg.values)}, the levels of [card] values, in rising order")
+    return value
+
+
 def new_record(cfg, type_, fields, body="", today=None):
     if fields.get("size") not in (None, *cfg.sizes):
         raise Refused(f"size {fields['size']!r} is not one of {', '.join(cfg.sizes)}")
+    check_value(cfg, fields.get("value"))
     fm = {k: None for k in SCHEMA[type_]}
     for f in LIST_FIELDS:
         if f in fm:
@@ -1546,6 +1567,8 @@ def validate(cfg, recs, today):
             bad("V3", r, f"state {r['state']!r} not in {STATES[t]}" + (" (`flow doctor`)" if r["state"] in OLD_STATES or (t == "task" and r["state"] in OLD_TASK_STATES) else ""))
         if t in ("question", "task") and r["size"] not in (None, *cfg.sizes):
             bad("V3", r, f"size {r['size']!r} not in {cfg.sizes}")
+        if t in CARDS and r["value"] not in (None, *cfg.values):
+            bad("V3", r, f"value {r['value']!r} not in {cfg.values}")
         if t in CARDS and r["owner"] not in (None, *cfg.owners):
             bad("V3", r, f"owner {r['owner']!r} not in {cfg.owners}")
         if r["origin"] not in ("current", "legacy"):
@@ -1974,7 +1997,8 @@ def mint_source(cfg, src):
 # --- the mints: one per kind, each the kind's name ---------------------------------
 
 def cmd_idea(cfg, recs, a, today):
-    r = new_record(cfg, "idea", {"title": a.title, "summary": a.summary, "owner": mint_deck(cfg, a), **mint_common(cfg, recs, a)},
+    r = new_record(cfg, "idea", {"title": a.title, "summary": a.summary, "value": a.value, "owner": mint_deck(cfg, a),
+                                 **mint_common(cfg, recs, a)},
                    read_body(a.body), today)
     return [r], mirror_add(cfg, recs, r, r["references"])
 
@@ -1983,8 +2007,8 @@ def cmd_question(cfg, recs, a, today):
     """A question, standing alone or not: an idea, a finding or a question it comes from is a --ref (an idea then lists it
     in consumed_by, whatever its state), a document its --source."""
     common = mint_common(cfg, recs, a)
-    q = new_record(cfg, "question", {"title": a.title, "summary": a.summary, "size": a.size, "owner": mint_deck(cfg, a),
-                                     "serves": check_serves(recs, a.serves), **common}, read_body(a.body), today)
+    q = new_record(cfg, "question", {"title": a.title, "summary": a.summary, "size": a.size, "value": a.value,
+                                     "owner": mint_deck(cfg, a), "serves": check_serves(recs, a.serves), **common}, read_body(a.body), today)
     return [q], mirror_add(cfg, recs, q, q["references"])
 
 
@@ -1992,8 +2016,9 @@ def cmd_task(cfg, recs, a, today):
     """A task, in the common deck or the owner's `--for`.  Minted from a ranked question it takes the question's place on the
     ranked list, just below it and below the run of ranked tasks directly under it that reference it, so the next refill draws
     it in turn and nothing is displaced meanwhile; the agent may put it elsewhere (`flow rank T N --insert`) or clear it."""
-    r = new_record(cfg, "task", {"title": a.title, "summary": a.summary, "size": a.size, "due": check_due(a.due),
-                                 "after": a.after, "owner": mint_deck(cfg, a), **mint_common(cfg, recs, a)}, read_body(a.body), today)
+    r = new_record(cfg, "task", {"title": a.title, "summary": a.summary, "size": a.size, "value": a.value,
+                                 "due": check_due(a.due), "after": a.after, "owner": mint_deck(cfg, a), **mint_common(cfg, recs, a)},
+                   read_body(a.body), today)
     place = inherited_place(recs, r)
     if place is not None:
         insert_rank(cfg, recs, r, place)
@@ -2609,7 +2634,7 @@ def cmd_checked(cfg, recs, a, today):
 
 # The fields a record's prose owner may change at any time, through the CLI rather than by hand: which record types
 # carry each.  State, the links and rank stay with their transitions.
-SETTABLE = {"title": TYPES, "summary": TYPES, "size": ("question", "task"), "due": ("task",), "after": ("task",)}
+SETTABLE = {"title": TYPES, "summary": TYPES, "size": ("question", "task"), "value": CARDS, "due": ("task",), "after": ("task",)}
 # the way a field `set` no longer takes goes now
 SET_GONE = {**dict.fromkeys(BODY_FIELDS, "its words go in the body: `flow note ID --body FILE`"),
             **dict.fromkeys(("derived_from", "references", "parent", "requires", "depends_on", "question"), "`flow ref ID +X -Y` changes the references"),
@@ -2636,6 +2661,10 @@ def cmd_set(cfg, recs, a, today):
     elif a.field == "size":
         if v not in (*cfg.sizes, "none"):
             raise Refused(f"size takes one of {', '.join(cfg.sizes)} or none")
+        value = None if v == "none" else v
+    elif a.field == "value":
+        if v not in (*cfg.values, "none"):
+            raise Refused(f"value takes one of {', '.join(cfg.values)} or none")
         value = None if v == "none" else v
     elif a.field == "due":
         value = None if v == "none" else check_due(v)
@@ -2856,6 +2885,8 @@ def cmd_find(cfg, recs, a, today):
         raise Refused(f"--pile {a.pile!r}: a pile is `discard` (a card closed with success) or `graveyard` (a removed or broken one)")
     if a.deck and a.deck != COMMON and a.deck not in cfg.owners:
         raise Refused(f"--deck {a.deck!r} is not one of {', '.join(cfg.owners)}, nor `{COMMON}`")
+    if a.value and a.value != "none" and a.value not in cfg.values:
+        raise Refused(f"--value {a.value!r} is not one of {', '.join(cfg.values)}, nor `none` (the cards not judged)")
     target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
     naming = referrers(recs, target, a.deep, cfg.opaque_forms) if a.refers else None
     for r in recs.values():
@@ -2872,6 +2903,8 @@ def cmd_find(cfg, recs, a, today):
         if a.tag and a.tag not in (r["tags"] or []):
             continue
         if a.owner and r["owner"] != a.owner:
+            continue
+        if a.value and (r.type not in CARDS or (r["value"] is not None if a.value == "none" else r["value"] != a.value)):  # a card's value, `none` the cards not judged
             continue
         if naming is not None and r.id not in naming:
             continue
@@ -4001,6 +4034,7 @@ BINDING_READERS = {
     "paths.markdownlint_config": "every write: the markdownlint configuration a new violation is read by",
     "card.title_max": "`flow idea`, `flow question`, `flow task`, `flow finding`, `flow goal`, `flow direction` and `flow set … title`: the longest a title may be",
     "card.summary_max": "the same mints and `flow set … summary`: the longest a summary may be",
+    "card.values": "`flow idea`, `flow question`, `flow task`, `flow set … value` and `flow find --value`: the levels of a card's value, in rising order",
     "question.sizes": "`flow question`, `flow task` and `flow set … size`: the sizes a question or a task takes",
     "evidence.statement_words": "`flow check` and the evidence mints: the words a numbered statement's anchor takes",
     "evidence.row_id": "`flow check` and the evidence mints: the pattern a table row's id matches",
@@ -4153,6 +4187,7 @@ id_width = 4
 [card]
 title_max = 100     # the longest a card's title may be, in characters: it says what the card is; a mint or a set over it is refused
 summary_max = 500   # the longest a card's summary may be: one paragraph that explains it; a mint or a set over it is refused
+values = ["low", "medium", "high"]   # the levels of an idea's, a question's and a task's value, in rising order; a word outside is refused
 
 {research}[index]
 recent_findings = 10
@@ -6808,6 +6843,122 @@ def selftest():
         expect("a closed record drops out of both notes: the idea over the limit and with no summary, removed, leaves each count one fewer",
                rc_rm == 0 and rc == 0 and by_note["title-over-limit"]["count"] == 0 and by_note["no-summary"]["count"] == 2
                and all(x["id"] != wide7 for n in by_note.values() for x in n["records"]))
+    # the value: [card] values, the three mints, set and its clear, find, the check and the doctor's fix
+    with tempfile.TemporaryDirectory() as t8:
+        r8 = Path(t8)
+        do_init(r8, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        toml8 = (r8 / "flow.toml").read_text(encoding="utf-8")
+        c8 = Config(r8)
+        expect('flow init writes [card] values = ["low", "medium", "high"], and Config reads them in that order',
+               'values = ["low", "medium", "high"]' in toml8.split("[card]")[1].split("[index]")[0] and c8.values == ("low", "medium", "high"))
+        (r8 / "flow.toml").write_text(re.sub(r"(?m)^values = .*\n", "", toml8, count=1), encoding="utf-8")
+        expect("those levels stand where [card] has no values", Config(r8).values == ("low", "medium", "high"))
+        for bad in ("[]", '["a", "a"]', '["a", 1]', '["none", "a"]', '"high"', '[""]', '[" a"]'):
+            (r8 / "flow.toml").write_text(toml8.replace('["low", "medium", "high"]', bad), encoding="utf-8")
+            try:
+                Config(r8)
+                refused_ = False
+            except Refused as e:
+                refused_ = "[card] values" in str(e)
+            expect(f"[card] values = {bad} is refused when flow.toml is read", refused_)
+        (r8 / "flow.toml").write_text(toml8.replace('["low", "medium", "high"]', '["one", "two", "three", "four"]'), encoding="utf-8")
+        c8 = Config(r8)
+        say = lambda argv, day=today, c=None: dispatched(c or c8, argv, today=day, as_json=True, quiet=True)
+        rc, pl = say(["idea", "a four-level idea", "--value", "four"])
+        rc2, pl2 = say(["idea", "a three-level idea", "--value", "high"])
+        expect("[card] values binds the levels: a list of another length is read, and a word of the default list outside it is refused with it",
+               rc == 0 and load_all(c8)[pl["created"][0]]["value"] == "four" and rc2 == 1 and "one, two, three, four" in pl2["problems"][0]["msg"])
+        load_all(c8)[pl["created"][0]].path.unlink()  # the tree goes on with the default levels
+        (r8 / "flow.toml").write_text(toml8, encoding="utf-8")
+        c8 = Config(r8)
+        earlier = "2026-01-05"
+        files8 = lambda: sorted(p.name for p in r8.rglob("*.md"))
+        i1 = say(["idea", "An idea worth a lot", "--value", "high"])[1]["created"][0]
+        q1 = say(["question", "Does it hold for the small case?", "--value", "medium", "--size", "small"], day=earlier)[1]["created"][0]
+        t1 = say(["task", "Write the survey of the small case", "--value", "low", "--size", "large"])[1]["created"][0]
+        i0, q0, t0 = (say([k, f"A {k} nobody has judged"])[1]["created"][0] for k in ("idea", "question", "task"))
+        recs8 = load_all(c8)
+        expect("a mint with --value writes it, and a mint without leaves it null, in an idea, a question and a task",
+               [recs8[i]["value"] for i in (i1, q1, t1)] == ["high", "medium", "low"] and [recs8[i]["value"] for i in (i0, q0, t0)] == [None] * 3
+               and all("value" in recs8[i].fm for i in (i0, q0, t0)))
+        keys = lambda i: list(recs8[i].fm)
+        expect("value is written after size on a question and a task, and after references on an idea",
+               keys(q1)[keys(q1).index("size") + 1] == "value" and keys(t1)[keys(t1).index("size") + 1] == "value"
+               and keys(i1)[keys(i1).index("references") + 1] == "value" and "\nvalue: high\n" in recs8[i1].path.read_text(encoding="utf-8"))
+        others8 = [say(argv)[1]["created"][0] for argv in (["finding", "A claim", "--evidence", "reference:https://example.org/f"],
+                                                          ["goal", "A goal"], ["direction", "A direction"])]
+        recs8 = load_all(c8)
+        expect("a finding, a goal and a direction carry no value", not any("value" in recs8[i].fm for i in others8))
+        before8 = files8()
+        for kind in ("idea", "question", "task"):
+            rc, pl = say([kind, f"A {kind} of a huge value", "--value", "huge"])
+            expect(f"a word outside the list is refused at a {kind}'s mint, naming the list, and no file is written",
+                   rc == 1 and "low, medium, high" in pl["problems"][0]["msg"] and "huge" in pl["problems"][0]["msg"] and files8() == before8)
+        rc, pl = say(["idea", "An idea valued none", "--value", "none"])
+        expect("`none` is no level a mint takes: a card is minted not judged by leaving --value out", rc == 1 and files8() == before8)
+        bodytext8 = lambda i: load_all(c8)[i].body
+        rc, pl = say(["set", i0, "value", "medium", "--note", "the person calls it central"])
+        recs8 = load_all(c8)
+        expect("set value writes the level, its --note appended to the body under the date as `value set: WHY`",
+               rc == 0 and recs8[i0]["value"] == "medium" and f"{today} \u2014 value set: the person calls it central" in recs8[i0].body)
+        rc, pl = say(["set", i0, "value", "none"])
+        expect("set value none clears it, the note absent where none is given", rc == 0 and load_all(c8)[i0]["value"] is None and bodytext8(i0).count("value set") == 1)
+        expect("set value takes a question and a task as well",
+               say(["set", q0, "value", "high"])[0] == 0 and say(["set", t0, "value", "low"])[0] == 0
+               and (load_all(c8)[q0]["value"], load_all(c8)[t0]["value"]) == ("high", "low"))
+        expect("set value leaves a question's `checked` as it is, as set size does",
+               say(["set", q1, "value", "high"])[0] == 0 and say(["set", q1, "size", "large"])[0] == 0
+               and load_all(c8)[q1]["checked"] == earlier and load_all(c8)[q1]["value"] == "high")
+        tree8 = {p: p.read_bytes() for p in r8.rglob("*.md")}
+        rc, pl = say(["set", i0, "value", "huge"])
+        expect("set refuses a word outside the list, naming it, and leaves the tree as it was",
+               rc == 1 and "low, medium, high or none" in pl["problems"][0]["msg"] and {p: p.read_bytes() for p in r8.rglob("*.md")} == tree8)
+        f8 = next(i for i, r in load_all(c8).items() if r.type == "finding")
+        rc, pl = say(["set", f8, "value", "high"])
+        expect("set value is refused on a finding, which carries none", rc == 1 and "is a field of idea, question, task" in pl["problems"][0]["msg"])
+        found = lambda argv: sorted(r["id"] for r in say(argv)[1]["records"])
+        expect("find --value lists the cards of that level, and `none` the cards not judged, a finding among neither",
+               found(["find", "--value", "high"]) == sorted([i1, q0, q1]) and found(["find", "--value", "none"]) == sorted([i0])
+               and found(["find", "--value", "low", "--type", "task"]) == sorted([t1, t0]))
+        rc, pl = say(["find", "--value", "huge"])
+        expect("find --value refuses a word outside the list, naming it and `none`", rc == 1 and "low, medium, high, nor `none`" in pl["problems"][0]["msg"])
+        rc, pl = say(["check"])
+        expect("the check passes on the cards as minted and set", rc == 0 and not pl["problems"])
+        # planted: a hand-edited word outside the list, and the field on a kind that carries none
+        bad8 = load_all(c8)[i1]
+        bad8.fm["value"] = "huge"
+        bad8.path.write_text(render(bad8.fm, bad8.body), encoding="utf-8")
+        gl8 = next(r for r in load_all(c8).values() if r.type == "goal")
+        gl8.fm["value"] = "high"
+        gl8.path.write_text(render(gl8.fm, gl8.body), encoding="utf-8")
+        rc, pl = say(["check"])
+        expect("planted: V3 fails a value outside the list, and a goal carrying a value is an unknown field",
+               rc == 1 and any(x["code"] == "V3" and "value 'huge' not in" in x["msg"] and x["id"] == i1 for x in pl["problems"])
+               and any(x["code"] == "V3" and "unknown field value" in x["msg"] for x in pl["problems"]))
+        bad8.fm["value"] = "high"
+        bad8.path.write_text(render(bad8.fm, bad8.body), encoding="utf-8")
+        gl8.fm.pop("value")
+        gl8.path.write_text(render(gl8.fm, gl8.body), encoding="utf-8")
+        # planted: records of the model before this one, with no `value`
+        for i in (i1, q1, t1, i0):
+            rec = load_all(c8)[i]
+            rec.fm.pop("value")
+            rec.path.write_text(render(rec.fm, rec.body), encoding="utf-8")
+        rc, pl = say(["check"])
+        expect("a card lacking value fails V3 as a record lacking a field does", rc == 1 and sum("missing field value" in x["msg"] for x in pl["problems"]) == 4)
+        rc, pl = say(["doctor"])
+        expect("planted: the doctor names a card lacking value as the mechanical class of a field the record lacks, with no new line",
+               rc == 1 and pl["summary"] == {"field": 4} and all(x["was"] == "no value" and x["now"].startswith("value: null") for x in pl["mechanical"])
+               and [n["note"] for n in pl["card_notes"]] == ["title-over-limit", "no-summary"])
+        rc, pl = say(["doctor", "--fix"])
+        recs8 = load_all(c8)
+        expect("planted: doctor --fix adds `value: null` in its place, the kind's order kept, and the check and the doctor are green",
+               pl["fixed"] == {"field": 4} and all(recs8[i]["value"] is None and "value" in recs8[i].fm for i in (i1, q1, t1, i0))
+               and list(recs8[q1].fm)[list(recs8[q1].fm).index("size") + 1] == "value" and say(["check"])[0] == 0 and say(["doctor"])[0] == 0)
+        (r8 / "flow.toml").write_text(re.sub(r"(?m)^values = .*\n", "", toml8, count=1), encoding="utf-8")
+        rc, pl = say(["doctor"], c=Config(r8))
+        expect("the doctor notes a flow.toml with no [card] values, the key flow init writes now, without failing",
+               rc == 0 and any(n["key"] == "[card] values" and "levels" in n["reads"] for n in pl["notes"]))
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
 
@@ -6832,11 +6983,15 @@ def build_parser():
         p.add_argument("--body", metavar="FILE", help=BODY_HELP)
         return p
     for_help = "the owner whose deck it lands in, `common` or none for the common deck"
+    value_help = "how much the card is worth, one of `[card] values` in flow.toml (low, medium, high where unset); never required, judged later by `flow set ID value V`"
     p = mint("idea", "an open idea"); p.add_argument("--for", dest="for_", metavar="OWNER", help=for_help)
+    p.add_argument("--value", help=value_help)
     p = mint("question", "an open question; its body says what counts as an answer"); p.add_argument("--for", dest="for_", metavar="OWNER", help=for_help)
     p.add_argument("--serves", action="append", metavar="ID", help="an open goal or direction it serves; repeatable"); p.add_argument("--size")
+    p.add_argument("--value", help=value_help)
     p = mint("task", "an open task; its body says what done means"); p.add_argument("--for", dest="for_", metavar="OWNER", help=for_help)
-    p.add_argument("--size"); p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
+    p.add_argument("--size"); p.add_argument("--value", help=value_help)
+    p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
     p.add_argument("--after", help="what follows its completion, in words; printed at the close")
     p = mint("finding", "a standing finding, with its evidence")
     p.add_argument("--evidence", action="extend", nargs="+", required=True, metavar="FORM:TARGET", help="one item or more; repeatable")
@@ -6890,6 +7045,7 @@ def build_parser():
     p = sp.add_parser("find")
     for f in ("type", "state", "tag", "owner", "grep"):
         p.add_argument("--" + f)
+    p.add_argument("--value", help="the ideas, questions and tasks of that value, one of `[card] values`; `none` the cards not judged")
     p.add_argument("--form", action="append", help="a finding's evidence form; repeatable, a finding listed when it carries every one given")
     p.add_argument("--only", action="store_true", help="with --form: the findings whose evidence carries those forms and no other")
     p.add_argument("--refers", metavar="ID|PATH", help="the records naming ID or PATH by a link, an evidence item, a source that is a path or a body link")

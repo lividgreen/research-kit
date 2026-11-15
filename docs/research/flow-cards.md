@@ -93,15 +93,17 @@ Every kind carries these:
 | `created` | the ISO date of the minting; a direction's date | minted |
 | `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `rider` marks a task riding the next hand-over, `conjecture` a question that is one, `refuted` a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open" and on a question or an idea refuses `flow reopen`; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
 
+An idea, a question and a task carry a `value`, one of `[card] values` or `null` while nobody has judged it; a finding, a goal and a direction carry none.
 The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a removed finding, a reached or given-up goal, a closed direction, and no other.
 
 ### An idea
 
-`id`, `type`, `state`, `title`, `summary`, `source`, `references`, `owner`, `drawn`, `started`, `rank`, `consumed_by`, `closed`, `origin`, `created`, `tags`.
+`id`, `type`, `state`, `title`, `summary`, `source`, `references`, `value`, `owner`, `drawn`, `started`, `rank`, `consumed_by`, `closed`, `origin`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `open`, `consumed` or `removed` | minted; `consume`, `reopen`, `remove` |
+| `value` | one of `[card] values` (`low`, `medium` and `high` by default, in rising order), or `null` while nobody has judged it: how much the card is worth to the project | minted (`--value`); `flow set`, `none` clears it |
 | `owner` | the owner whose deck it is in, `null` for the common deck | minted (`--for`); `draw`, `pass`; kept by `return`; cleared by `consume`, `remove` and `reopen` |
 | `drawn` | the ISO date of the present hold, `null` while it is in no hand | `draw`; cleared by `return`, `pass`, `consume` and `remove` |
 | `started` | the ISO date of its first draw, or `null` | `draw`, the first time; kept by every other transition |
@@ -111,12 +113,13 @@ The closed records carry a map of `date` and `reason` in `closed`: a removed ide
 
 ### A question
 
-`id`, `type`, `state`, `title`, `summary`, `references`, `size`, `owner`, `drawn`, `started`, `checked`, `parked`, `blocked_by`, `rank`, `serves`, `answered_by`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `title`, `summary`, `references`, `size`, `value`, `owner`, `drawn`, `started`, `checked`, `parked`, `blocked_by`, `rank`, `serves`, `answered_by`, `closed`, `origin`, `source`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `open`, `answered`, `wrong`, `impossible` or `removed` | minted; `finding --answers`, `answer`, `wrong`, `impossible`, `remove`, `reopen` |
 | `size` | one of `[question] sizes` | minted (`--size`); `flow set` |
+| `value` | as an idea's | as an idea's; a set leaves `checked` as it is |
 | `owner`, `drawn`, `started` | as an idea's | as an idea's; cleared by every closing and by `reopen`, `started` kept |
 | `checked` | the ISO date the question was last looked at | minted; `rank ID N`, `park`, `unpark`, `block`, `unblock`, `reopen`, `checked` |
 | `parked` | `null`, or a map of `date`, `reason` and `revival` while set aside by decision | `park`, `unpark`; cleared by every closing; `park` returns a held card to its owner's deck |
@@ -130,12 +133,13 @@ A question has no kind and no criterion: a conjecture is a question tagged `conj
 
 ### A task
 
-`id`, `type`, `state`, `title`, `summary`, `references`, `size`, `owner`, `drawn`, `started`, `due`, `after`, `rank`, `parked`, `blocked_by`, `closed`, `origin`, `source`, `created`, `tags`.
+`id`, `type`, `state`, `title`, `summary`, `references`, `size`, `value`, `owner`, `drawn`, `started`, `due`, `after`, `rank`, `parked`, `blocked_by`, `closed`, `origin`, `source`, `created`, `tags`.
 
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `open`, `done`, `aborted` or `removed` | minted; `make`, `abort`, `remove` |
 | `size` | one of `[question] sizes`, an estimate for ordering | minted (`--size`); `flow set` |
+| `value` | as an idea's | as an idea's |
 | `owner` | the owner whose deck it is in, `null` for the common deck | minted (`--for`); `draw`, `pass`; kept by `return`; cleared by `make`, `abort` and `remove` |
 | `drawn` | the ISO date of the present hold, `null` while it is in no hand | `draw`; cleared by `return`, `pass`, `make`, `abort` and `remove` |
 | `started` | the ISO date of its first draw, the day its work began, or `null` | `draw`, the first time; kept by every other transition, a closing included |
@@ -208,7 +212,7 @@ A transition that changes a record's state, or parks, unparks, blocks or unblock
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `idea` | `title`, `summary`, `source`, `references`, `tags`, `owner` where `--for` names one, a body where `--body` gives one |
+| — | `open` | `idea` | `title`, `summary`, `source`, `references`, `tags`, `value` where `--value` gives one, `owner` where `--for` names one, a body where `--body` gives one |
 | `open` | `open`, in a hand | `draw --owner`, refused when the owner's hand is full, the idea is in a hand already or in another owner's deck | `owner`, `drawn` and, the first time, `started` |
 | `open`, in a hand | `open`, in its owner's deck | `return --note`, the note required | `drawn` cleared, `owner` kept; a `returned:` note, which lists the cards the idea produced so far |
 | `open` | `open`, in another deck | `pass --to --note`, the note required; refused where the idea is in that deck already, and where it is in that owner's hand, which is a return | `owner` the deck's, `drawn` cleared, a `passed from A to B:` note |
@@ -226,7 +230,7 @@ A consumed idea is in the discard pile, a removed one in the graveyard.
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `question`, standing alone, `--ref` for an idea, a finding or a question it comes from, `--source PATH` for a document | `title`, `summary`, `references`, `serves`, `size`, `checked` set to today, `owner` where `--for` names one |
+| — | `open` | `question`, standing alone, `--ref` for an idea, a finding or a question it comes from, `--source PATH` for a document | `title`, `summary`, `references`, `serves`, `size`, `value`, `checked` set to today, `owner` where `--for` names one |
 | `open` | `open`, in a hand | `draw --owner`, as an idea's | `owner`, `drawn` and, the first time, `started` |
 | `open`, in a hand | `open`, in its owner's deck | `return --note` | `drawn` cleared, `owner` kept, a `returned:` note |
 | `open` | `open`, in another deck | `pass --to --note`, as an idea's | `owner` the deck's, `drawn` cleared, a `passed from A to B:` note |
@@ -251,7 +255,7 @@ An answered or impossible question is in the discard pile, a wrong or removed on
 
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
-| — | `open` | `task`, `--ref` for what it came from, a question, an idea, a task, or none; `--for` for the owner's deck | `title`, `summary`, `references`, `size`, `due`, `after`, `tags`, `owner`; the rank, where it references a ranked question (just below it and the run of its tasks) |
+| — | `open` | `task`, `--ref` for what it came from, a question, an idea, a task, or none; `--for` for the owner's deck | `title`, `summary`, `references`, `size`, `value`, `due`, `after`, `tags`, `owner`; the rank, where it references a ranked question (just below it and the run of its tasks) |
 | `open` | `open`, parked | `park` | `parked` with its date, reason and revival; the rank stays; a held task is returned to its owner's deck |
 | `open`, parked | `open` | `unpark` | `parked` cleared, an `unparked:` note |
 | `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason; the rank stays; a held task is returned to its owner's deck |

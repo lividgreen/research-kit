@@ -48,6 +48,7 @@ summary: Prove the lemma that carries the step from A to B, so that the question
 references:
 - question-0001
 size: null
+value: null
 owner: null
 drawn: null
 started: null
@@ -65,7 +66,7 @@ tags:
 ---
 ```
 
-The front matter is what the tool owns: `state`, `owner`, `drawn`, `started`, `rank`, `parked`, `blocked_by`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`), `references` through `--ref` at the mint and `flow ref` after it, and `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
+The front matter is what the tool owns: `state`, `owner`, `drawn`, `started`, `rank`, `parked`, `blocked_by`, `closed` and the rest move only through a transition (`flow draw task-0001 --owner agent`, `flow make task-0001 --resolution notes.md`), `references` through `--ref` at the mint and `flow ref` after it, `value`, how much the task is worth, at the mint or with `flow set`, and `due` and `after`, a due date and what follows the task's completion, are set at the mint or with `flow set`.
 The body below it is yours, one sentence per line.
 
 ### What a failed check looks like

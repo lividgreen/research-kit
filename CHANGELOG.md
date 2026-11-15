@@ -4,13 +4,14 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
-A record's two fields for what it is: the field that was its `summary`, a line, is its `title` now, and a new `summary` explains it in a paragraph.
+A record's two fields for what it is: the field that was its `summary`, a line, is its `title` now, and a new `summary` explains it in a paragraph, and an idea, a question and a task carry a `value`.
 
 **Upgrading**: a breaking release for the records and for anything that reads `summary` from `--json`, which is now the explanation, the title being `title`.
-Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart; then run `flow doctor --fix`, which renames every record's `summary` to `title` and adds `summary: null` to it, then `flow index` and `flow check`.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart; then run `flow doctor --fix`, which renames every record's `summary` to `title` and adds `summary: null` to it, and adds `value: null` to every idea, question and task, then `flow index` and `flow check`.
 The doctor's two notes count the live records whose title is over 100 characters and the live ideas, questions, tasks and findings with no summary, which the project writes by hand, record by record; nothing refuses a tree not yet fixed, and `flow check` fails V3 on a record that still has no `title`.
 A mint of an idea, a question, a task or a finding is refused without `--summary`, so a script or a project's instructions that mint one add it, and the positional is the title.
-A project's `flow.toml` needs no `[card]` section, the limits being 100 and 500 characters where it is missing, and `flow doctor` notes the two keys `flow init` writes now.
+A project's `flow.toml` needs no `[card]` section, the limits being 100 and 500 characters and the levels `low`, `medium` and `high` where it is missing, and `flow doctor` notes the three keys `flow init` writes now.
+A project's next `whatsnext` judges the value of the cards it ranks that are not judged, and its agent judges the value of every card it mints from then on.
 
 The flow:
 
@@ -23,12 +24,19 @@ The flow:
 - The index, `flow state`, `flow show`, a row of `flow find`, `flow touched`, the notice and every refusal that named a record by its summary name it by its title, and the slug of a new file is cut from the title; under `--json` a record's keys are `title` and `summary`, and a link and a back-reference of `flow show`, and the cards `flow draw --refill` drew, are `{"id", "title"}` and carry a `title`.
 - The built-in markdownlint configuration reads `title:` as the document's title, where it read `summary:`.
 - `flow doctor` reads a record with `summary` and no `title` as the older model's, its line mechanical, and `--fix` renames the field and adds `summary: null`; after its lines it prints two notes that never fail, each one line with a count, `--all` listing the records and `--json` carrying them as `card_notes`: the live records whose title is over the limit, and the live ideas, questions, tasks and findings with no summary.
-  The doctor's note on a key `flow init` writes now names `[card]`'s two where a project's `flow.toml` has neither.
+  The doctor's note on a key `flow init` writes now names `[card]`'s three where a project's `flow.toml` has none of them.
+- An idea, a question and a task carry `value`, one of `[card] values` or `null` while nobody has judged it, in the front matter after `size` on a question and a task and after `references` on an idea; a finding, a goal and a direction carry none.
+  `[card] values` is `["low", "medium", "high"]` in rising order where unset, and `flow init` writes it.
+- `--value V` at `flow idea`, `flow question` and `flow task`, never required; `flow set ID value V [--note "why"]` changes it, `none` clears it, and a question's `checked` stays as it was, as after `flow set … size`; `flow find --value V` lists the cards of that value and `--value none` the cards not judged.
+  A word outside the list is refused with the list at a mint, at `set` and at `find`, and `flow check` fails one in a record (V3).
+- `flow doctor` reads a card with no `value` as a field the record lacks, a mechanical line, and `--fix` adds `value: null`; it writes no new line for it, and notes a `flow.toml` with no `[card] values` as it notes any key `flow init` writes now.
+  The index shows no value, and nothing warns on a card not judged.
 
 The `research` plugin:
 
 - The `flow` skill's new part "Writing a title and a summary": a title says what the card is to a reader of the project with no other record open, a question's the question, a task's the act with its verb first, a finding's the claim as one sentence, an idea's the thought, a goal's the outcome, a direction's its name, never an id, a section number or a bare label of a topic as its subject and never ending with a colon; a summary is one to four sentences saying what the record states, asks or does, in which setting and what it is for, naming another record by what it is, and leaving where the thing is stated and its history to the body.
   The `method` skill refers to it where it says how a record is written, and `whatsnext` mints with `--summary`.
+- The `flow` skill's new part "Judging a value and a size": the agent judges `value` at every mint of a card and `size` at a question's and a task's, and changes either with `flow set … --note` when the person says so or the work shows otherwise; the `whatsnext` skill's ranking step judges the cards it ranks that are not judged and reads value and size when it orders them, neither moving a rank by itself.
 - The `dashboard` reads `title` where it read `summary`, for the flow's list and its record pages and for a `refs` section's items, the summary shown as one more field of a record's page.
 
 The `formal` plugin:
@@ -37,7 +45,7 @@ The `formal` plugin:
 
 The pages:
 
-- [The flow](docs/research/flow.md) (the commands, `[card]`, the doctor and its notes, the words *title* and *summary*), [Flow cards](docs/research/flow-cards.md) (the common fields, the form and each transition's table) and [Getting started](docs/research/getting-started.md) say the same, and the dashboard's protocol names a `refs` section's items `{"id", "title"}`.
+- [The flow](docs/research/flow.md) (the commands, `[card]`, the doctor and its notes, the words *title*, *summary* and *value*), [Flow cards](docs/research/flow-cards.md) (the common fields, the three kinds' field lists and tables, the form and each transition's table) and [Getting started](docs/research/getting-started.md) say the same, and the dashboard's protocol names a `refs` section's items `{"id", "title"}`.
 
 ## v0.9.1 — 2026-11-13
 
