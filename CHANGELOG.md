@@ -5,11 +5,15 @@ Each release is a tag; the version is read from the tag and the version fields `
 ## Unreleased
 
 What a session does with the person's own words: a thought they call an idea, a question or a task is minted as that card, a fresh project starts from the idea of the project, and a session starts with the flow's state and then does what their message asks.
+The flow reads a question and a task from either side, three commands change, and a round of fixes from the first days at v0.10.0 follows.
 Three more things change in how a session works: a decision that waits on the person is a task in their deck, a session commits at its freeze, and the freeze carries its commit past another session's edits in the tree.
 
 **Upgrading**: not a breaking release.
 Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
 A project's instructions that carry "A session starts with the `whatsnext` skill and ends with the `freeze` skill" take the sentences `flow init --print-instructions` prints now.
+Then run `flow index` and `flow check`, since the index's section on a question's tasks reads a reference from either side now.
+A project with a markdownlint configuration of its own adds `"MD001": {"front_matter_title": ""}` and `"MD025": {"front_matter_title": ""}`, where its records' bodies open below `##` or hold a `#` heading.
+`flow make` no longer refuses a task that is not held, and a task minted with `--ref` to a ranked question gets no rank by itself, so a ranking places it.
 
 The `research` plugin:
 
@@ -39,6 +43,18 @@ The flow script:
 
 - `flow init --print-instructions` says a session starts with `flow state`, then does what the person's message asks, the agent recommending the next moves where the message leaves open what to do, the `whatsnext` skill among them, and ends with the `freeze` skill; the sentence that a session starts with `whatsnext` goes, and the sentences on the person's bare words and on a request ending "… and freeze" stay.
   The selftest holds the printed text to it.
+- A task and a question are connected when either references the other: the `for` line of a card's `lines`, the check's warning on an open question whose tasks are all closed and the index's section `Needs a task or an answer` with its count of tasks read the connection from both sides, where they read the task's side alone; `flow show`'s links and back-references are as they were.
+  `flow.md` and `flow-cards.md` say a reference between the two may stand on either record.
+- `flow make` closes any open task, held or not, and prints nothing about the hand: the refusal `is in no hand: draw it first` goes, `drawn` and `started` staying as they were on a task never drawn, and the skill and the pages lose the rule that a task is drawn before it is made.
+- A minted task gets no rank by itself, whatever it references: the placing of a task just below the ranked question it references goes, and ranks are written only by `flow rank`; a task minted for work now is drawn with `flow draw ID` and ranked at the next ranking, the refill never drawing an unranked card.
+- `flow reflow --write TARGET…` rewrites each target, a file's path or a record's id, one sentence per line by the reflow the check runs, leaving the front matter as it is, and prints each file it changed; markdownlint runs after it as on any write, and a file that fails is put back as it was and refused with the lint's line, exit 1, the other targets staying rewritten.
+  `--check` prints, under each line the reflow changes, the lines it would become.
+  The built-in reflow leaves a sentence unsplit inside a code span fenced by two or more backticks, where its count of backticks split it; a line it left alone before, a stray backtick among them, it still leaves alone.
+- `flow table` on a tree of the older model, a record with `summary` and no `title`, lays the table as `flow find` answers on it, where it stopped with a traceback and `flow --json table` printed nothing parseable.
+- The built-in markdownlint configuration carries `"MD001": {"front_matter_title": ""}` and `"MD025": {"front_matter_title": ""}` beside its MD041: `title:` in the front matter matched the default `front_matter_title` of both, so a record whose body opened below `##` failed MD001 and one whose body held a `#` heading failed MD025, where both passed before v0.10.0.
+- `flow set ID title` writes what the title read into the body's note in a code span, `title set; it read:` and the old title between backticks, the fence one longer than the longest run of backticks in it and padded with a space where it opens or ends with one: raw, an old title with a word in angle brackets failed MD033 and the write was reverted, and one quoting a whole sentence was split by the reflow.
+- `flow doctor --fix` prints, after its edits, one line with the count of mechanical edits written and of records changed, then the count by class; under `--json` the same is `written`.
+- The `flow` skill and `flow.md` name the envelope of `--json`: `flow show --json` answers the record under `records[0]`, beside `ok`, `command`, `body`, `links` and `backlinks`, and say which commands answer `records`.
 
 ## v0.10.0 — 2026-11-15
 

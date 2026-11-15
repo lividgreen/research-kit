@@ -492,6 +492,26 @@ def fence_after(fence, line):
     return None if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip() else fence
 
 
+def in_code_span(line, pos):
+    """Whether `pos` of `line` lies where the reflow must not split: after an odd number of backticks, as the reflow has
+    always counted, or inside a span whose fence is a longer run (CommonMark: a run of backticks opens a span that the next
+    run of the same length closes), which that count splits though it holds a whole sentence."""
+    if line.count("`", 0, pos) % 2 == 1:
+        return True
+    runs = [(m.start(), m.end()) for m in re.finditer(r"`+", line)]
+    i = 0
+    while i < len(runs) and runs[i][0] < pos:
+        n = runs[i][1] - runs[i][0]
+        close = next((j for j in range(i + 1, len(runs)) if runs[j][1] - runs[j][0] == n), None)
+        if close is None:
+            i += 1
+        elif pos < runs[close][1]:
+            return True
+        else:
+            i = close + 1
+    return False
+
+
 def _builtin_reflow(text):
     out, fence = [], None
     for line in text.split("\n"):
@@ -508,7 +528,7 @@ def _builtin_reflow(text):
             if b.group(1) == "." and word and (word.group() in BUILTIN_ABBREVIATIONS or word.group().lower() in BUILTIN_ABBREVIATIONS
                                                or re.search(r"\bet al$", body[:b.start()])):  # `cf.`, `Thm.`, `et al.`, but `A.` is a sentence
                 continue
-            if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
+            if in_code_span(body, b.start()) or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
                     or re.fullmatch(r"(\*\*|__)(?:[^*_\s]+ ){0,3}[^*_\s]+(?: \([^()]*\))?\.\1", body[start:b.end(2)].strip()):  # a label, **State.**, **Lemma 2 (Jen 1990).**
                 continue
             parts.append(body[start:b.end(2)].strip())
@@ -841,9 +861,11 @@ def next_id(cfg, type_):
 
 # The configuration markdownlint runs with when the project binds none and keeps none at its
 # root: a record's `title:` is the document's title, so MD041 (first line a heading) does not fire on
-# every body, and a record is one sentence per line, so MD013 (line length) is off; everything else
-# is markdownlint's default.
-MDLINT_DEFAULT = '{"MD013": false, "MD041": {"front_matter_title": "^\\\\s*title\\\\s*:"}}\n'
+# every body, and MD001 and MD025 (heading levels, one top-level heading) do not count that title as a
+# heading either, as they do by default, so a body may open below `##` or hold a `#` heading; a record
+# is one sentence per line, so MD013 (line length) is off; everything else is markdownlint's default.
+MDLINT_DEFAULT = ('{"MD013": false, "MD041": {"front_matter_title": "^\\\\s*title\\\\s*:"}, '
+                  '"MD001": {"front_matter_title": ""}, "MD025": {"front_matter_title": ""}}\n')
 _MDLINT_ROOT_CONFIGS = (".markdownlint.jsonc", ".markdownlint.json", ".markdownlint.yaml", ".markdownlint.yml",
                         ".markdownlint-cli2.jsonc", ".markdownlint-cli2.yaml", ".markdownlint-cli2.cjs", ".markdownlint-cli2.mjs")
 
@@ -1423,6 +1445,30 @@ def in_references(r, id_):
     return isinstance(r["references"], list) and id_ in r["references"]
 
 
+def tasks_by_question(recs):
+    """Each question's tasks: a task and a question are connected when either references the other, so a task naming the
+    question and a question naming the task are both the question's task.  {question id: [task, …]} in record order."""
+    out = defaultdict(list)
+    for r in recs.values():
+        refs = r["references"] if isinstance(r["references"], list) else []
+        if r.type == "task":
+            for x in refs:
+                if x in recs and recs[x].type == "question" and r not in out[x]:
+                    out[x].append(r)
+        elif r.type == "question":
+            for x in refs:
+                if x in recs and recs[x].type == "task" and recs[x] not in out[r.id]:
+                    out[r.id].append(recs[x])
+    return out
+
+
+def questions_of_task(recs, t):
+    """The questions a task is for, in the order the task names them and then the questions that name the task."""
+    refs = t["references"] if isinstance(t["references"], list) else []
+    own = [recs[i] for i in refs if i in recs and recs[i].type == "question"]
+    return own + [q for q in recs.values() if q.type == "question" and q not in own and in_references(q, t.id)]
+
+
 def consumed_list(r):
     """An idea's consumed_by as a list: the cards that name it in references (one id from an older model read as a list of one)."""
     v = r["consumed_by"]
@@ -1518,13 +1564,11 @@ def validate(cfg, recs, today):
                          "path": rel(cfg, r.path) if r else None, "msg": msg})
 
     by_owner = Counter()
-    tasks_of = defaultdict(list)
+    tasks_of = tasks_by_question(recs)
     named_by = defaultdict(set)
     for r in recs.values():
         for x in r["references"] if isinstance(r["references"], list) else []:
             named_by[x].add(r.id)
-            if r.type == "task":
-                tasks_of[x].append(r)
     ranks = defaultdict(list)
     lib = library_keys(cfg)
     cited, citers = Counter(), set()
@@ -1835,10 +1879,7 @@ def render_index(cfg, recs):
         wait.sort(key=lambda r: r.id)
         section("Parked or blocked questions", [_line(r, "; ".join(waits(cfg, recs, r))) for r in wait])
 
-        tasks_of = defaultdict(list)
-        for r in R:
-            for x in (r["references"] or []) if r.type == "task" else []:
-                tasks_of[x].append(r)
+        tasks_of = tasks_by_question(recs)
         need = [r for r in R if r.type == "question" and r["state"] == "open" and tasks_of[r.id]
                 and all(x["state"] in CLOSED_TASK for x in tasks_of[r.id])]
         section("Needs a task or an answer", [_line(r, f"{len(tasks_of[r.id])} tasks, all closed") for r in sorted(need, key=lambda r: r.id)])
@@ -2013,33 +2054,12 @@ def cmd_question(cfg, recs, a, today):
 
 
 def cmd_task(cfg, recs, a, today):
-    """A task, in the common deck or the owner's `--for`.  Minted from a ranked question it takes the question's place on the
-    ranked list, just below it and below the run of ranked tasks directly under it that reference it, so the next refill draws
-    it in turn and nothing is displaced meanwhile; the agent may put it elsewhere (`flow rank T N --insert`) or clear it."""
+    """A task, in the common deck or the owner's `--for`.  It gets no rank by itself, whatever it references: a rank is written
+    only by `flow rank`, and a task minted for work now is drawn with `flow draw` and ranked at the next ranking."""
     r = new_record(cfg, "task", {"title": a.title, "summary": a.summary, "size": a.size, "value": a.value,
                                  "due": check_due(a.due), "after": a.after, "owner": mint_deck(cfg, a), **mint_common(cfg, recs, a)},
                    read_body(a.body), today)
-    place = inherited_place(recs, r)
-    if place is not None:
-        insert_rank(cfg, recs, r, place)
-        _SET_RANKS.append(("ranked", r.id, place))
     return [r], mirror_add(cfg, recs, r, r["references"])
-
-
-def inherited_place(recs, t):
-    """The rank a task minted with --ref takes: below the best-ranked open question it references, and below the run of
-    ranked tasks directly under that question that reference it.  None where it references no ranked question: no other
-    mint inherits a place, what an idea or a question produces being ranked by `whatsnext`."""
-    qs = [recs[i] for i in t["references"] or [] if i in recs and recs[i].type == "question" and recs[i]["state"] == "open"
-          and isinstance(recs[i]["rank"], int)]
-    if not qs:
-        return None
-    q = min(qs, key=lambda x: x["rank"])
-    by_rank = {o["rank"]: o for o in recs.values() if o is not t and o.type in CARDS and isinstance(o["rank"], int)}
-    place = q["rank"] + 1
-    while place in by_rank and by_rank[place].type == "task" and q.id in (by_rank[place]["references"] or []):
-        place += 1
-    return place
 
 
 def answerable(recs, qid):
@@ -2289,10 +2309,9 @@ def close_task(cfg, recs, t, state, today, reason=None):
 
 def cmd_make(cfg, recs, a, today):
     """A task made: its resolution, what was done, appended under the date; it mints nothing, the follow-ups being
-    minted after it (`flow task … --ref T`)."""
+    minted after it (`flow task … --ref T`).  Any open task is closed, held or not: a task never drawn keeps the `drawn` and
+    `started` it had, which are null."""
     t = get(recs, a.task, "task", ("open",))
-    if not is_held(t):
-        raise Refused(f"{t.id} is in no hand: draw it first (`flow draw {t.id} --owner O`)")
     text = read_body(a.resolution)
     if not text.strip():
         raise Refused(f"the resolution {'from the standard input' if a.resolution == '-' else a.resolution} is empty: "
@@ -2694,12 +2713,23 @@ def cmd_set(cfg, recs, a, today):
             append_note(r, today, f"title set: {a.note.strip()}")
     elif a.field == "title" and value != old:
         # the title says what the card is: what it read before stays in the body, dated, with the words for the change
-        append_note(r, today, f"title set; it read: {old}" + (f". {a.note.strip()}" if a.note else ""))
+        append_note(r, today, f"title set; it read: {code_span(old)}" + (f". {a.note.strip()}" if a.note else ""))
     elif a.note:
         append_note(r, today, f"{a.field} set: {a.note.strip()}")
     r.fm[a.field] = value
     save(cfg, r)
     return [], [r]
+
+
+def code_span(text):
+    """The text as a Markdown code span: the fence one backtick longer than the longest run of backticks in it, and the text
+    padded with a space where it opens or ends with a backtick, so a word in angle brackets is no HTML to the linter and a
+    whole sentence is no sentence to the reflow."""
+    text = str(text or "")
+    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
 
 
 def plus_minus(changes, usage):
@@ -3507,8 +3537,9 @@ def cmd_log_archive(cfg, a, today):
 
 # --- the reflow of the project's other prose ----------------------------------------
 
-def reflow_misses(cfg, text):
-    """(line number, line) of every line of `text` the reflow changes; a leading front matter block is not prose."""
+def reflow_changes(cfg, text):
+    """[(line number, line, the lines it would become)] for every line of `text` the reflow changes; a leading front matter
+    block is not prose."""
     lines = text.split("\n")
     skip = 0
     if lines[0] == FENCE:
@@ -3516,11 +3547,64 @@ def reflow_misses(cfg, text):
         skip = end + 1 if end is not None else 0
     body = lines[skip:]
     new = cfg.reflow("\n".join(body)).split("\n")
-    out = set()
-    for tag, i1, i2, _, _ in difflib.SequenceMatcher(None, body, new, autojunk=False).get_opcodes():
-        if tag != "equal":
-            out.update((skip + i + 1, body[i]) for i in range(i1, min(max(i2, i1 + 1), len(body))))
-    return sorted(out)
+    out = {}
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, body, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        for i in range(i1, min(max(i2, i1 + 1), len(body))):
+            # one line replaced by its parts reads straight off the diff; of several, each is reflowed alone
+            becomes = new[j1:j2] if i2 - i1 == 1 else cfg.reflow(body[i]).split("\n")
+            out[skip + i + 1] = (body[i], becomes if becomes != [body[i]] else new[j1:j2])
+    return [(n, line, becomes) for n, (line, becomes) in sorted(out.items())]
+
+
+def reflow_misses(cfg, text):
+    """(line number, line) of every line of `text` the reflow changes."""
+    return [(n, line) for n, line, _ in reflow_changes(cfg, text)]
+
+
+def reflow_problems(cfg, text, where):
+    """The REFLOW problems of `text`: each line the reflow changes, at `where(n)`, with the lines it would become."""
+    return [{"code": "REFLOW", "id": None, "path": where(n), "msg": line, "becomes": becomes} for n, line, becomes in reflow_changes(cfg, text)]
+
+
+def reflow_write(cfg, targets):
+    """`--write TARGET…`: each target, a file's path or a record's id, has its body (the text after a leading front matter
+    block, which is left as it is) rewritten one sentence per line by the reflow `--check` runs, and then markdownlint runs as
+    on any write: a file that fails is put back as it was and is refused, the other targets of the run staying rewritten.
+    Returns (the paths written, the paths already as the reflow leaves them, the problems of the refused)."""
+    recs = None
+    paths = []
+    for t in targets:  # every target is found before any is written
+        path = Path(t)
+        if not path.is_file():
+            recs = load_all(cfg, []) if recs is None else recs
+            if t not in recs:
+                raise NotRun(f"{t}: no such file, and no record of that id")
+            path = recs[t].path
+        paths.append(path)
+    written, same, problems = [], [], []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
+            raise Refused(f"{path}: not UTF-8 ({e.reason} at byte {e.start})")
+        head = ""
+        if text.startswith(FENCE + "\n"):
+            end = text.find("\n" + FENCE + "\n", len(FENCE))
+            if end != -1:
+                head, text = text[:end + len(FENCE) + 2], text[end + len(FENCE) + 2:]
+        body = cfg.reflow(text)
+        if body == text:
+            same.append(rel(cfg, path))
+            continue
+        try:
+            write_linted(cfg, {path: head + body})
+        except Refused as e:
+            problems.append({"code": "MARKDOWNLINT", "id": None, "path": rel(cfg, path), "msg": str(e)})
+            continue
+        written.append(rel(cfg, path))
+    return written, same, problems
 
 
 def cmd_reflow(cfg, a):
@@ -3539,7 +3623,7 @@ def cmd_reflow(cfg, a):
                 text = f.read_text(encoding="utf-8")
             except UnicodeDecodeError as e:
                 raise Refused(f"{f}: not UTF-8 ({e.reason} at byte {e.start})")
-            problems += [{"code": "REFLOW", "id": None, "path": f"{rel(cfg, f)}:{n}", "msg": line} for n, line in reflow_misses(cfg, text)]
+            problems += reflow_problems(cfg, text, lambda n, f=f: f"{rel(cfg, f)}:{n}")
         return problems, f"{len(files)} file(s) read; reflow via {cfg.reflow_source}"
     dest, draft = map(Path, a.as_)
     if not draft.is_file():
@@ -3553,7 +3637,7 @@ def cmd_reflow(cfg, a):
         if twin is not None:
             raise Refused(f"{dest} does not exist; {twin.id} is {rel(cfg, twin.path)}: name the record by its id, `--as {twin.id}`")
     text = read_body(draft).strip("\n")
-    problems += [{"code": "REFLOW", "id": None, "path": f"{draft}:{n}", "msg": line} for n, line in reflow_misses(cfg, text)]
+    problems += reflow_problems(cfg, text, lambda n: f"{draft}:{n}")
     # a record not minted yet: its body will stand under front matter whose `title:` is the document's title, as for any record
     had = dest.read_text(encoding="utf-8").rstrip("\n") if dest.is_file() else f"{FENCE}\ntitle: the record's\n{FENCE}" if m else ""
     fd, name = tempfile.mkstemp(prefix=f".{dest.stem}.", suffix=".flow-draft.md", dir=dest.parent if dest.parent.is_dir() else cfg.root)
@@ -4122,8 +4206,10 @@ def doctor_fix(cfg, items):
     """Apply every mechanical item: each record's edits together, its front matter re-ordered to the schema, written
     without the lint, and the reflow only where a field's words were appended to the body, then moved where an item
     says; the index refreshed.
-    Returns (the counts by class, the items left to the hand), an item whose move finds its destination taken among them."""
+    Returns (the counts by class, the items left to the hand, the ids of the records changed), an item whose move finds its
+    destination taken among the items left."""
     fixed, left = Counter(), [it for it in items if it["fix"] is None]
+    changed = set()
     moves = defaultdict(list)
     for it in items:
         if it["fix"] is None:
@@ -4143,6 +4229,7 @@ def doctor_fix(cfg, items):
         for it in its:
             it["fix"]()
             fixed[it["cls"]] += 1
+        changed.add(r.id)
         if r.body != body:  # words a field held, appended to the body: reflowed as any write of a body is
             r.body = cfg.reflow(r.body)
         fm = {k: r.fm[k] for k in SCHEMA[r.type] if k in r.fm}
@@ -4160,10 +4247,11 @@ def doctor_fix(cfg, items):
             shutil.move(str(it["rec"].path), str(dest))
             it["rec"].path = dest
             fixed[it["cls"]] += 1
+            changed.add(rid)
     if fixed:
         cfg.index.parent.mkdir(parents=True, exist_ok=True)
         write_whole(cfg.index, render_index(cfg, load_all(cfg, [])))
-    return fixed, left
+    return fixed, left, changed
 
 
 # --- init --------------------------------------------------------------------------
@@ -4652,7 +4740,7 @@ def selftest():
         run(["set", q3, "title", "Q2, put sharper", "--note", "the owner's words"])
         recs = load_all(cfg)
         expect("a title set keeps what it read in the body, dated, with the words given for the change",
-               recs[q3]["title"] == "Q2, put sharper" and f"{today} — title set; it read: Q2. the owner's words" in recs[q3].body)
+               recs[q3]["title"] == "Q2, put sharper" and f"{today} — title set; it read: `Q2`. the owner's words" in recs[q3].body)
         was = recs[q3]["summary"]
         run(["set", q3, "summary", "Q2, asked more sharply, to decide the branch.", "--note", "the owner's words"])
         recs = load_all(cfg)
@@ -4684,6 +4772,16 @@ def selftest():
         expect("--to-summary is refused where what the title read is over the summary's limit",
                "501 characters" in p["problems"][0]["msg"] and "500" in p["problems"][0]["msg"] and load_all(cfg)[q3]["summary"] is None)
         run(["set", q3, "title", "Q2, put sharper"])
+        for old_title, span in (("Read <word> as the tag", "`Read <word> as the tag`"),
+                                ("Run `make test`. Then `make lint` passes", "``Run `make test`. Then `make lint` passes``"),
+                                ("Ends with a tick `x`", "`` Ends with a tick `x` ``"),
+                                ("Quote a whole sentence. Then another one", "`Quote a whole sentence. Then another one`")):
+            run(["set", q3, "title", old_title])
+            run(["set", q3, "title", "Q2, put sharper", "--note", "reworded"])
+            body_ = load_all(cfg)[q3].body
+            expect(f"planted: a title set writes what it read in a code span ({span}), the fence one longer than the longest run, padded at a tick; "
+                   "the write passes the linter and the reflow leaves it on one line",
+                   f"title set; it read: {span}. reworded" in body_ and not reflow_misses(cfg, body_))
         for gone in ("criterion", "kill", "rider", "serves", "kind", "depends_on", "horizon", "dod", "why_now"):
             p = run(["set", q3, gone, "x"], ok=False)
             expect(f"set refuses {gone}, a field no longer, and says the way it goes now", "`flow " in p["problems"][0]["msg"])
@@ -4713,8 +4811,6 @@ def selftest():
         tz = new(["task", "a task to tag and note"])
         for verb in (["park", q3], ["block", q3, "--on", "the release"], ["remove", tz], ["abort", t1], ["reopen", q]):
             run(verb + ["--reason", "  "], ok=False)  # a reason is words, refused here and not left to V15
-        p = run(["make", tz, "--resolution", res], ok=False)
-        expect("a refusal of a task not drawn names the draw", f"`flow draw {tz} --owner O`" in p["problems"][0]["msg"])
         # a record's tags changed after its mint, and a body appended to without its file name
         run(["tag", tz, "+upkeep"])
         run(["tag", tz, "+chore", "-upkeep", "+chore"])
@@ -5163,7 +5259,7 @@ def selftest():
         run(["set", g2, "title", "Reach C, formalized", "--note", "the owner: \"a proof on paper is not enough\""])
         body = load_all(cfg)[g2].body
         expect("a goal's title set leaves what it read in the body, dated, with the owner's words",
-               f"{today} — title set; it read: Reach C. the owner: \"a proof on paper is not enough\"" in body)
+               f"{today} — title set; it read: `Reach C`. the owner: \"a proof on paper is not enough\"" in body)
         run(["reach", g2, "--reason", f"C is proved, {fa}"])
         recs = load_all(cfg)
         expect("a goal reached carries its date and what shows it", recs[g2]["state"] == "reached" and recs[g2]["closed"]["reason"] == f"C is proved, {fa}")
@@ -5486,6 +5582,20 @@ def selftest():
         expect("an open question whose every task is closed is warned of as needing a task or an answer, and the index's section says so",
                f"{q4}: needs a task (`flow task TITLE --summary S --ref {q4}`) or an answer (every task closed)" in warnings
                and "## Needs a task or an answer" in cfg.index.read_text(encoding="utf-8"))
+        was_q4 = load_all(cfg)[q4]["references"]
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(references=[]))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(references=[*was_q4, wt]))
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        run(["index"])
+        idx_back = cfg.index.read_text(encoding="utf-8")
+        expect("planted: a question referencing a closed task that references nothing is warned of as needing a task, and the index's section counts the task",
+               f"{q4}: needs a task (`flow task TITLE --summary S --ref {q4}`) or an answer (every task closed)" in warnings
+               and re.search(rf"## Needs a task or an answer\n\n(?:- .*\n)*?- `{q4}` — .*\[1 tasks, all closed\]", idx_back))
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="open"))
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        expect("planted: the same task open, the question referencing it is not warned of",
+               not any(f"{q4}: needs a task" in w for w in warnings))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(references=was_q4))
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(**was))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(blocked_by={"date": today, "on": ["2026-09-01", q3], "reason": "both"}))
         recs = load_all(cfg)
@@ -5517,6 +5627,12 @@ def selftest():
                 rc, _ = dispatched(c2, ["idea", "A violation", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
                 expect("a write adding a violation of the built-in configuration is refused and reverted",
                        rc == 1 and len(list((r2 / "records" / "ideas").glob("*.md"))) == 1)
+                (r2 / "body.md").write_text("### A body that opens below a second-level heading\n\nA line.\n", encoding="utf-8")
+                rc, _ = dispatched(c2, ["idea", "A deep opening", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
+                expect("planted: a body opening at `###` is written, the record's title not counted as a heading by MD001", rc == 0)
+                (r2 / "body.md").write_text("# A top heading in the body\n\nA line.\n", encoding="utf-8")
+                rc, _ = dispatched(c2, ["idea", "A top heading", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
+                expect("planted: a body holding a `#` heading is written, the record's title not counted as one by MD025", rc == 0)
                 (r2 / "body.md").unlink()
                 (r2 / "mdl.json").write_text(MDLINT_DEFAULT, encoding="utf-8")
                 r = subprocess.run([mdl, "-c", str(r2 / "mdl.json")] + [str(f) for f in sorted(r2.rglob("*.md"))], capture_output=True, text=True)
@@ -5753,27 +5869,27 @@ def selftest():
         txt = text_of(cfg, ["index", "--print"])
         expect("the index marks a held card on the ranked list with its holder, and lists each owner's deck beside the hand",
                "1. `" + i1 + "` — an idea\n   held by owner" in txt and "agent's deck, " in txt and f"- `{q1}` — a question [question" in txt)
-        # a task minted from a ranked question takes its place, just below it and below the run of its tasks
+        # a task minted from a ranked question takes no place: ranks are written only by `flow rank`
         go(["rank", "--set", t3, q1])
         qa = mint(["question", "a second ranked question"])
         go(["rank", qa, "3"])
         p = go(["task", "prove the lemma", "--ref", q1])
         ta = p["created"][0]
-        expect("a task minted --ref a ranked question is ranked just below it, the rest re-ranked, and the answer says so",
-               card(ta)["rank"] == 3 and card(qa)["rank"] == 4 and p["ranked"] == [{"id": ta, "rank": 3}]
-               and p["reranked"] == [{"id": qa, "from": 3, "to": 4}] and card(ta)["owner"] is None)
+        expect("planted: a task minted --ref a ranked question gets no rank, and the ranked list stays as it was",
+               card(ta)["rank"] is None and card(qa)["rank"] == 3 and card(q1)["rank"] == 2 and not p.get("ranked") and not p["reranked"]
+               and card(ta)["owner"] is None)
         txt = text_of(cfg, ["task", "second move", "--ref", q1])
         tb = next(i for i in load_all(cfg) if i.startswith("task-") and card(i)["title"] == "second move")
-        expect("the next task of the same question goes below the run of tasks under it, and the text prints `ranked` and `re-ranked`",
-               card(tb)["rank"] == 4 and f"ranked {tb} 4" in txt and "re-ranked" in txt and card(qa)["rank"] == 5)
+        expect("the next task of the same question is unranked too, and the text prints no `ranked` or `re-ranked`",
+               card(tb)["rank"] is None and "ranked" not in txt and card(qa)["rank"] == 3)
         tc = mint(["task", "with two questions", "--ref", qa, "--ref", q1])
-        expect("with several ranked questions referenced, the best-ranked one's place is taken", card(tc)["rank"] == 5 and card(qa)["rank"] == 6)
         td = mint(["task", "from a task and an unranked idea", "--ref", ta, "--ref", i1])
         te = mint(["task", "from an unranked question", "--ref", mint(["question", "an unranked question"])])
-        expect("no other mint inherits a place: a task referencing a task, an idea or an unranked question is unranked",
-               card(td)["rank"] is None and card(te)["rank"] is None)
+        expect("no mint places a task: with two ranked questions, a task, an idea or an unranked question referenced, each is unranked",
+               all(card(x)["rank"] is None for x in (tc, td, te)) and card(qa)["rank"] == 3)
+        go(["rank", "--set", t3, q1, qa, tc])
+        expect("a ranking places a task, as it places any card", [card(x)["rank"] for x in (t3, q1, qa, tc)] == [1, 2, 3, 4])
         go(["rank", tc, "--clear"])
-        expect("the agent may clear the inherited place, the list closing up", card(tc)["rank"] is None and card(qa)["rank"] == 5)
         go(["check"])
         # closings: a card leaves its deck and its hand, keeps started, and goes to a pile
         go(["draw", tb, "--owner", "agent"])
@@ -5782,8 +5898,13 @@ def selftest():
         p = go(["abort", td, "--reason", "r"], ok=False)
         expect("abort refuses a task never started and names remove", "never started" in said(p) and "flow remove" in said(p))
         go(["return", tb, "--note", "later"])
-        p = go(["make", tb, "--resolution", res], ok=False)
-        expect("make takes a held task: one in a deck is told to draw it", "flow draw" in said(p))
+        tm = mint(["task", "a task made at once"])
+        p = go(["make", tm, "--resolution", res])
+        expect("planted: make closes a task that is in no hand and was never drawn, saying nothing of the hand: archived, owner and drawn cleared, "
+               "started still null, its resolution in the body, in the discard pile",
+               card(tm)["state"] == "done" and card(tm)["owner"] is None and card(tm)["drawn"] is None and card(tm)["started"] is None
+               and pile_of(card(tm)) == "discard" and "archive" in str(card(tm).path) and "resolution:" in card(tm).body
+               and not any("hand" in str(x) for x in p["problems"]) and p["ok"])
         go(["abort", tb, "--reason", "a started task, in its deck", "--resolution", res])
         expect("abort takes a started task that is held or not: it is archived, owner and drawn cleared, started kept, in the graveyard",
                card(tb)["state"] == "aborted" and card(tb)["owner"] is None and card(tb)["drawn"] is None and card(tb)["started"] == today
@@ -6676,7 +6797,12 @@ def selftest():
             expect("`flow doctor --fix` prints the remark too, naming the record it fixed",
                    "question-0001-does-a-imply-b.md: the release of 2026-12-01 is words" in fixed_text and "written alone" in fixed_text
                    and "flow doctor: 0 thing(s) for the hand" in fixed_text)
+            said_n = re.search(r"^wrote (\d+) mechanical edit\(s\) in (\d+) record\(s\)$", fixed_text, re.M)
+            expect("planted: `flow doctor --fix` prints one line of the edits written and the records changed, above the count by class",
+                   said_n is not None and int(said_n.group(2)) >= 1 and re.search(r"^fixed \d+: ", fixed_text[said_n.end():], re.M) is not None)
             rc, pl = dispatched(c2, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
+            expect("planted: `flow doctor --fix --json` carries the same as `written`",
+                   pl["written"] == {"edits": int(said_n.group(1)), "records": int(said_n.group(2)), "classes": pl["fixed"]})
             expect("`flow doctor --fix --json` carries the remark", len(pl["remarks"]) == 1 and "written alone" in pl["remarks"][0]["text"])
             expect("one `flow doctor --fix` writes the mirror, the class counted once", pl["fixed"].get("consumed-mirror") == 1)
             recs = load_all(c2)
@@ -6739,6 +6865,12 @@ def selftest():
                _builtin_reflow("Theorem A. Then it holds.") == "Theorem A.\nThen it holds."
                and _builtin_reflow("Take the matrix A. The rest follows.") == "Take the matrix A.\nThe rest follows."
                and _builtin_reflow("See Fig. 2. Then it holds.") == "See Fig. 2.\nThen it holds.")
+        expect("planted: the built-in reflow leaves a sentence unsplit inside a span fenced by two backticks, and still leaves alone a line "
+               "after a stray backtick and one after a span holding a backtick, which it never split; a span closed splits after it",
+               _builtin_reflow("Read ``Run `make test`. Then `make lint` passes`` here.") == "Read ``Run `make test`. Then `make lint` passes`` here."
+               and _builtin_reflow("A lone ` tick. Then another sentence.") == "A lone ` tick. Then another sentence."
+               and _builtin_reflow("Use ``a`b`` here. Then more.") == "Use ``a`b`` here. Then more."
+               and _builtin_reflow("Run `make test`. Then stop.") == "Run `make test`.\nThen stop.")
         (root / "docs").mkdir()
         (root / "docs" / "a.md").write_text("# A\n\nIt is fine.\n", encoding="utf-8")
         go(["reflow", "--check", str(root / "docs"), str(root / "LOG.md")])
@@ -6771,6 +6903,47 @@ def selftest():
         go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)])
         expect("reflow --as writes nothing", (root / "docs" / "a.md").read_text(encoding="utf-8") == "# A\n\nIt is fine.\n"
                and sorted(p.name for p in (root / "docs").iterdir()) == ["a.md"])
+        # --write: a file or a record rewritten one sentence per line, the front matter as it was, markdownlint after
+        wf = root / "docs" / "w.md"
+        wf.write_text("# W\n\nOne thing. Another thing.\n\n- A list. With two.\n", encoding="utf-8")
+        p = go(["reflow", "--check", str(wf)], ok=False)
+        expect("planted: reflow --check prints, under each line the reflow changes, the lines it would become",
+               [(x["msg"], x["becomes"]) for x in p["problems"]] == [("One thing. Another thing.", ["One thing.", "Another thing."]),
+                                                                      ("- A list. With two.", ["- A list.", "  With two."])]
+               and "    becomes: Another thing." in text_of(cfg, ["reflow", "--check", str(wf)]))
+        p = go(["reflow", "--write", str(wf)])
+        expect("planted: reflow --write rewrites a file by its path one sentence per line, prints it, and the check then passes",
+               p["written"] == ["docs/w.md"] and wf.read_text(encoding="utf-8") == "# W\n\nOne thing.\nAnother thing.\n\n- A list.\n  With two.\n"
+               and go(["reflow", "--check", str(wf)])["problems"] == [])
+        p = go(["reflow", "--write", str(wf)])
+        expect("reflow --write on what is already one sentence per line writes nothing and says so", p["written"] == [] and p["unchanged"] == ["docs/w.md"])
+        rec_path = load_all(cfg)[tr].path
+        was_text = rec_path.read_text(encoding="utf-8")
+        rec_path.write_text(was_text.rstrip("\n") + "\nA record's line. Two sentences on it.\n", encoding="utf-8")
+        was_head = was_text[:was_text.index("\n---\n", 4) + 5]
+        p = go(["reflow", "--write", tr, str(wf)])
+        now = rec_path.read_text(encoding="utf-8")
+        expect("planted: reflow --write takes a record's id, rewrites its body and leaves its front matter as it was",
+               p["written"] == [rel(cfg, rec_path)] and now.startswith(was_head) and now.endswith("\nA record's line.\nTwo sentences on it.\n") and p["unchanged"] == ["docs/w.md"])
+        wf.write_text("Two. Sentences.\n", encoding="utf-8")
+        p = go(["reflow", "--write", str(wf), "task-9999"], ok=False)
+        expect("reflow --write on a target that is neither a file nor a record could not run, and writes none of the others",
+               "task-9999" in p["problems"][0]["msg"] and wf.read_text(encoding="utf-8") == "Two. Sentences.\n"
+               and dispatched(cfg, ["reflow", "--write", str(wf), "task-9999"], today=today, as_json=True, quiet=True)[0] == 2)
+        if mdl:
+            lf = root / "docs" / "l.md"
+            lf.write_text("# L\n\nFine. It is.\n", encoding="utf-8")
+            wf.write_text("# W\n\nOne. Two.\n", encoding="utf-8")
+            had_reflow = cfg._reflow
+            cfg._reflow = lambda t: _builtin_reflow(t).replace("Fine.", "Fine.\n## Glued")  # a project's reflow that breaks the lint
+            try:
+                rc, p = dispatched(cfg, ["reflow", "--write", str(lf), str(wf)], today=today, as_json=True, quiet=True)
+            finally:
+                cfg._reflow = had_reflow
+            expect("planted: reflow --write puts back a file markdownlint refuses, names the lint's line and exits 1; the other target stays rewritten",
+                   rc == 1 and lf.read_text(encoding="utf-8") == "# L\n\nFine. It is.\n" and [x["path"] for x in p["problems"]] == ["docs/l.md"]
+                   and "MD022" in p["problems"][0]["msg"] and p["written"] == ["docs/w.md"]
+                   and wf.read_text(encoding="utf-8") == "# W\n\nOne.\nTwo.\n")
     # the title and the summary: the [card] bindings, a check that reads no limit, the doctor's rename and its two notes
     with tempfile.TemporaryDirectory() as t7:
         r7 = Path(t7)
@@ -6820,6 +6993,17 @@ def selftest():
         rc, pl = say(["check"])
         expect("a record with `summary` and no `title` fails V3 as a record lacking a field does, no refusal beside it",
                rc == 1 and any(x["code"] == "V3" and "missing field title" in x["msg"] for x in pl["problems"]))
+        rc, pl = say(["table"])
+        shown7 = [c for z in pl["zones"] for c in z["cards"]]
+        said7 = text_of(c7, ["table"])
+        expect("planted: flow table on a tree of the older model lays the table with no refusal, as flow find answers: a card with `summary` "
+               "and no `title` shows no title, and its place, lines and standing are read",
+               rc == 0 and pl["ok"] and any(c["id"] == wide7 for c in shown7) and all("title" not in c for c in shown7 if c["id"] in old7)
+               and all(c["place"] == "common deck" and [x["label"] for x in c["lines"]] == ["fresh"] and c["standing"] == "ready"
+                   for c in shown7 if c["id"] == wide7)
+               and f"{wide7} — None (idea, ready)" in said7)
+        rc, pl = say(["find"])
+        expect("planted: flow find answers on the same tree, the records the table laid", rc == 0 and {r["id"] for r in pl["records"]} >= set(old7))
         rc, pl = say(["doctor"])
         expect("planted: the doctor names a record of the older model, `summary` renamed `title`, as one mechanical class",
                rc == 1 and pl["summary"] == {"title": 5} and all(x["class"] == "title" for x in pl["mechanical"]) and not pl["problems"])
@@ -6847,6 +7031,8 @@ def selftest():
         expect("planted: doctor --fix renames `summary` to `title` and adds `summary: null`, the fields in their order, then the check is green",
                pl["fixed"] == {"title": 5} and all("title" in recs7[i].fm and recs7[i]["summary"] is None for i in old7)
                and recs7[wide7]["title"] == "w" * 130 and list(recs7[wide7].fm)[3:5] == ["title", "summary"] and say(["check"])[0] == 0 and say(["doctor"])[0] == 0)
+        expect("planted: doctor --fix names the edits and the records it wrote, one edit in each of five records",
+               pl["written"] == {"edits": 5, "records": 5, "classes": {"title": 5}})
         rc, pl = say(["doctor"])
         by_note = {n["note"]: n for n in pl["card_notes"]}
         expect("the notes are the same after the fix, and never a failure", rc == 0 and by_note["title-over-limit"]["count"] == 1 and by_note["no-summary"]["count"] == 4)
@@ -7038,6 +7224,10 @@ def selftest():
         expect("lines parked: the reason", lines9(q_park) == {"parked": "Waits on the new export."})
         expect("lines due and for: a task's due date, and the questions it references by title",
                lines9(t_for) == {"due": "2026-11-20", "for": "Does a photo agree with the crew's count?"})
+        t_back = made(["task", "Count the street's trees by hand", "--size", "small"])
+        q_back = made(["question", "How many trees does the street hold?", "--ref", t_back])
+        expect("planted: lines for reads a connection from the question's side: a question referencing a task that references nothing is the task's for line",
+               by9(t_back)["references"] == [] and lines9(t_back) == {"for": "How many trees does the street hold?"} and by9(q_back)["references"] == [t_back])
         expect("lines serves: a question's goals and directions by title, in the order written; the labels stand in order",
                lines9(q_serves) == {"serves": "Know every street tree's health by spring; Sample by street segment"}
                and [x["label"] for x in by9(q_serves)["lines"]] == ["serves"])
@@ -7256,8 +7446,9 @@ def build_parser():
     lp.add_parser("add", help="FILE: one entry, written at the top of the log; `-` reads it from the standard input").add_argument("file")
     lp.add_parser("archive", help="--before DATE: the older entries moved, one file per month").add_argument("--before", required=True)
     p = sp.add_parser("reflow"); g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--check", nargs="+", metavar="PATH", help="exit 1 on a line the reflow changes, each printed")
+    g.add_argument("--check", nargs="+", metavar="PATH", help="exit 1 on a line the reflow changes, each printed with the lines it would become")
     g.add_argument("--as", nargs=2, metavar=("DEST", "DRAFT"), dest="as_", help="the draft checked as if appended to DEST, a file or a record's id: the reflow and markdownlint")
+    g.add_argument("--write", nargs="+", metavar="TARGET", help="rewrite each target's body, a file or a record's id, one sentence per line, then run markdownlint; a file that fails is put back")
     p = sp.add_parser("doctor", help="the records and bindings an older model wrote, and what each reads now")
     p.add_argument("--fix", action="store_true", help="write every edit whose line states it, in place; what needs judgment stays for the hand")
     p.add_argument("--all", action="store_true", help="list each mechanical edit, not only the count per class")
@@ -7377,7 +7568,7 @@ def card_lines(cfg, recs, r, today):
         add("due", str(r["due"]))
     refs = r["references"] if isinstance(r["references"], list) else []
     if r.type == "task":
-        add("for", titles(recs, [i for i in refs if i in recs and recs[i].type == "question"]))
+        add("for", titles(recs, [q.id for q in questions_of_task(recs, r)]))
     if r.type == "question":
         serves = r["serves"] if isinstance(r["serves"], list) else []
         add("serves", titles(recs, serves))
@@ -7451,7 +7642,7 @@ def table_text(zones):
                    + (f"; {count_of(z['count'], 'card')}, the top {len(z['cards'])} shown" if z["kind"] == "deck" and z["count"] > len(z["cards"]) else "")
                    + (f"; room for {z['room']}" if z["room"] else ""))
         for c in z["cards"]:
-            out.append(f"  {c['id']} — {c['title']} ({c['type']}, {c['standing']}" + (f", rank {c['rank']}" if c["rank"] is not None else "") + ")")
+            out.append(f"  {c['id']} — {c.get('title')} ({c['type']}, {c['standing']}" + (f", rank {c['rank']}" if c["rank"] is not None else "") + ")")
     return out
 
 
@@ -7521,7 +7712,7 @@ def project_lock(cfg, directory, tool):
 
 def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
     a = build_parser().parse_args(argv)
-    writes = a.cmd in TRANSITIONS or a.cmd == "log" or (a.cmd == "index" and not a.print_ and not a.check)
+    writes = a.cmd in TRANSITIONS or a.cmd == "log" or (a.cmd == "index" and not a.print_ and not a.check) or (a.cmd == "reflow" and a.write)
     with project_lock(cfg, cfg.research, "flow") if writes else contextlib.nullcontext():
         return _dispatch(cfg, a, today, as_json, quiet)
 
@@ -7538,7 +7729,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
 
     try:
         ahead = kit_ahead(cfg)  # the project was brought to a newer release elsewhere: no write, a check that reports it, a warning on a read
-        if ahead and (a.cmd in TRANSITIONS or a.cmd == "log" or a.cmd == "check" or a.cmd == "index" and not (a.print_ or a.check) or a.cmd == "doctor" and a.fix):
+        if ahead and (a.cmd in TRANSITIONS or a.cmd == "log" or a.cmd == "check" or a.cmd == "index" and not (a.print_ or a.check) or a.cmd == "doctor" and a.fix or a.cmd == "reflow" and a.write):
             raise Refused(ahead)  # `check` too: the mismatch is a problem found, exit 1, never "could not run"
         if ahead:
             out["kit_ahead"] = ahead
@@ -7656,11 +7847,14 @@ def _dispatch(cfg, a, today, as_json, quiet):
             remarks = [{"path": it["path"], "text": it["remark"]} for it in items if it["remark"]]  # always printed, never a thing for the hand
             out["remarks"] = remarks
             if a.fix:
-                fixed, hand = doctor_fix(cfg, items)
+                fixed, hand, changed = doctor_fix(cfg, items)
                 out["fixed"] = dict(fixed)
+                out["written"] = {"edits": sum(fixed.values()), "records": len(changed), "classes": dict(fixed)}
                 if a.all:
                     for it in mech:
                         emit(f"{it['path']}: {it['was']} — {it['now']}")
+                if fixed:
+                    emit(f"wrote {sum(fixed.values())} mechanical edit(s) in {len(changed)} record(s)")
                 for cls, n in sorted(fixed.items(), key=lambda x: (-x[1], x[0])):
                     emit(f"fixed {n}: {DOCTOR_CLASSES[cls]}")
                 if fixed:
@@ -7716,11 +7910,24 @@ def _dispatch(cfg, a, today, as_json, quiet):
             _JOURNAL.clear()
             out["written"] = [rel(cfg, p) for p in written]
             emit(said)
+        elif a.cmd == "reflow" and a.write:
+            written, same, problems = reflow_write(cfg, a.write)
+            out["written"], out["unchanged"], out["problems"] = written, same, problems
+            for w in written:
+                emit(f"reflowed {w}")
+            for p in problems:
+                emit(f"{p['path']}: refused, put back as it was: {p['msg']}")
+            emit(f"flow reflow --write: {len(written)} file(s) rewritten, {len(same)} already one sentence per line, {len(problems)} refused; "
+                 f"reflow via {cfg.reflow_source}" + ("" if shutil.which("markdownlint") else "; markdownlint ABSENT, so the files are not linted"))
+            if problems:
+                out["ok"] = False
         elif a.cmd == "reflow":
             problems, said = cmd_reflow(cfg, a)
             out["problems"], out["coverage"] = problems, said
             for p in problems:
                 emit(f"{p['path']}: {p['msg']}")
+                for line in p.get("becomes", []):
+                    emit(f"    becomes: {line}")
             emit(f"flow reflow: {sum(p['code'] == 'REFLOW' for p in problems)} line(s) not one sentence per line"
                  + (f", {sum(p['code'] == 'MARKDOWNLINT' for p in problems)} new markdownlint violation(s)" if a.as_ else "") + f"; {said}")
             if problems:
