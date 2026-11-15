@@ -5,7 +5,7 @@ Each release is a tag; the version is read from the tag and the version fields `
 ## Unreleased
 
 What a session does with the person's own words: a thought they call an idea, a question or a task is minted as that card, a fresh project starts from the idea of the project, and a session starts with the flow's state and then does what their message asks.
-The flow reads a question and a task from either side, three commands change, and a round of fixes from the first days at v0.10.0 follows.
+The flow reads a question and a task from either side, three commands change, `flow set --from FILE` writes many sets in one run, and a round of fixes from the first days at v0.10.0 follows.
 Three more things change in how a session works: a decision that waits on the person is a task in their deck, a session commits at its freeze, and the freeze carries its commit past another session's edits in the tree.
 
 **Upgrading**: not a breaking release.
@@ -14,6 +14,7 @@ A project's instructions that carry "A session starts with the `whatsnext` skill
 Then run `flow index` and `flow check`, since the index's section on a question's tasks reads a reference from either side now.
 A project with a markdownlint configuration of its own adds `"MD001": {"front_matter_title": ""}` and `"MD025": {"front_matter_title": ""}`, where its records' bodies open below `##` or hold a `#` heading.
 `flow make` no longer refuses a task that is not held, and a task minted with `--ref` to a ranked question gets no rank by itself, so a ranking places it.
+A project still writing its titles and summaries by hand after the v0.10.0 migration writes them with `flow set --from FILE`.
 
 The `research` plugin:
 
@@ -55,6 +56,10 @@ The flow script:
 - `flow set ID title` writes what the title read into the body's note in a code span, `title set; it read:` and the old title between backticks, the fence one longer than the longest run of backticks in it and padded with a space where it opens or ends with one: raw, an old title with a word in angle brackets failed MD033 and the write was reverted, and one quoting a whole sentence was split by the reflow.
 - `flow doctor --fix` prints, after its edits, one line with the count of mechanical edits written and of records changed, then the count by class; under `--json` the same is `written`.
 - The `flow` skill and `flow.md` name the envelope of `--json`: `flow show --json` answers the record under `records[0]`, beside `ok`, `command`, `body`, `links` and `backlinks`, and say which commands answer `records`.
+- `flow set --from FILE` writes many sets in one run, its rows JSON Lines, one object a row, `{"id", "field", "value"}` with `"note"` and, on a title's row, `"to_summary": true`; `-` reads the standard input, and every field `flow set` takes is taken: after the v0.10.0 migration every title over the limit and every missing summary was two `flow set` runs, each reading every record and rebuilding the whole index; `--from` takes none of the ID, field and value, `--note` and `--to-summary` beside it, each row carrying its own.
+  The tree is read once; each row is validated and applied as a single `flow set` is, the limits, the title's note and `--to-summary`'s refusals included, rows of one record in the file's order; a row whose value already stands is skipped and counted as unchanged, with no note, so the same file is run again after an interruption.
+  A row refused, a line that is not JSON or a row that lacks a key or names no record or no field among them, never stops the run and leaves the other rows written; each changed record is written whole through a temporary file and a rename, markdownlint runs once over the written records, a record that fails is put back as it was with all its rows refused with the lint's line, and the index is rebuilt once, at the end.
+  The closing line gives the rows written, unchanged and refused and the records changed, under it each refused row with its number, id, field and why, then each record left half written; `--json` carries `written`, `unchanged`, `refused` and `half`, and the exit is 1 where a row was refused.
 
 ## v0.10.0 — 2026-11-15
 

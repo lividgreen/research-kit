@@ -60,6 +60,7 @@ A reference says nothing of order: cards may be minted ahead, and where they hav
 | the ranked next list, of open ideas, questions and tasks | `flow rank task-0001 1`, `--insert`, `flow rank --set ID…`, `flow rank task-0001 --clear` |
 | refresh an open question's checked date | `flow checked question-0001` |
 | a field changed after the mint | `flow set task-0001 size small`, `flow set idea-0001 value high --note "…"`, `flow set idea-0001 value none`, `flow set task-0001 due 2026-12-01`, `flow set goal-0001 title "…" --note "…"`, `flow set question-0001 summary "…"`, `flow set idea-0001 title "…" --to-summary` |
+| many fields changed in one run, from rows of JSON Lines | `flow set --from rows.jsonl`, `flow set --from -` |
 | the links changed after the mint | `flow ref task-0001 +question-0002 -idea-0004`, `flow serves question-0001 +goal-0001 -direction-0002` |
 | a record's tags after its mint | `flow tag task-0001 +upkeep -research` |
 | a body appended to, under the date, with no file name guessed | `flow note task-0001 --body FILE` |
@@ -72,6 +73,14 @@ An idea, a question and a task carry a third field, `value`: how much the card i
 `flow find --value V` lists the ideas, questions and tasks of that value, and `flow find --value none` the cards not judged; nothing warns on a card not judged, and the index shows no value.
 The agent judges a card's value at its mint, and a question's and a task's size, and changes either when the person says so or the work shows otherwise; a value moves no rank by itself, and the `whatsnext` skill judges the cards it ranks that are not judged and reads value and size when it orders them.
 `flow set ID title "…"` appends `title set; it read:` and what the title read, in a code span (`` `OLD` ``, the fence one backtick longer than the longest run of backticks in it, a space inside it where it opens or ends with a backtick), to the body under the date, with the words of `--note` after it, and `flow set ID summary "…"` keeps nothing of what it read (`--note N` appends `summary set: N`), `none` clearing it; `flow set ID title "NEW" --to-summary` makes what the title read the summary and writes no such note, and is refused where the record has a summary and where what the title read is longer than a summary may be.
+`flow set --from FILE` writes many sets in one run, where a tree has many titles and summaries to write: FILE, or `-` for the standard input, holds one JSON object a row, `{"id", "field", "value"}`, with `"note"` and, on a title's row, `"to_summary": true` where there are any, and every field `flow set` takes is taken, `none` clearing what it clears there.
+`--from` takes none of ID, FIELD, VALUE, `--note` and `--to-summary` beside it: each row carries its own.
+Each row is validated and applied as a single `flow set` is, its limits, the title's note and `--to-summary`'s refusals included, and the rows of one record are applied in the file's order.
+A row whose value already stands is skipped and writes no note, so the same file is run again after an interruption.
+A row refused never stops the run and leaves the other rows written; a line that is not JSON, a row that lacks a key and a row that names no record or no field are rows refused like any other.
+Each changed record is written whole, markdownlint runs once over the written records, and a record that fails is put back as it was and all its rows are refused with the lint's line; the index is rebuilt once, at the end.
+The closing line gives the rows written, unchanged and refused and the records changed, and under it each refused row with its number (its line in the file), its id, its field and why, then each record left half written, a row of it written and another refused, which is settled with a single `flow set`.
+`--json` carries `written`, `unchanged`, `refused` (each `{"row", "id", "field", "msg"}`) and `half`, and the exit is 1 where a row was refused.
 No check reads a limit on a record already written, and a file's slug is cut from its title at the mint and never changes.
 Only the mints mint: `flow make` and `flow abort` close a task and mint nothing, a follow-up being `flow task "…" --summary "…" --ref T` after it, and a task's finding is minted after it with `flow finding … --ref task-0001`, `--answers Q` where it settles a question; both print the task's `after`, the post-done instruction, for the agent to follow.
 `flow make` closes any open task, held or not, and requires its resolution and refuses an empty one: a done task says what was done.
