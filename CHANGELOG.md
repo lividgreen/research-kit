@@ -4,7 +4,8 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
-A record's two fields for what it is: the field that was its `summary`, a line, is its `title` now, and a new `summary` explains it in a paragraph, and an idea, a question and a task carry a `value`.
+The dashboard becomes a card table: the flow's table of hands and decks, its lists and its records and the library's works, laid as cards.
+A card gains what the table shows: a `title`, which is what its `summary` was, a new `summary` that explains it in a paragraph, and for an idea, a question and a task a `value`.
 
 **Upgrading**: a breaking release for the records and for anything that reads `summary` from `--json`, which is now the explanation, the title being `title`.
 Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart; then run `flow doctor --fix`, which renames every record's `summary` to `title` and adds `summary: null` to it, and adds `value: null` to every idea, question and task, then `flow index` and `flow check`.
@@ -12,6 +13,9 @@ The doctor's two notes count the live records whose title is over 100 characters
 A mint of an idea, a question, a task or a finding is refused without `--summary`, so a script or a project's instructions that mint one add it, and the positional is the title.
 A project's `flow.toml` needs no `[card]` section, the limits being 100 and 500 characters and the levels `low`, `medium` and `high` where it is missing, and `flow doctor` notes the three keys `flow init` writes now.
 A project's next `whatsnext` judges the value of the cards it ranks that are not judged, and its agent judges the value of every card it mints from then on.
+The titles and the summaries the doctor counts are written by hand, the cards on the table first, the held cards, the ranked ones and each owner's deck, since the dashboard shows them.
+Anything that read the flow's index at the dashboard's `/flow` now finds it at `/flow/index`, `/flow` being the table, and a bookmark or a script of a project's own is moved there.
+A component of a project's own with no `card` in its manifest is rendered as before, as rows and fields.
 
 The flow:
 
@@ -31,13 +35,33 @@ The flow:
   A word outside the list is refused with the list at a mint, at `set` and at `find`, and `flow check` fails one in a record (V3).
 - `flow doctor` reads a card with no `value` as a field the record lacks, a mechanical line, and `--fix` adds `value: null`; it writes no new line for it, and notes a `flow.toml` with no `[card] values` as it notes any key `flow init` writes now.
   The index shows no value, and nothing warns on a card not judged.
+- Under `--json` every record carries `place` and `lines` beside `standing` and `pile`, calculated by one function and never stored: `place` says where a card is, `agent, 3 days` for a held card (`today` for none), `agent's deck` or `common deck` for a live card in no hand, `discard pile` or `graveyard` for a closed one, and `null` for a finding, a goal and a direction; `lines` is a list of `{"label", "text"}` pairs, only the ones that hold something, in the order `waits`, `parked`, `due`, `for`, `serves`, `answered by`, `answers`, `evidence`, `fresh` or `produced`, `served by`, in finished words with a record named by its title.
+- `flow table [--top N]` prints the table as it lies, one heading a zone and one line a card, and under `--json` the key `zones`: each owner's hand (the person's first, then `agent`'s), each owner's deck in the same order, the common deck, the discard pile and the graveyard, each `{"kind", "owner", "title", "count", "note", "room", "find", "cards"}`; a hand shows all its cards, a deck its top five (`--top N`) by rank and then the oldest unranked, a pile none, and `find` is the `flow find` flags that list the whole zone and select exactly its `count` cards.
+- `flow pages` answers the manifest for the table: a `card` key laying a record on a face (its `meters` scales built from `[card] values` and `[question] sizes`), a `home` key, `/flow` as the table (view `table`) with the index moved to `/flow/index`, `/flow/directions` listing the open directions, the list's `type`, `value`, `deck` and `pile` filters given as `{"name", "choices"}`, and the navigation Table, Ideas, Questions, Tasks, Findings, Goals, Directions, Index, Artifacts, Tags, Check.
+
+The library:
+
+- Under `--json` a card carries `lines` beside its fields, `by` (the authors and the year) and `read` (what was read), each only where it holds something; `library pages` answers a `card` key laying a work on a face.
+
+The dashboard:
+
+- A manifest's `card` key says how one of a component's records is laid on a face: the paths of its `id`, `title`, `summary`, `tags`, `rank`, `label`, `place` and `lines`, the `faces` (or one `face`), the `standing` as the first path that holds something, the `link` and the `meters`, each with its `label`, `field`, `scale`, `kinds` and `frame`.
+  The face is 240 px wide: the band in the kind's colour with the rank, the sign and the id, the title whole, the type line, the summary folded to six lines with the first two `lines` at the foot of the box, the value as three gems and the effort as three bars, and the standing as a badge with the place.
+  A card not judged has a flat frame, the lowest level a plain one, a middle level a silver one and the highest a gold one, whatever the length of the scale, the gems filling in proportion; a parked or blocked card lies on greyer paper; seven faces and a neutral one for a kind it does not know; `no summary yet` where the component has a summary field and the record's is empty.
+- The manifest's `home` names a component's home page, and `/` goes to the first mounted component that names one and stays as it was where none does; the new view `table` renders a list of zones, a hand with a dashed place for each free one, a deck behind a stack of card backs carrying its count with its note and a link to the whole deck, and the piles in one row, a zone's link being the route's `list` path with the zone's `find` as its query.
+- The `list` view lays cards where the manifest has `card`, with its filter form and paging as they were; a `params` entry given as `{"name", "choices"}` is a select.
+  The `record` view is the card enlarged at the left with a paper panel beside it, the title as its heading, the summary whole, the body and the fields the face does not carry, and a `refs` section is a row of small cards, each the band with the id and the link's field and the title under it.
+- The ground follows the browser's light or dark setting, the paper is the same in both, the page is up to 1500 px wide and nothing scrolls sideways at a phone's width; the page holds no script and fetches nothing from another host.
+  `dashboard.py --selftest` plants a card for each face, each frame, the meters and a scale of another length, a waiting card, a missing summary, two of three lines, a select for `choices`, every kind of zone, the home page with and without `home`, the record's card and panel, small `refs` cards and the escaping of a title and a summary, with a second stub that has no `card`.
 
 The `research` plugin:
 
 - The `flow` skill's new part "Writing a title and a summary": a title says what the card is to a reader of the project with no other record open, a question's the question, a task's the act with its verb first, a finding's the claim as one sentence, an idea's the thought, a goal's the outcome, a direction's its name, never an id, a section number or a bare label of a topic as its subject and never ending with a colon; a summary is one to four sentences saying what the record states, asks or does, in which setting and what it is for, naming another record by what it is, and leaving where the thing is stated and its history to the body.
   The `method` skill refers to it where it says how a record is written, and `whatsnext` mints with `--summary`.
 - The `flow` skill's new part "Judging a value and a size": the agent judges `value` at every mint of a card and `size` at a question's and a task's, and changes either with `flow set … --note` when the person says so or the work shows otherwise; the `whatsnext` skill's ranking step judges the cards it ranks that are not judged and reads value and size when it orders them, neither moving a rank by itself.
-- The `dashboard` reads `title` where it read `summary`, for the flow's list and its record pages and for a `refs` section's items, the summary shown as one more field of a record's page.
+- The `dashboard` renders a component with no `card` as it did, rows and fields, and a `refs` section's items are `{"id", "title"}`.
+- The `dashboard` skill describes the table, the lists of cards, the record and the `card` key; the flow's `/flow` is the table and its index is at `/flow/index`.
+- The `flow` skill names `flow table` and the keys `place` and `lines`, and the `library` skill the card's `lines`.
 
 The `formal` plugin:
 
@@ -45,7 +69,11 @@ The `formal` plugin:
 
 The pages:
 
-- [The flow](docs/research/flow.md) (the commands, `[card]`, the doctor and its notes, the words *title*, *summary* and *value*), [Flow cards](docs/research/flow-cards.md) (the common fields, the three kinds' field lists and tables, the form and each transition's table) and [Getting started](docs/research/getting-started.md) say the same, and the dashboard's protocol names a `refs` section's items `{"id", "title"}`.
+- [The flow](docs/research/flow.md): the commands, `[card]`, the doctor and its notes, `flow table`, the keys of `--json`, and the words *title*, *summary*, *value*, *place*, *lines* and *zone*.
+- [Flow cards](docs/research/flow-cards.md): the common fields, the three kinds' field lists and tables, the form and each transition's table.
+- [Getting started](docs/research/getting-started.md): a first card with its title and its summary.
+- [The library](docs/research/library.md): `lines`.
+- [The dashboard](docs/research/dashboard.md) and its protocol: the table, the lists, the record, the face, the words *table*, *zone* and *face*, `card`, `home`, the `table` view and `zones`, `params` given as `{"name", "choices"}` and the `refs` section's small cards.
 
 ## v0.9.1 — 2026-11-13
 

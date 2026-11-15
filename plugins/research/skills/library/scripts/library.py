@@ -555,9 +555,14 @@ def surname(author):
     return a.split(",")[0].strip() if "," in a else (a.split()[-1] if a.split() else "")
 
 
-def label(fm):
+def who_of(fm):
+    """A work's authors as a card names them: the surname of one, two joined by `&`, the first and `et al.` for more."""
     names = [surname(a) if "," in str(a) else str(a).strip() for a in fm.get("authors") or []]  # a body's name stands whole
-    who = names[0] if len(names) == 1 else " & ".join(names) if len(names) == 2 else f"{names[0]} et al." if names else ""
+    return names[0] if len(names) == 1 else " & ".join(names) if len(names) == 2 else f"{names[0]} et al." if names else ""
+
+
+def label(fm):
+    who = who_of(fm)
     year = f" ({fm['year']})" if fm.get("year") else ""
     return f"{who}{year} — {fm.get('title')}" if who else f"{fm.get('title')}{year}"
 
@@ -3008,6 +3013,8 @@ def pages_manifest(cfg):
     pre = re.escape(cfg.cite_prefix)
     return {
         "component": "library", "title": "Library", "mount": "/library",
+        "card": {"id": "key", "title": "title", "tags": "tags", "label": "kind", "face": "work", "standing": ["read.grade"],
+                 "lines": "lines", "link": "/library/{key}"},
         "nav": [{"label": "Library", "path": "/library"}, {"label": "Candidates", "path": "/library/candidates"},
                 {"label": "Library check", "path": "/library/check"}],
         "links": [{"pattern": r"(?<![A-Za-z0-9])%s([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9-]*))?" % pre, "path": "/library/{1}#{2}"}],
@@ -3027,7 +3034,7 @@ def pages_manifest(cfg):
                          "columns": ["name", "looks_at", "since", "seen", "why"]}]},
             {"path": "/library/check", "view": "check", "run": ["check"], "title": "Library check"},
             {"path": "/library/{key}", "view": "record", "run": ["show", "{key}"], "title": "{key}", "heading": "label",
-             "fields": "records.0", "body": "body", "hide": ["key", "path", "label", "copy.path", "copy.sha256", "seeded"],
+             "fields": "records.0", "body": "body", "hide": ["key", "path", "label", "lines", "copy.path", "copy.sha256", "seeded"],
              "hrefs": {"doi": "https://doi.org/{}", "arxiv": "https://arxiv.org/abs/{}", "openalex": "https://openalex.org/{}", "url": "{}"},
              "sections": [{"field": "sites", "title": "Cited at", "as": "sites"}]},
         ],
@@ -4033,6 +4040,23 @@ def selftest():
                and re.search(pl["pages"]["links"][0]["pattern"], "see lib:acme2021#x"))
         rc, pl = dispatch(cfg, ["show", "acme2021"], today=today, as_json=True, quiet=True)
         expect("show answers the citing sites as a list", rc == 0 and pl["sites"] == [])
+        card = pages_manifest(cfg)["card"]
+        expect("the page manifest's card lays a work on a face: its key, title, tags, kind, the work's face, the read grade as its standing, its lines and its link",
+               card == {"id": "key", "title": "title", "tags": "tags", "label": "kind", "face": "work", "standing": ["read.grade"],
+                        "lines": "lines", "link": "/library/{key}"}
+               and [r["path"] for r in pages_manifest(cfg)["routes"] if r["view"] != "record"] == ["/library", "/library/candidates", "/library/check"]
+               and [r["view"] for r in pages_manifest(cfg)["routes"][:3]] == ["list", "tables", "check"])
+        lone = {"authors": ["Jen, Erica"], "year": 1990, "read": {"grade": "parts", "on": today, "what": "sections 1 to 3"}}
+        expect("lines: `by` the authors and the year and `read` what was read, in that order, each only where it holds something",
+               card_lines(lone) == [{"label": "by", "text": "Jen, 1990"}, {"label": "read", "text": "sections 1 to 3"}]
+               and card_lines(dict(lone, authors=["Jen, Erica", "Lovelace, A."], read={"grade": "full", "what": None})) == [{"label": "by", "text": "Jen & Lovelace, 1990"}]
+               and card_lines(dict(lone, authors=["Jen, Erica", "Lovelace, A.", "Kari, B."], year=None, read=None)) == [{"label": "by", "text": "Jen et al."}]
+               and card_lines({"authors": [], "year": 2001, "read": {"what": "  "}}) == [{"label": "by", "text": "2001"}]
+               and card_lines({"authors": None, "year": None, "read": {"grade": "unread", "what": None}}) == [])
+        rc, pl = dispatch(cfg, ["find", "--limit", "100"], today=today, as_json=True, quiet=True)
+        rc2, pl2 = dispatch(cfg, ["show", "acme2021"], today=today, as_json=True, quiet=True)
+        expect("find answers `lines` on each card, as the same function gives them, and show answers them for the record's page",
+               rc == 0 and pl["records"] and all(r["lines"] == card_lines(r) for r in pl["records"]) and rc2 == 0 and pl2["records"][0]["lines"] == card_lines(pl2["records"][0]))
 
     # init: a fresh project, checked green at once
     with tempfile.TemporaryDirectory() as tmp:
@@ -4149,8 +4173,16 @@ def line_of(c, extra=""):
     return f"{c.key} | {label(c.fm)} | {c.grade}" + (f" | {extra}" if extra else "")
 
 
+def card_lines(fm):
+    """What a card says beside its title, as `{"label", "text"}`, only the ones that hold something: `by` (the authors and the
+    year) and `read` (what was read of the work)."""
+    who, year = who_of(fm), fm.get("year")
+    what = fm["read"].get("what") if isinstance(fm.get("read"), dict) else None
+    return [{"label": k, "text": t} for k, t in (("by", ", ".join(str(x) for x in (who, year) if x)), ("read", str(what).strip() if what else "")) if t]
+
+
 def summary_of(cfg, c):
-    return dict(c.fm, path=rel(cfg, c.path), label=label(c.fm))
+    return dict(c.fm, path=rel(cfg, c.path), label=label(c.fm), lines=card_lines(c.fm))
 
 
 def dispatch(cfg, argv, today=None, as_json=False, quiet=False):

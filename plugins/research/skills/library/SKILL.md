@@ -72,6 +72,7 @@ Where a key is cited is computed from the files the project binds and never stor
 | `library pages` | the page manifest the `dashboard` skill renders |
 
 A card is named by its key or by any of its identifiers wherever a command takes `REF`.
+Under `--json` a card carries `lines` beside its fields: `{"label", "text"}` pairs, only the ones that hold something, `by` (the authors by surname and the year) and `read` (what was read of the work, as `library read --what` wrote it), which a dashboard prints on a card without reading the file.
 The global flags are `--json` (any command emits one JSON object), `--root DIR` (the project, found upward otherwise) and `--today DATE`; `library --help` lists every command and `library <command> --help` its flags, neither needing a bindings file.
 `find` prints first which rankers ran; it is stemmed and folds diacritics where the SQLite in use has full-text search, and matches whole words where it does not.
 `find` prints a bounded count and names the continuation (`--from N`); `--state excluded` or `--state any` reaches the cards set aside.

@@ -31,7 +31,7 @@ You talk to the agent as you already do, and the skills fold the kit into that c
 | "Let's look into it." | The idea becomes a question with what would settle it, split into tasks you see before they are written. |
 | "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus with a reason for each rank, and the agent's hand is refilled from the top of it. |
 | "Add Stuart and Humphries (1996) to the library; I read chapter 2." | A card for the book records how far it was read, and a citation of it is checked against that. |
-| "Show me the dashboard." | The records and the cards open as a read-only page on localhost. |
+| "Show me the dashboard." | The table of hands, decks and piles opens as a read-only page on localhost, the records laid as cards. |
 | "Where were we?" | The session summary is printed, and the work goes on from the agent's hand. |
 | "Let's freeze here." | What the session found and did not record is saved to the records, the checks run, and the work is committed for the next session. |
 
@@ -45,7 +45,7 @@ The [`research` plugin](plugins/research/README.md), for any research project:
 - **Research records.** Ideas, questions that say what would answer them, tasks and findings, one Markdown file each, moved through their states by the `flow` command, with a ranked list of what to do next.
 - **A reference library.** One card per cited work, recording how far it was read and what may be claimed from it.
 - **Checks on every commit.** A hand-edited state, a broken link, a reference to a work with no card or to one nobody read: each fails the commit.
-- **A dashboard.** The records and the cards as a read-only page on localhost.
+- **A dashboard.** The table of hands, decks and piles and the records as cards, a read-only page on localhost.
 - **Reviews.** An audit of the documents against one another, scrutiny of one argument, and each claim about a named external result held to its primary source.
 - **Working rules.** Review, terminology, documents, evidence and working with the owner, design before building, and debugging to the root cause.
 

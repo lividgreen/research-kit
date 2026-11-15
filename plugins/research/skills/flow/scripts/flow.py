@@ -72,7 +72,7 @@ no --summary, a goal and a direction may have none:
 A transition that changes a record's state, or parks, unparks, blocks or unblocks it, names the records that refer
 to it, which may need a follow-up; it refuses nothing for them.
 
-Views: find, show, graph, state (the cold-start bundle), directions, tags, artifacts, index [--check | --print],
+Views: find, show, table (the hands, the decks and the piles as they lie), graph, state (the cold-start bundle), directions, tags, artifacts, index [--check | --print],
 check; `pages` (the dashboard's page manifest); `--json` on every command.
 
   flow state --check             what a machine sees of a freeze: the log's top entry today's where the tree
@@ -3588,31 +3588,41 @@ def cmd_reflow(cfg, a):
 
 def pages_manifest(cfg):
     ids = r"\b(?:%s)-\d+\b" % "|".join(re.escape(cfg.prefix[t]) for t in cfg.kinds)
-    nav = [{"label": "Records", "path": "/flow"}]
+    nav = [{"label": "Table", "path": "/flow"}]
     for t in cfg.kinds:
-        if t == "direction":  # rendered as the owner's list below
+        if t == "direction":  # the owner's open list, below
             continue
         live_state = {"idea": "open", "question": "open", "task": "open", "goal": "open"}.get(t)
         nav.append({"label": t.capitalize() + "s", "path": f"/flow/list?type={t}" + (f"&state={live_state}" if live_state else "")})
     nav.append({"label": "Directions", "path": "/flow/directions"})
+    nav.append({"label": "Index", "path": "/flow/index"})
     nav.append({"label": "Artifacts", "path": "/flow/artifacts"})
     nav.append({"label": "Tags", "path": "/flow/tags"})
     nav.append({"label": "Check", "path": "/flow/check"})
     columns = ["id", "type", "state", "standing"] + (["forms"] if cfg.has("finding") else []) + ["owner", "rank", "title"]
-    params = ["type", "state", "tag", "owner", "deck", "pile", "grep"] + (["form"] if cfg.has("finding") else []) + ["refers"]
+    selects = {"type": list(cfg.kinds), "value": [*cfg.values, "none"], "deck": [*table_owners(cfg), COMMON], "pile": ["discard", "graveyard"]}
+    params = [{"name": n, "choices": selects[n]} if n in selects else n
+              for n in ["type", "state", "tag", "owner", "value", "deck", "pile", "grep"] + (["form"] if cfg.has("finding") else []) + ["refers"]]
     flags = ["ranked", "ready", "held", "parked", "blocked", "deep"]
+    link = {"column": "id", "path": "/flow/r/{id}"}
+    card = {"id": "id", "title": "title", "summary": "summary", "tags": "tags", "rank": "rank", "label": "type",
+            "faces": {t: t for t in cfg.kinds}, "standing": ["standing", "state"], "place": "place", "lines": "lines", "link": "/flow/r/{id}",
+            "meters": [{"label": "value", "field": "value", "scale": list(cfg.values), "kinds": list(CARDS), "frame": True},
+                       {"label": "effort", "field": "size", "scale": list(cfg.sizes), "kinds": ["question", "task"]}]}
     return {
-        "component": "flow", "title": "Records", "mount": "/flow", "nav": nav,
+        "component": "flow", "title": "Records", "mount": "/flow", "home": "/flow", "nav": nav, "card": card,
         "links": [{"pattern": ids, "path": "/flow/r/{0}"}],
         "routes": [
-            {"path": "/flow", "view": "markdown", "run": ["index", "--print"], "field": "text", "title": "Records"},
+            {"path": "/flow", "view": "table", "run": ["table"], "field": "zones", "params": ["top"], "list": "/flow/list", "title": "Table"},
+            {"path": "/flow/index", "view": "markdown", "run": ["index", "--print"], "field": "text", "title": "Index"},
             {"path": "/flow/list", "view": "list", "run": ["find"], "params": params, "flags": flags,
-             "columns": columns, "link": {"column": "id", "path": "/flow/r/{id}"}, "title": "Records"},
+             "columns": columns, "link": link, "title": "Records"},
             {"path": "/flow/r/{id}", "view": "record", "run": ["show", "{id}"], "title": "{id}",
-             "fields": "records.0", "body": "body", "hide": ["id"],
+             "fields": "records.0", "body": "body", "hide": ["id", "place", "lines"],
              "sections": [{"field": "links", "title": "Links", "as": "refs"},
                           {"field": "backlinks", "title": "Back-references", "as": "refs"}]},
-            {"path": "/flow/directions", "view": "markdown", "run": ["directions"], "field": "text", "title": "Directions"},
+            {"path": "/flow/directions", "view": "list", "run": ["find", "--type", "direction", "--state", "open"],
+             "columns": ["id", "state", "title"], "link": link, "title": "Directions"},
             {"path": "/flow/artifacts", "view": "lines", "run": ["artifacts"], "field": "lines", "title": "Artifacts"},
             {"path": "/flow/tags", "view": "lines", "run": ["tags"], "field": "lines", "title": "Tags"},
             {"path": "/flow/state", "view": "lines", "run": ["state"], "field": "lines", "title": "State"},
@@ -5845,7 +5855,7 @@ def selftest():
         pm = pages_manifest(cfg)
         lst = next(r for r in pm["routes"] if r["path"] == "/flow/list")
         expect("the page manifest lists the standing and the new filters, and a task's live state is open",
-               "standing" in lst["columns"] and "ready" in lst["flags"] and "deck" in lst["params"] and "pile" in lst["params"]
+               "standing" in lst["columns"] and "ready" in lst["flags"] and {"deck", "pile"} <= {p["name"] if isinstance(p, dict) else p for p in lst["params"]}
                and any(n["label"] == "Tasks" and "state=open" in n["path"] for n in pm["nav"]))
         go(["index"])
         expect("the cards' tree checks green", go(["check"])["problems"] == [])
@@ -6959,6 +6969,176 @@ def selftest():
         rc, pl = say(["doctor"], c=Config(r8))
         expect("the doctor notes a flow.toml with no [card] values, the key flow init writes now, without failing",
                rc == 0 and any(n["key"] == "[card] values" and "levels" in n["reads"] for n in pl["notes"]))
+    # the card's face: `place` and `lines` from one function, `flow table`, and the manifest's `card`, `home` and routes
+    with tempfile.TemporaryDirectory() as t9:
+        r9 = Path(t9)
+        do_init(r9, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        toml9 = (r9 / "flow.toml").read_text(encoding="utf-8")
+        (r9 / "flow.toml").write_text(re.sub(r"(?m)^agent = \d+\nowner = \d+$", "mentor = 2\nagent = 4\nowner = 0", toml9, count=1), encoding="utf-8")  # three hands, the file's order
+        c9 = Config(r9)
+        d0, d3, d9 = "2026-11-13", "2026-11-10", "2026-11-04"
+        (r9 / "res.md").write_text("Done.\n")
+        say = lambda argv, day=d0, c=None: dispatched(c or c9, argv, today=day, as_json=True, quiet=True)
+        made = lambda argv, day=d0: say(argv, day)[1]["created"][0]
+        by9 = lambda i, day=d0: next(r for r in say(["find", "--id", i], day)[1]["records"])
+        lines9 = lambda i, day=d0: {x["label"]: x["text"] for x in by9(i, day)["lines"]}
+        g1 = made(["goal", "Know every street tree's health by spring"])
+        d1 = made(["direction", "Sample by street segment"])
+        g2 = made(["goal", "A goal nobody serves yet"])
+        # ideas: fresh, and consumed, which produced a question and a task
+        i_fresh = made(["idea", "Photos could date the leaf drop", "--value", "high", "--for", "agent"])
+        i_made = made(["idea", "Street age may predict canopy loss"])
+        i_gone = made(["idea", "Plant a species mix by postcode"])
+        # questions: serving, blocked (a record, a date and words, the date past one), parked, held, answered
+        q_serves = made(["question", "Does a photo agree with the crew's count?", "--serves", g1, "--serves", d1, "--size", "medium", "--value", "high", "--ref", i_made])
+        t_for = made(["task", "Photograph the old trees of one street", "--ref", q_serves, "--size", "small", "--due", "2026-11-20", "--for", "owner"])
+        q_block = made(["question", "How many trees are missing from the inventory?", "--serves", g1, "--for", "agent"])
+        say(["block", q_block, "--on", t_for, "--on", "2026-12-01", "--on", "2026-11-10", "--on", "the parks office's permit", "--reason", "Needs the street photos and the permit."], d9)
+        q_park = made(["question", "Is the old street list complete?", "--for", "owner"])
+        say(["park", q_park, "--reason", "Waits on the new export."])
+        q_held = made(["question", "Which species lose the most canopy?", "--for", "agent"])
+        say(["draw", q_held, "--owner", "agent"], d3)
+        q_plain = made(["question", "A question that serves nothing"])
+        q_done = made(["question", "Does the photo method work on evergreens?", "--for", "owner"])
+        (r9 / "papers").mkdir(exist_ok=True)
+        (r9 / "papers" / "note.md").write_text("# Note\n\n## Note\n\nEvergreens keep their leaves.\n")
+        f_ans = made(["finding", "The photo method fails on evergreens", "--evidence", "reference:https://example.org/evergreens", "--evidence", "stated:papers/note.md#note", "--ref", q_done, "--answers", q_done])
+        made(["task", "A task with nothing to say"])
+        t_held = made(["task", "Count the missing trees on one road", "--for", "agent"])
+        say(["draw", t_held, "--owner", "agent"], d0)
+        t_done = made(["task", "Export the inventory"])
+        say(["draw", t_done, "--owner", "agent"])
+        say(["make", t_done, "--resolution", str(r9 / "res.md")])
+        t_abort = made(["task", "Fly the canopy with a drone", "--for", "agent"])
+        say(["draw", t_abort, "--owner", "agent"])
+        say(["abort", t_abort, "--reason", "Not allowed over the harbour."])
+        made(["task", "A task for the next question", "--ref", i_made])
+        say(["remove", i_gone, "--reason", "Unrelated."])
+        i_made_q = made(["question", "Whether street age predicts loss", "--ref", i_made, "--serves", g1, "--for", "owner"])
+        say(["consume", i_made])
+        # place: where the card is, in words
+        place9 = lambda i, day=d0: by9(i, day)["place"]
+        expect("place: a held card is its holder and the days since drawn, `today` for none, `1 day` and `N days` otherwise",
+               place9(q_held) == "agent, 3 days" and place9(t_held) == "agent, today" and place9(q_held, "2026-11-11") == "agent, 1 day")
+        expect("place: a live card in no hand is its owner's deck or the common deck, a closed one its pile",
+               place9(q_park) == "owner's deck" and place9(q_plain) == "common deck" and place9(i_fresh) == "agent's deck"
+               and place9(t_done) == "discard pile" and place9(q_done) == "discard pile" and place9(t_abort) == "graveyard" and place9(i_gone) == "graveyard")
+        expect("place: null for a finding, a goal and a direction, which are no cards", all(by9(i)["place"] is None for i in (f_ans, g1, d1)))
+        # lines: each label where it holds something, in the brief's order, and absent where nothing
+        w = lines9(q_block)
+        expect("lines waits: each item of the block that holds today, a record by its title, a date and words as written, then the reason; a date reached is not named",
+               list(w) == ["waits", "serves"] and w["waits"] == "Photograph the old trees of one street; 2026-12-01; the parks office's permit \u2014 Needs the street photos and the permit."
+               and "2026-11-01" not in w["waits"])
+        expect("lines parked: the reason", lines9(q_park) == {"parked": "Waits on the new export."})
+        expect("lines due and for: a task's due date, and the questions it references by title",
+               lines9(t_for) == {"due": "2026-11-20", "for": "Does a photo agree with the crew's count?"})
+        expect("lines serves: a question's goals and directions by title, in the order written; the labels stand in order",
+               lines9(q_serves) == {"serves": "Know every street tree's health by spring; Sample by street segment"}
+               and [x["label"] for x in by9(q_serves)["lines"]] == ["serves"])
+        expect("lines answered by and answers: the finding's title on the question, the question's title on the finding, and the finding's evidence forms",
+               lines9(q_done) == {"answered by": "The photo method fails on evergreens"}
+               and lines9(f_ans) == {"answers": "Does the photo method work on evergreens?", "evidence": "reference, stated"})
+        expect("lines fresh: an open idea that produced nothing; produced: the titles of what a consumed idea made",
+               lines9(i_fresh) == {"fresh": "it has produced nothing yet"} and lines9(i_made) == {"produced": "Does a photo agree with the crew's count?; A task for the next question; Whether street age predicts loss"})
+        expect("lines served by: the open questions a goal or a direction has, none where there are none",
+               lines9(g1) == {"served by": "3 open questions"} and lines9(d1) == {"served by": "1 open question"} and lines9(g2) == {})
+        expect("lines: a record with nothing to say has none, and a removed idea neither fresh nor produced",
+               by9(q_plain)["lines"] == [] and by9(i_gone)["lines"] == [])
+        expect("a ranked, held card carries both keys under `show` as under `find`",
+               all("place" in x and "lines" in x for x in say(["show", t_for])[1]["records"]))
+        # the table: three hands, decks, the common deck and two piles, in the order of the brief
+        zs = say(["table"])[1]["zones"]
+        expect("flow table: a hand for each owner but `agent` in the file's order and then `agent`'s, the decks in the same order, the common deck, the discard pile, the graveyard",
+               [(z["kind"], z["owner"], z["title"]) for z in zs] == [
+                   ("hand", "mentor", "mentor's hand"), ("hand", "owner", "owner's hand"), ("hand", "agent", "agent's hand"),
+                   ("deck", "mentor", "mentor's deck"), ("deck", "owner", "owner's deck"), ("deck", "agent", "agent's deck"),
+                   ("deck", None, "the common deck"), ("pile", None, "the discard pile"), ("pile", None, "the graveyard")]
+               and all(list(z) == ["kind", "owner", "title", "count", "note", "room", "find", "cards"] for z in zs))
+        zone = lambda title, top=None: next(z for z in say(["table"] + (["--top", str(top)] if top else []))[1]["zones"] if z["title"] == title)
+        h_men, h_own, h_ag = zone("mentor's hand"), zone("owner's hand"), zone("agent's hand")
+        expect("a hand with a limit says `N of L` and its room, an empty one too; a hand with no limit says `N held, no limit` and no room",
+               (h_men["note"], h_men["room"], h_men["count"], h_men["cards"]) == ("0 of 2", 2, 0, [])
+               and (h_ag["note"], h_ag["room"], h_ag["count"]) == ("2 of 4", 2, 2) and (h_own["note"], h_own["room"], h_own["count"]) == ("0 held, no limit", None, 0))
+        for n in range(1, 5):
+            made(["task", f"Common task {n}"], f"2026-11-0{n}")
+        c_rank = made(["task", "A late ranked common task"])
+        c_rank2 = made(["task", "An earlier ranked common task"])
+        say(["rank", "--set", q_held, t_for, c_rank2, c_rank])
+        # a hand: its cards by rank and then the unranked by drawn
+        say(["draw", q_plain, "--owner", "owner"], d9)
+        say(["draw", t_for, "--owner", "owner"], d3)
+        h_ag, h_own = zone("agent's hand"), zone("owner's hand")
+        expect("a hand lists all its cards, the ranked by rank and then the unranked by drawn, each as `flow find --json` gives it",
+               [c["id"] for c in h_ag["cards"]] == [q_held, t_held] and [c["id"] for c in h_own["cards"]] == [t_for, q_plain]
+               and h_own["note"] == "2 held, no limit" and h_own["cards"][0]["place"] == "owner, 3 days" and h_own["cards"][1]["place"] == "owner, 9 days"
+               and h_own["cards"][0] == by9(t_for))
+        # a deck: the ranked by rank, then the unranked oldest first, the top five, `N` in all, whatever the standing
+        com = zone("the common deck")
+        ids = [c["id"] for c in com["cards"]]
+        expect("a deck shows its top five by default, the ranked first by rank, then the unranked oldest first, and counts every card of it",
+               len(ids) == 5 and ids[:2] == [c_rank2, c_rank] and [by9(i)["rank"] for i in ids[:2]] == [3, 4] and com["count"] == len(say(["find", "--deck", "common"])[1]["records"]) and com["count"] > 5
+               and [by9(i)["created"] for i in ids[2:]] == sorted(by9(i)["created"] for i in ids[2:]))
+        expect("the common deck's note says what is on the ranked list before the standings, each count of a standing that holds a card",
+               re.fullmatch(r"2 on the ranked list, \d+ ready", com["note"]) is not None)
+        expect("--top N cuts a deck to N, the count staying whole; a hand and a pile are no deck's to cut",
+               len(zone("the common deck", 2)["cards"]) == 2 and zone("the common deck", 2)["count"] == com["count"]
+               and len(zone("the common deck", 50)["cards"]) == com["count"] and len(zone("owner's hand", 1)["cards"]) == 2
+               and zone("the graveyard", 1)["cards"] == [])
+        rc, pl = say(["table", "--top", "0"])
+        expect("--top below 1 is refused", rc == 1 and "--top 0" in pl["problems"][0]["msg"])
+        od = zone("owner's deck")
+        expect("an owner's deck lists its cards in the same order, with the standings of all of them counted",
+               od["count"] == 2 and re.fullmatch(r"1 ready, 1 parked", od["note"]) is not None and od["room"] is None)
+        discard, grave = zone("the discard pile"), zone("the graveyard")
+        expect("a pile holds no cards and says what it holds, by state",
+               (discard["cards"], discard["count"], discard["note"]) == ([], 3, "1 done, 1 answered, 1 consumed")
+               and (grave["cards"], grave["count"], grave["note"]) == ([], 2, "1 aborted, 1 removed"))
+        # each zone's `find` selects exactly the zone's cards
+        def via(find):
+            argv = ["find"]
+            for k, v in find.items():
+                argv += ["--" + k] + ([] if v is True else [v])
+            return sorted(r["id"] for r in say(argv)[1]["records"])
+        zs = say(["table"])[1]["zones"]
+        expect("each zone's `find` is flags `flow find` takes, and selects exactly the zone's `count` cards, the shown ones among them",
+               all(len(via(z["find"])) == z["count"] and {c["id"] for c in z["cards"]} <= set(via(z["find"])) for z in zs)
+               and [z["find"] for z in zs] == [{"held": True, "owner": "mentor"}, {"held": True, "owner": "owner"}, {"held": True, "owner": "agent"},
+                                               {"deck": "mentor"}, {"deck": "owner"}, {"deck": "agent"}, {"deck": "common"}, {"pile": "discard"}, {"pile": "graveyard"}])
+        txt = text_of(c9, ["table", "--top", "2"])
+        expect("flow table in text: a heading for each zone with its note, and a line for each card shown",
+               txt.count(" \u2014 ") >= 9 + sum(len(z["cards"]) for z in say(["table", "--top", "2"])[1]["zones"])
+               and "mentor's hand \u2014 0 of 2; room for 2" in txt and "the graveyard \u2014 1 aborted, 1 removed" in txt
+               and f"{c_rank2} \u2014 An earlier ranked common task (task, ready, rank 3)" in txt and "cards, the top 2 shown" in txt)
+        # the manifest: card, home, the routes and the navigation
+        pm = pages_manifest(c9)
+        routes9 = {r["path"]: r for r in pm["routes"]}
+        card9 = pm["card"]
+        expect("the manifest's card: the paths into a record, the faces, the standing, the place and the lines, the link, and the meters built from the bindings",
+               card9["id"] == "id" and card9["title"] == "title" and card9["summary"] == "summary" and card9["tags"] == "tags" and card9["rank"] == "rank"
+               and card9["label"] == "type" and card9["faces"] == {t: t for t in TYPES} and card9["standing"] == ["standing", "state"]
+               and card9["place"] == "place" and card9["lines"] == "lines" and card9["link"] == "/flow/r/{id}"
+               and card9["meters"] == [{"label": "value", "field": "value", "scale": ["low", "medium", "high"], "kinds": ["idea", "question", "task"], "frame": True},
+                                       {"label": "effort", "field": "size", "scale": ["small", "medium", "large"], "kinds": ["question", "task"]}])
+        (r9 / "flow.toml").write_text((r9 / "flow.toml").read_text(encoding="utf-8").replace('values = ["low", "medium", "high"]', 'values = ["a", "b", "c", "d"]')
+                                      + "\n", encoding="utf-8")
+        expect("the meters' scales follow the project's bindings: [card] values for the value, [question] sizes for the effort",
+               pages_manifest(Config(r9))["card"]["meters"][0]["scale"] == ["a", "b", "c", "d"] and pages_manifest(Config(r9))["card"]["meters"][1]["scale"] == ["small", "medium", "large"])
+        expect("the manifest's home is /flow, the table, and the index moves to /flow/index",
+               pm["home"] == "/flow" and routes9["/flow"]["view"] == "table" and routes9["/flow"]["run"] == ["table"] and routes9["/flow"]["list"] == "/flow/list"
+               and routes9["/flow/index"]["run"] == ["index", "--print"] and routes9["/flow/index"]["view"] == "markdown")
+        lst9 = routes9["/flow/list"]
+        choices = {p["name"]: p["choices"] for p in lst9["params"] if isinstance(p, dict)}
+        expect("the list's params type, value, deck and pile are given as {name, choices}, the others stay words",
+               list(choices) == ["type", "value", "deck", "pile"] and choices["type"] == list(TYPES) and choices["value"] == ["low", "medium", "high", "none"]
+               and choices["deck"] == ["mentor", "owner", "agent", "common"] and choices["pile"] == ["discard", "graveyard"]
+               and all(isinstance(p, str) for p in lst9["params"] if not isinstance(p, dict)) and "owner" in lst9["params"] and "held" in lst9["flags"])
+        expect("the directions route lists the open directions as a find of them",
+               routes9["/flow/directions"]["view"] == "list" and routes9["/flow/directions"]["run"] == ["find", "--type", "direction", "--state", "open"])
+        expect("the navigation: Table, Ideas, Questions, Tasks, Findings, Goals, Directions, Index, Artifacts, Tags, Check",
+               [n["label"] for n in pm["nav"]] == ["Table", "Ideas", "Questions", "Tasks", "Findings", "Goals", "Directions", "Index", "Artifacts", "Tags", "Check"]
+               and pm["nav"][0]["path"] == "/flow" and pm["nav"][7]["path"] == "/flow/index")
+        expect("a record's page asks for the links as refs, each {id, title}",
+               all(set(x) == {"id", "title"} for x in say(["show", q_serves])[1]["links"]["serves"]))
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
 
@@ -7057,6 +7237,8 @@ def build_parser():
     p.add_argument("--deck", metavar="OWNER|common", help="the cards of that deck that are in no hand")
     p.add_argument("--pile", metavar="discard|graveyard", help="the closed cards of a pile")
     p.add_argument("--id", action="append", dest="id_", metavar="ID", help="these records, a removed one among them; repeatable")
+    p = sp.add_parser("table", help="the table as it lies: each owner's hand and deck, the common deck, the two piles")
+    p.add_argument("--top", type=int, default=5, help="the cards a deck shows, from its top (five where not given)")
     p = sp.add_parser("show"); p.add_argument("id")
     p = sp.add_parser("graph"); p.add_argument("--from", dest="frm"); p.add_argument("--dot", action="store_true")
     p = sp.add_parser("index"); p.add_argument("--check", action="store_true"); p.add_argument("--print", action="store_true", dest="print_")
@@ -7130,6 +7312,143 @@ def notices(recs, before, created, changed):
     return out
 
 
+# --- what the flow answers for a card's face ----------------------------------------
+#
+# The dashboard reads no file and knows no rule of the flow, so everything a card prints is calculated here, in finished
+# words, from one function each: where the card is (`place`), and the lines under its summary (`lines`).
+
+def card_place(cfg, recs, r, today):
+    """Where a card is, in words: `agent, 3 days` for a held card (the holder and the days since `drawn`, `today` for none),
+    `agent's deck` or `common deck` for a live card in no hand, `discard pile` or `graveyard` for a closed one; None for a
+    record that is no card."""
+    if r.type not in CARDS:
+        return None
+    if r["state"] == "open":
+        if is_held(r):
+            days = age_days(r["drawn"], today)
+            return f"{r['owner']}, {'today' if days == '0 days' else days}"
+        return f"{r['owner']}'s deck" if r["owner"] else "common deck"
+    return {"discard": "discard pile", "graveyard": "graveyard"}.get(pile_of(r))
+
+
+def title_of(recs, id_):
+    """A record named by its title; its id where the record is not there."""
+    return str(recs[id_]["title"]) if id_ in recs and recs[id_]["title"] else str(id_)
+
+
+def titles(recs, ids):
+    return "; ".join(title_of(recs, i) for i in ids)
+
+
+def count_of(n, noun):
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def card_lines(cfg, recs, r, today):
+    """What a card says beside its summary, as `{"label", "text"}`, only the ones that hold something, in this order: `waits`
+    (each item of a block that holds today, a record by its title, a date and words as written, then the reason), `parked`
+    (the reason), `due`, `for` (a task's questions), `serves` (a question's goals and directions), `answered by`, `answers`
+    (the questions a finding settles), `evidence` (a finding's forms), `fresh` (an open idea that produced nothing) or
+    `produced`, `served by` (the open questions a goal or a direction has).  A record is named by its title."""
+    out = []
+
+    def add(label, text):
+        if text:
+            out.append({"label": label, "text": text})
+
+    live_card = r.type in CARDS and r["state"] == "open"
+    if r.type in ("question", "task") and live_card:
+        holds = blocked_now(cfg, recs, r, today)
+        if holds:
+            b = r["blocked_by"]
+            reason = str(b.get("reason") or "").strip()
+            add("waits", "; ".join(title_of(recs, o) if blocker_kind(cfg, recs, o) == "record" else o for o in holds)
+                + (f" — {reason}" if reason else ""))
+        p = r["parked"]
+        if isinstance(p, dict):
+            add("parked", str(p.get("reason") or "").strip())
+    if r.type == "task" and live_card and r["due"] is not None:
+        add("due", str(r["due"]))
+    refs = r["references"] if isinstance(r["references"], list) else []
+    if r.type == "task":
+        add("for", titles(recs, [i for i in refs if i in recs and recs[i].type == "question"]))
+    if r.type == "question":
+        serves = r["serves"] if isinstance(r["serves"], list) else []
+        add("serves", titles(recs, serves))
+        by = r["answered_by"]
+        add("answered by", titles(recs, by if isinstance(by, list) else [by] if by else []))
+    if r.type == "finding":
+        add("answers", titles(recs, sorted(x.id for x in recs.values() if x.type == "question" and x["answered_by"] == r.id)))
+        add("evidence", ", ".join(forms_of(r)) if r["state"] != "removed" else "")
+    if r.type == "idea":
+        made = consumed_list(r)
+        if made:
+            add("produced", titles(recs, made))
+        elif r["state"] == "open":
+            add("fresh", "it has produced nothing yet")
+    if r.type in ("goal", "direction"):
+        n = sum(1 for x in recs.values() if x.type == "question" and x["state"] == "open"
+                and isinstance(x["serves"], list) and r.id in x["serves"])
+        add("served by", count_of(n, "open question") if n else "")
+    return out
+
+
+def card_order(r, unranked):
+    """A zone's order: the ranked cards by rank, then the unranked by `unranked` (a hand's `drawn`, a deck's `created`),
+    the oldest first, the id last."""
+    ranked = isinstance(r["rank"], int)
+    return (not ranked, r["rank"] if ranked else 0, str(r[unranked] or ""), r.id)
+
+
+def table_owners(cfg):
+    """The owners in the order of the table: every owner but `agent` first, in the file's order, then `agent`."""
+    return [o for o in cfg.owners if o != "agent"] + (["agent"] if "agent" in cfg.owners else [])
+
+
+def table_zones(cfg, recs, today, top=5):
+    """The table as it lies: one hand and then one deck for each owner, the common deck, the discard pile and the graveyard.
+    A zone is {kind, owner, title, count, note, room, find, cards}; `find` is the query that lists the whole zone, as
+    `flow find`'s flags, and `cards` the ones shown: a hand's all, a deck's first `top`, a pile's none."""
+    def shown(rs):
+        return [summary_of(cfg, r, recs, today) for r in rs]
+
+    zones = []
+    owners = table_owners(cfg)
+    for o in owners:
+        held = sorted(held_by(recs, o), key=lambda r: card_order(r, "drawn"))
+        lim = int(cfg.hand.get(o, 0) or 0)
+        zones.append({"kind": "hand", "owner": o, "title": f"{o}'s hand", "count": len(held),
+                      "note": f"{len(held)} of {lim}" if lim else f"{len(held)} held, no limit",
+                      "room": max(0, lim - len(held)) if lim else None, "find": {"held": True, "owner": o}, "cards": shown(held)})
+    for o in owners + [None]:
+        deck = sorted(in_deck(recs, o), key=lambda r: card_order(r, "created"))
+        standings = Counter(w for r in deck for w in card_standing(cfg, recs, r, today))
+        note = [f"{standings[w]} {w}" for w in ("ready", "parked", "blocked") if standings[w]]
+        if o is None and deck:
+            note.insert(0, f"{sum(isinstance(r['rank'], int) for r in deck)} on the ranked list")
+        zones.append({"kind": "deck", "owner": o, "title": f"{o}'s deck" if o else "the common deck", "count": len(deck),
+                      "note": ", ".join(note), "room": None, "find": {"deck": o or COMMON}, "cards": shown(deck[:top])})
+    for pile, states in (("discard", ("done", "answered", "impossible", "consumed")), ("graveyard", ("aborted", "wrong", "removed"))):
+        held = [r for r in recs.values() if pile_of(r) == pile]
+        by_state = Counter(r["state"] for r in held)
+        zones.append({"kind": "pile", "owner": None, "title": f"the {pile} pile" if pile == "discard" else "the graveyard", "count": len(held),
+                      "note": ", ".join(f"{by_state[s]} {s}" for s in states if by_state[s]), "room": None,
+                      "find": {"pile": pile}, "cards": []})
+    return zones
+
+
+def table_text(zones):
+    """The table in text: a heading for each zone and a line for each card shown."""
+    out = []
+    for z in zones:
+        out.append(f"{z['title']} — {z['note'] or 'no cards'}"
+                   + (f"; {count_of(z['count'], 'card')}, the top {len(z['cards'])} shown" if z["kind"] == "deck" and z["count"] > len(z["cards"]) else "")
+                   + (f"; room for {z['room']}" if z["room"] else ""))
+        for c in z["cards"]:
+            out.append(f"  {c['id']} — {c['title']} ({c['type']}, {c['standing']}" + (f", rank {c['rank']}" if c["rank"] is not None else "") + ")")
+    return out
+
+
 def summary_of(cfg, r, recs=None, today=None):
     d = dict(r.fm)
     d["path"] = rel(cfg, r.path)
@@ -7138,6 +7457,9 @@ def summary_of(cfg, r, recs=None, today=None):
     if r.type in CARDS and recs is not None and today:  # calculated, never stored: an open card's standing, a closed card's pile
         d["standing"] = standing_words(cfg, recs, r, today) or None
         d["pile"] = pile_of(r)
+    if recs is not None and today:  # and what the card's face says: where it is, the lines under its summary
+        d["place"] = card_place(cfg, recs, r, today)
+        d["lines"] = card_lines(cfg, recs, r, today)
     return d
 
 
@@ -7289,6 +7611,12 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for r in hits:
                 emit(f"{r.id} | {row_state(cfg, recs, r, today)} | {r['title']}")
             emit(f"{len(hits)} record(s)")
+        elif a.cmd == "table":
+            if a.top < 1:
+                raise Refused(f"--top {a.top}: the number of cards a deck shows, 1 or more")
+            out["zones"] = table_zones(cfg, recs, today, a.top)
+            for ln in table_text(out["zones"]):
+                emit(ln)
         elif a.cmd == "show":
             r = get(recs, a.id)
             out["records"] = [summary_of(cfg, r, recs, today)]

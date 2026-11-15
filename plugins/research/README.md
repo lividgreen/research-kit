@@ -50,7 +50,7 @@ The [`library`](skills/library/SKILL.md) skill, `/research:library` in Claude Co
 
 ## A dashboard
 
-`dashboard` serves the records and the cards as a read-only page on localhost: the ranked list, each record with its links and back-references, each card with its notes and extracts, and the verdicts of `flow check` and `library check`.
+`dashboard` serves the records and the cards as a read-only page on localhost: the table of hands, decks and piles, the records laid as cards, each with its links and back-references, each library card with its notes and extracts, and the verdicts of `flow check` and `library check`.
 Every page is the answer of a command with `--json`, so the page and the command line cannot disagree.
 
 The [`dashboard`](skills/dashboard/SKILL.md) skill, `/research:dashboard` in Claude Code; [The dashboard](../../docs/research/dashboard.md) is its page.
