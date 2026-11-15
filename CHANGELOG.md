@@ -4,6 +4,42 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+What a session does with the person's own words: a thought they call an idea, a question or a task is minted as that card, a fresh project starts from the idea of the project, and a session starts with the flow's state and then does what their message asks.
+Three more things change in how a session works: a decision that waits on the person is a task in their deck, a session commits at its freeze, and the freeze carries its commit past another session's edits in the tree.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+A project's instructions that carry "A session starts with the `whatsnext` skill and ends with the `freeze` skill" take the sentences `flow init --print-instructions` prints now.
+
+The `research` plugin:
+
+- The `flow` skill's new part "What the person says", guidance and no rule of the flow: the person's own word for a thing names the card's kind, `flow idea`, `flow question` or `flow task`, and a goal or a direction is opened on their word alone; a fresh project starts from the idea of the project, where the person names no other kind, and the next `whatsnext` processes it; elsewhere, where the agent is not sure of the kind, it proposes one in one question and mints on the answer.
+  The body is written from the dialog with the person's words kept, the title and the summary by "Writing a title and a summary", the source naming the person and the day; the card is minted into a deck and drawn only where the message asks for work on it now.
+- A reference says nothing of order: cards may be minted ahead, and where they have an obvious order the later one is blocked on the earlier with `flow block`, while cards that can be worked in parallel carry no block; `whatsnext` blocks such a card before its refill.
+- The `method` skill's part "Evidence" says where the work needs something found out that the records do not hold, the question is minted first, before the act that finds it out; `whatsnext` says the same of a planning turn, and the figures of a probe are the finding's, never prose in another record's body.
+- A decision that waits on the person is asked with the agent's question tool in the turn; one still open at the turn's end becomes a task in the person's deck whose title names the decision, the card that waits is blocked on it, and the log's State paragraph names the task and never carries the decision as prose alone.
+  A card whose remaining steps are the person's own work is still passed to their deck.
+  The `flow`, `method`, `whatsnext` and `freeze` skills and the pages say so where they said a card is passed for a decision.
+- A session commits at its freeze, or when the person asks; a transition or a ranking commits nothing by itself, and `whatsnext` no longer ends with a commit.
+- The `whatsnext` and `freeze` skills load the `flow` skill first where it is not loaded, and mint no record without it.
+- The `whatsnext` skill runs when the person asks what is next, when the agent recommends it and the person agrees, or when the ranked list is empty, no longer at a session's start; its description and opening paragraph say so, and so do the plugin's README, Getting started and the skill's page.
+
+The `freeze` skill:
+
+- Step 5 and Install's "Several sessions in one tree" say how the session's own edits travel into a commit made from a `git worktree`: the flow writes them into the tree, uncommitted, so `git merge --ff-only` is refused over them.
+  The changed paths are copied into a detached worktree made at the tree's commit, what a transition archived deleted there, and staged with `git add -A`; the commit is made there; then, in the tree, `git update-ref refs/heads/BRANCH NEW OLD` moves the branch, refused if another commit moved it meanwhile, and `git reset -q -- PATHS` brings the index to it, with an empty `git status --short -- PATHS` as the check.
+
+The setup:
+
+- Where the probe finds no `flow.toml`, and so no records, and no documents with a References section, `research-init` proposes first that the person describe the idea of the project in their own words, in the turn; they may decline, and the setup's questions are put against what they say.
+  Once `flow init` has run, the description is minted as the project's first idea, in the common deck and not drawn, for the first `whatsnext` to process.
+- The question of the evidence forms puts each form as an option that says what it is, gives one example and says which findings cannot be made without it, and says the list is changed later in `flow.toml`, `[evidence] forms`.
+
+The flow script:
+
+- `flow init --print-instructions` says a session starts with `flow state`, then does what the person's message asks, the agent recommending the next moves where the message leaves open what to do, the `whatsnext` skill among them, and ends with the `freeze` skill; the sentence that a session starts with `whatsnext` goes, and the sentences on the person's bare words and on a request ending "… and freeze" stay.
+  The selftest holds the printed text to it.
+
 ## v0.10.0 — 2026-11-15
 
 The dashboard becomes a card table: the flow's table of hands and decks, its lists and its records and the library's works, laid as cards.

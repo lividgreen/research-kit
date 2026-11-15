@@ -4258,7 +4258,9 @@ INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should 
   that file is named here and nowhere else; none is needed to start.
 - `INBOX.md` is where the person leaves items between sessions; a session reads it at its start.
 - `flow state` prints the cold-start bundle a session reads first.
-- A session starts with the `whatsnext` skill and ends with the `freeze` skill.
+- A session starts with `flow state`, then does what the person's message asks; where the message leaves open
+  what to do, the agent recommends the next moves, the `whatsnext` skill among them; a session ends with the
+  `freeze` skill.
   When the person says "whatsnext" or "freeze", they mean these skills: each is called every time, even if it
   ran earlier in the session, and every step is taken; a request ending "… and freeze" is two requests, the work
   and then the `freeze` skill.
@@ -6429,6 +6431,10 @@ def selftest():
                        r.returncode == 0 and "The records are `records/`" in r.stdout and "The log is not bound yet" in r.stdout and not any(Path(t4).iterdir()))
             expect("the paragraphs say the person's bare words mean the session skills, called every time, and a request ending in a freeze is two",
                    "they mean these skills" in INSTRUCTIONS and "is two requests" in INSTRUCTIONS)
+            expect("the paragraphs say a session starts with flow state and then does what the person asks, recommending the next moves where that is open, and no longer start it with whatsnext",
+                   "A session starts with `flow state`, then does what the person's message asks;" in INSTRUCTIONS
+                   and "the agent recommends the next moves, the `whatsnext` skill among them" in INSTRUCTIONS
+                   and "ends with the\n  `freeze` skill" in INSTRUCTIONS and "starts with the `whatsnext` skill" not in INSTRUCTIONS)
             expect("the paragraphs name neither a skill's steps nor what flow state lists, which the skills and the command carry",
                    "the hands" not in INSTRUCTIONS and "the hand reviewed" not in INSTRUCTIONS and "the hand is filled" not in INSTRUCTIONS
                    and "the cold-start bundle a session reads first" in INSTRUCTIONS)
