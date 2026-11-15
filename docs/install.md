@@ -8,7 +8,7 @@ The agent runs each skill's script from the skill's own directory, so nothing is
 ### The `research` plugin
 
 - **Required**: Python 3.11 or later, standard library only, for every script; git for the project; a pre-commit runner, `prek` or `pre-commit`, for the hooks (the setup proposes one where none is on PATH).
-- **Recommended**: `markdownlint` (markdownlint-cli) on PATH, in which case a record write that adds a violation is reverted — with the project's configuration where one is bound or kept at the root, else a built-in one that reads a record's `title:` as the document's title (the kit bundles no linter).
+- **Recommended**: `markdownlint` (markdownlint-cli) on PATH, in which case a record write that adds a violation is reverted — with the project's configuration where one is bound or kept at the root, else a built-in one that reads a record's `title:` as the document's title, and not as a heading for the levels and the single top-level heading (MD001 and MD025), so a body may open below `##` or hold a `#` heading (the kit bundles no linter).
 - **Optional**: `pdftotext` (poppler), or any command the project names in `library.toml`, for a kept PDF's text; the `markdown` package for the dashboard's rendered bodies (paragraphs otherwise); SQLite built with FTS5 for stemmed search (whole words otherwise).
 - **Optional environment variables** for the library's online commands: `LIBRARY_MAILTO`, `OPENALEX_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY`; [What goes online](network.md) says where each is sent.
 

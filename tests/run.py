@@ -24,7 +24,7 @@ SKILL_DIRS = [d for pl in PLUGINS.values() if (pl / "skills").is_dir() for d in 
 SCRIPTS = {"flow": SKILLS / "flow/scripts/flow.py", "library": SKILLS / "library/scripts/library.py",
            "dashboard": SKILLS / "dashboard/scripts/dashboard.py", "formal": PLUGINS["formal"] / "skills/land/scripts/formal.py",
            "setup": SKILLS / "research-init/scripts/setup.py"}
-SHARED = ("_SENT", "BUILTIN_ABBREVIATIONS", "FENCE_RUN", "fence_after", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
+SHARED = ("_SENT", "BUILTIN_ABBREVIATIONS", "FENCE_RUN", "fence_after", "in_code_span", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
 # the pins' helpers, duplicated into the two setup probes (research's setup.py, formal's `formal probe`)
 PINS = ("KIT_REPO", "KIT_LATEST", "KIT_FOLLOW", "skill_version", "hooks_pin", "install_record", "kit_installed", "kit_tag", "kit_changelog",
         "kit_latest", "kit_dirty", "kit_main_tree", "kit_pins")

@@ -273,6 +273,26 @@ def fence_after(fence, line):
     return None if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip() else fence
 
 
+def in_code_span(line, pos):
+    """Whether `pos` of `line` lies where the reflow must not split: after an odd number of backticks, as the reflow has
+    always counted, or inside a span whose fence is a longer run (CommonMark: a run of backticks opens a span that the next
+    run of the same length closes), which that count splits though it holds a whole sentence."""
+    if line.count("`", 0, pos) % 2 == 1:
+        return True
+    runs = [(m.start(), m.end()) for m in re.finditer(r"`+", line)]
+    i = 0
+    while i < len(runs) and runs[i][0] < pos:
+        n = runs[i][1] - runs[i][0]
+        close = next((j for j in range(i + 1, len(runs)) if runs[j][1] - runs[j][0] == n), None)
+        if close is None:
+            i += 1
+        elif pos < runs[close][1]:
+            return True
+        else:
+            i = close + 1
+    return False
+
+
 def _builtin_reflow(text):
     out, fence = [], None
     for line in text.split("\n"):
@@ -289,7 +309,7 @@ def _builtin_reflow(text):
             if b.group(1) == "." and word and (word.group() in BUILTIN_ABBREVIATIONS or word.group().lower() in BUILTIN_ABBREVIATIONS
                                                or re.search(r"\bet al$", body[:b.start()])):  # `cf.`, `Thm.`, `et al.`, but `A.` is a sentence
                 continue
-            if body.count("`", 0, b.start()) % 2 == 1 or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
+            if in_code_span(body, b.start()) or re.match(r"^(?:[-*+](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|#|>|\|)", body[b.end():]) \
                     or re.fullmatch(r"(\*\*|__)(?:[^*_\s]+ ){0,3}[^*_\s]+(?: \([^()]*\))?\.\1", body[start:b.end(2)].strip()):  # a label, **State.**, **Lemma 2 (Jen 1990).**
                 continue
             parts.append(body[start:b.end(2)].strip())
