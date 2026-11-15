@@ -55,8 +55,10 @@ Where `formal.toml` stands at the project root, the section ends with one more l
 1. Probe.
    Run the probe with the project root as the working directory: `python3 ${CLAUDE_PLUGIN_ROOT}/skills/research-init/scripts/setup.py probe` under Claude Code, this skill's own `scripts/setup.py` by its full path under any other agent (`--root DIR` for another project; `--json` for the same as data) and read the whole report: the environment, the project with its pins, the kit's version and layout, the proposals, the upgrade steps, the coverage line.
 2. Plan, in one message.
+   Where the probe finds `flow.toml` absent, and so no records, and no documents with a References section, the first thing proposed, before the other questions, is that the person describe the idea of the project in their own words, asked in the turn as free text; they may decline, and the setup goes on as it does.
+   What they describe is what the questions below are put against, in place of a guess from the folder's name.
    Say what exists and is left alone, what will be written, what is missing with the proposal's command for each, and, in a project set up before, each pending upgrade step with its commands and the releases whose **Upgrading** paragraphs to read first.
-   Ask the person once, in one question: which proposals to install; the log's name where none exists (`WORKLOG.md` unless they say otherwise); which evidence forms the project accepts, of the five the flow ships and its own words (step 4); whether copies the project keeps by hand may be redistributed with the repository (`--kept`), no unless they say so; where the project has documents, what its reviews hold them to (step 5), proposed from the documents, which the agent reads first, with which documents a review may correct in the session and which it reports and asks first about, and the gates an audit runs first, by name, where they are more than the hooks; and, where an upgrade step is pending, whether to take it now.
+   Ask the person once, in one question: which proposals to install; the log's name where none exists (`WORKLOG.md` unless they say otherwise); which evidence forms the project accepts, of the five the flow ships and its own words (step 4), each option put as "The evidence forms' options" below says; whether copies the project keeps by hand may be redistributed with the repository (`--kept`), no unless they say so; where the project has documents, what its reviews hold them to (step 5), proposed from the documents, which the agent reads first, with which documents a review may correct in the session and which it reports and asks first about, and the gates an audit runs first, by name, where they are more than the hooks; and, where an upgrade step is pending, whether to take it now.
    Install nothing before the answer.
    In a run nobody can answer, write the project files with the defaults and list every proposal as left to the person.
 3. Install what was chosen, with the proposal's command as shown, then run the probe again.
@@ -65,6 +67,7 @@ Where `formal.toml` stands at the project root, the section ends with one more l
    Where `formal.toml` stands (the `formal` plugin is set up), propose running `/formal:formal-init` again, which fills its own `[handoff]` bindings from the files just written; the flow binds nothing of the plugin's manifests, since it asks `formal resolve` for its formal evidence.
    An `init` refuses over an existing bindings file; `--force` is used only when the person asks for the file to be rewritten.
    `flow init` writes the five evidence forms the kit ships in `[evidence] forms` (`formal`, `statistical`, `peer-reviewed`, `stated`, `reference`): ask the person, in the one question of step 2, which the project accepts and which words of its own to add (a project with a prover keeps `formal`, one with datasets `statistical`, one with a library `peer-reviewed`; `stated` is the project's own word and the trust to raise), edit the list, and put what each form means for the project into the instructions section of step 5.
+   Where the person described the idea of the project in step 2, mint it once `flow init` has run as the project's first idea, by the `flow` skill's part "What the person says": the body written from what they said, their words kept, with the context the setup found where it is needed, `--source "the person, DATE"`, left in the common deck and not drawn, for the first `whatsnext` to process.
 5. Write the instructions.
    The section is `## Records and method`: the data and how the project works with it — the tools, the records discipline, the session procedures, the project's specialization of the method — with `### Reviews` inside it.
    Where the probe's `instructions section` is absent, read the instructions file for a section that holds the records rules under another heading (what earlier setups wrote, `## Research records`, or the project's own, perhaps nested under a heading of another kind); where there is one, propose once, and only on the person's word, to rename it to `## Records and method` or to move it there, with its `### Reviews` inside it (a `### Records and method` under `## Structure` is promoted to `##` and its sibling `### Reviews` moved in), and add no second section.
@@ -82,11 +85,23 @@ Where `formal.toml` stands at the project root, the section ends with one more l
    Then, once the steps the probe listed are taken, move `[kit] release` in `flow.toml` to the probe's installed release (the `kit:` line's tag), on the person's word as every bindings edit is, or add the line where `flow.toml` lacks it; run the probe once more, whose `setup` step reads ok.
    A step left pending leaves the marker where it is, so the next run names the paragraphs again.
 8. Report.
-   What was written, file by file; what was installed; what was declined, with the command to do it later; the upgrade steps left pending, with their commands; the release `[kit] release` now names; the first move — capture an idea, mint a task, rank — and, where the probe found a Lean workspace, `/formal:formal-init` as the next step.
+   What was written, file by file; what was installed; what was declined, with the command to do it later; the upgrade steps left pending, with their commands; the release `[kit] release` now names; the first move — `/research:whatsnext` on the project's first idea where one was minted, else capture an idea, mint a task, rank — and, where the probe found a Lean workspace, `/formal:formal-init` as the next step.
 
 A project that already keeps its research elsewhere — notes, a roadmap, a to-do list, a bibliography — is set up the same way first; its material is then brought into the records and the cards by `references/migration.md`, as its own step with its own plan and the person's word.
 
 Where the person asks how to run a script outside the agent, from a Makefile target or a script of the project's: by its path from the project root where the skills are installed into the project, `python3 .agents/skills/flow/scripts/flow.py check` after `npx skills add` and `.claude/skills/…` likewise for Claude Code, since a plugin install's path in the agent's cache changes with each version; the checks themselves run through the hooks.
+
+## The evidence forms' options
+
+The setup's question puts each form as an option that says what the form is, gives one example and says which findings cannot be made without it, and says that the list is changed later in `flow.toml`, `[evidence] forms`:
+
+- `formal` — a declaration a prover has checked, resolved by the `formal` plugin; `formal:Lib/Foo.lean#lemma_L`; a finding that a statement is proved in a machine-checked library.
+- `statistical` — the project's own script that asserts a result, or a committed result file; `statistical:probes/p.py`; a finding that rests on a computation or a measurement.
+- `peer-reviewed` — a card of the project's reference library, by its key; `peer-reviewed:jen1990`; a finding that rests on a published work the library holds.
+- `stated` — the project's own word, a place in one of its documents; `stated:papers/alpha.md#Theorem 2.1`; a finding the project asserts without a check, which the other forms are the way to raise.
+- `reference` — any other source, a link or a path; `reference:https://doi.org/…`; a finding that rests on a source outside the library.
+
+A project's own word added to the list takes its place beside these.
 
 ## Rules
 

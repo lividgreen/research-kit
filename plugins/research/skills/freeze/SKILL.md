@@ -15,16 +15,18 @@ That clone test rules out whatever does not travel: the agent's memory, the scra
 A freeze is a request of its own: when the person says 'freeze', 'save the session' or 'park the session', they mean this skill, called every time, even if it ran earlier in the session, with every step taken; a request ending "… and freeze" is two requests, the work and then this skill.
 The one rule is to save what is important for the work, anything useful the session found and did not record.
 `flow …` below is the `flow` skill's `scripts/flow.py`, run by its path from the project root as that skill says.
+Where the `flow` skill is not loaded, load it before the steps: no record is minted without it.
 
 1. **The records say what the session knows.**
    The log's top State paragraph is current and its next action names the fresh session's first move; where work happened after the entry, it is extended or a new entry added with `flow log add FILE`.
    The State paragraph says where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
+   A decision that waits on the person is named there by the task in their deck that holds it (step 2), and never carried as prose alone.
    `flow touched --unnamed` lists the records changed since the newest committed entry that no entry names yet, the ids the entry is to name; `--ids` prints them on one line, and a record only re-ranked by a renumbering is left out, not to be named.
    The entry may write the ids out or name a run of them as a range, `finding-0015…0035` (an en dash or three dots for the ellipsis, written with no spaces around it), which the check reads as every id of that prefix from 0015 to 0035; `touched` lists each id on its own.
    At the month's first freeze, `flow log archive --before DATE` moves the older entries.
 2. **Flush what only the context holds.**
    Inventory the conversation turn by turn, the person's messages and the replies both, under the test: if the transcript were deleted now, would anything the person said, or anything the person was told, be lost?
-   Each item goes to its home by kind: an idea in the person's words, verbatim and dated (`flow idea`); a ruling where the project keeps its rules; a reading given in a reply into the body of the record it is about, with its standing; a correction as a dated line in the record; an unanswered question as a question or an idea; a preference about the process to the agent's memory.
+   Each item goes to its home by kind: an idea in the person's words, verbatim and dated (`flow idea`); a ruling where the project keeps its rules; a reading given in a reply into the body of the record it is about, with its standing; a correction as a dated line in the record; an unanswered question as a question or an idea; a decision that waits on the person, asked with the agent's question tool in the turn and, where it stays open, a task in their deck, `flow task "…" --summary "…" --for OWNER`, its title naming the decision, the card that waits blocked on it with `flow block ID --on TASK --reason "…"`; a preference about the process to the agent's memory.
    Then close the lifecycle of everything the session created: a task made or aborted, an idea consumed or left in the heap.
    Then the held cards: for each card the session's hand holds, the log entry says what the session did on it, and one left untouched is returned (`flow return ID --note "…"`) or passed (`flow pass ID --to OWNER --note "…"`) with a note.
    A freeze ranks nothing: a question minted is named unranked, and the list is the `whatsnext` skill's.
@@ -37,8 +39,16 @@ The one rule is to save what is important for the work, anything useful the sess
    It exits 1 on a failure, 2 where a part could not be decided, never read as clean; `flow check` and the project's other checks run beside it.
    It also prints the steps that are the session's own as a checklist — the conversation's inventory item by item, the sweep by meaning, the agent's memory checked, the gates by exit code — which the report answers.
 5. **A commit with named paths, then the push as the backup.**
+   The session commits at its freeze, or when the person asks before it; no transition and no ranking commits by itself.
    Before the commit, `git status --porcelain` shows whether the tree holds unstaged changes outside the paths committed, another session's edits in a shared tree among them: the hook runner stashes them while the hooks run, and an edit written in that window can keep the stash from applying.
-   Where there are some, commit from a `git worktree` of the freeze's own and take the commit into the tree with `git merge --ff-only`, as Install's "Several sessions in one tree" says, or say in the turn that the runner is about to stash them.
+   Where there are some, commit from a `git worktree` of the freeze's own, as Install's "Several sessions in one tree" says, or say in the turn that the runner is about to stash them.
+   The flow wrote the session's own edits into the tree, uncommitted, so `git merge --ff-only` from the worktree is refused over them, and the edits travel by copy:
+   - `OLD=$(git rev-parse HEAD)`, then `git worktree add -q --detach ../freeze-wt "$OLD"`, detached since the tree holds the branch;
+   - each path the session changed is copied there with `cp -p`, the folder made first where it is new, and each path it deleted or moved, what a transition archived among them, is deleted there with `rm -f`; `git -C ../freeze-wt add -A -- PATHS` stages them, and `git -C ../freeze-wt status --short` shows what the commit holds, a move as a rename;
+   - the commit is made there, `git -C ../freeze-wt commit`, so the hooks run on the session's paths alone;
+   - in the tree, `NEW=$(git -C ../freeze-wt rev-parse HEAD)`, `git update-ref refs/heads/BRANCH "$NEW" "$OLD"` and `git reset -q -- PATHS`: the update is refused if another commit moved the branch since `OLD`, and the reset brings the index to the new commit, the files already holding its content;
+   - `git status --short -- PATHS` prints nothing, which is the check; another session's changes still show as they did;
+   - `git worktree remove ../freeze-wt`.
    Steps 2 to 5 run even on a clean tree: a clean tree says nothing about what the conversation still holds.
    A push stops on a non-fast-forward rather than forcing.
 6. **Report, as the turn's final output.**

@@ -25,7 +25,8 @@ The [`flow`](skills/flow/SKILL.md) skill, `/research:flow` in Claude Code; [The 
 
 ## A session's start and its freeze
 
-A session starts with `/research:whatsnext`: the cards the agent's hand holds are reviewed, what you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under the focus you give, and the agent's hand is refilled from the top of it.
+A session starts with `flow state` and then does what your message asks; a fresh project starts from the idea of the project in your own words, minted as an idea card, and where the message leaves open what to do the agent recommends the next moves, `/research:whatsnext` among them.
+`/research:whatsnext` is what is next: the cards the agent's hand holds are reviewed, what you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under the focus you give, and the agent's hand is refilled from the top of it.
 It ends with `/research:freeze`: what the conversation found and no record holds is saved, `flow state --check` and the gates run, and the work is committed, so a cold session on another machine continues without asking.
 
 The [`whatsnext`](skills/whatsnext/SKILL.md) and [`freeze`](skills/freeze/SKILL.md) skills; [What is next](../../docs/research/whatsnext.md) and [The freeze](../../docs/research/freeze.md) are their pages.

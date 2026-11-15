@@ -3,6 +3,7 @@
 `/research:freeze` ends a session so that a cold one, on another machine, can continue it without asking: what the conversation found and no record holds is saved, the records are checked, and the work is committed.
 It is the [`freeze`](../../plugins/research/skills/freeze/SKILL.md) skill, which runs the [flow](flow.md)'s commands and has no script of its own; with another agent, ask it to freeze the session.
 A freeze is a request of its own: when you say "freeze", "save the session" or "park the session" you mean the skill, called every time, even if it ran earlier in the session, with every step taken, so "… and freeze" at the end of another request is two requests, the work and then the skill.
+It loads the `flow` skill first where that is not loaded, since no record is minted without it.
 This page is what it does, the check under it, and its words.
 
 ## What it does
@@ -10,13 +11,15 @@ This page is what it does, the check under it, and its words.
 Its one rule is to save what is important for the work; its test is the clone: could a session reading only the inbox, the ranked list and the log's top State paragraph go on without asking?
 
 1. The records say what the session knows: the log's top State paragraph is current, and its next action names the next session's first move.
+   A decision that waits on you is named there by the task that holds it, never carried as prose alone.
    The State paragraph says where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
-2. What only the conversation holds is flushed, turn by turn, your messages and the replies both: an idea in your words, a ruling where the rules live, a reading into the record it is about, a correction as a dated line, an open question as a question or an idea; then everything the session created is closed or left with a note, and each card the session's hand holds is named in the log entry with what the session did on it, one left untouched being returned or passed with a note.
+2. What only the conversation holds is flushed, turn by turn, your messages and the replies both: an idea in your words, a ruling where the rules live, a reading into the record it is about, a correction as a dated line, an open question as a question or an idea, a decision still open that waits on you as a task in your deck whose title names it, the card that waits blocked on it; then everything the session created is closed or left with a note, and each card the session's hand holds is named in the log entry with what the session did on it, one left untouched being returned or passed with a note.
    A freeze ranks nothing; a directive for the next session goes to the inbox, one directive, never a summary.
 3. The surfaces a reader sees are swept for what the session made stale, by meaning, not only in the files it touched; a stale claim the session may not correct, in a document only you change, goes to an idea or a task with the place and the proposed edit, and is named in the log entry.
 4. `flow state --check`, `flow check` and the project's gates run, read by their exit codes.
 5. A commit with named paths, and the push as the backup; steps 2 to 5 run on a clean tree too.
-   Where the tree holds unstaged changes outside those paths, another session's in a shared tree, the commit is made from a `git worktree` of its own and taken in with `git merge --ff-only` ([Install](../install.md#several-sessions-in-one-tree)), since the hook runner stashes them while the hooks run, or the turn says it is about to.
+   The session commits here, or when you ask before it, and no transition or ranking commits by itself.
+   Where the tree holds unstaged changes outside those paths, another session's in a shared tree, the commit is made from a `git worktree` of its own, since the hook runner stashes them while the hooks run, or the turn says it is about to; the flow wrote the session's edits into the tree, uncommitted, so the worktree's commit is not taken in with `git merge --ff-only`, which git refuses over them: the changed paths are copied into the worktree, what a transition archived deleted there, the commit is made there, and the tree's branch is moved to it with `git update-ref`, then `git reset -q -- PATHS`, with an empty `git status --short -- PATHS` as the check ([Install](../install.md#several-sessions-in-one-tree) has the commands).
 6. The report answers the checklist `flow state --check` prints: the inventory item by item with where each went, the sweep, the agent's memory checked, the gates by exit code; then the tree and the inbox directive or "none".
 
 ## The check under it

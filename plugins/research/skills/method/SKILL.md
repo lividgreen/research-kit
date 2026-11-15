@@ -51,6 +51,7 @@ These are one project's rules, earned over a research programme that pairs writt
 
 ## Evidence
 
+- Where the work needs something found out that the records do not hold, a question is minted first, before the act that finds it out (a probe of the machine, a read, a search), and then goes the usual way, drawn and answered by a finding with its evidence; the question "what are the parameters of this computer?" comes before the probe of the machine, and the figures are the finding's, never prose in another record's body.
 - A probe is owed by a claim's shape, not by a clock: a committed self-asserting check is owed where a claim is load-bearing (a statement, a row, a decision or a design resolution rests on it), is established only numerically and is not re-derivable in a line, and always for a sentence characterizing what remains open; none is owed to re-confirm a machine-checked statement, for a sanity check no record cites, or for arithmetic a reader redoes in their head.
 - A counting or closed-form claim gets its planted-defect probe in the same round it is made.
 - A check asserts both that it bites where it should (a planted defect fails it) and that it passes where it should; an instrument that cannot fail tests nothing.
@@ -92,9 +93,10 @@ These invariants keep that honest.
 
 ## Working with the owner
 
-- A question goes to the owner through the agent's question tool where it has one, with its options and one recommendation first, never as a prose list; an item the owner owns, and a call the agent is still unsure of after the test below, is asked before the agent decides alone.
+- A question goes to the owner through the agent's question tool where it has one, with its options and one recommendation first, never as a prose list; an item the owner owns, and a call the agent is still unsure of after the test below, is asked before the agent decides alone, in the turn the agent meets the decision.
+- A decision still open at the turn's end becomes a task in the owner's deck whose title names the decision, and the card that waits on it is blocked on that task; the log's State paragraph names the task, and the decision is never left as prose alone in a record's body or the log.
 - The owner's items are what only they can do (a send, a registration) and what only they should decide; the rest is the agent's.
-- Before a question is put to the owner, or a piece of work handed to them as their decision (in the flow, a card passed to their deck), the agent asks whether a test settles it: what each option does for the goal, or whether the object meets the criterion as written.
+- Before a question is put to the owner, or a piece of work handed to them as their decision (in the flow, a task in their deck), the agent asks whether a test settles it: what each option does for the goal, or whether the object meets the criterion as written.
   Where there is such a test the agent runs it, decides, and records the decision with the test; what is correct is never the owner's choice.
   A check that stops at a term the criterion leaves open makes a question of that term.
   What goes to the owner is the goal and the directions, an outward act, and options a test leaves apart that lead to different programmes, each put with what it leads to.

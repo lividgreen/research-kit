@@ -250,7 +250,28 @@ Claude Code 2.1.318 behaves so.
 
 ### Several sessions in one tree
 
-pre-commit and prek stash the unstaged changes while the hooks run and restore them after, so where several agent sessions work in one tree, one session's commit briefly reverts the files another is editing or reading; there, each session commits from a `git worktree` of its own and the main tree takes the commit with `git merge --ff-only`.
+pre-commit and prek stash the unstaged changes while the hooks run and restore them after, so where several agent sessions work in one tree, one session's commit briefly reverts the files another is editing or reading; there, each session commits from a `git worktree` of its own.
+The flow writes a session's edits into the tree it runs in, uncommitted, so the worktree's commit cannot be taken in with `git merge --ff-only`, which git refuses over those edits; the edits are copied into the worktree, committed there, and the tree's branch is moved to the commit.
+`OLD` is the commit the tree stands at, `PATHS` the paths the session changed, what a transition archived among them, both the old path and the new:
+
+```sh
+OLD=$(git rev-parse HEAD)
+git worktree add -q --detach ../freeze-wt "$OLD"
+cp -p PATH ../freeze-wt/PATH      # each changed path; mkdir -p its folder first where it is new
+rm -f ../freeze-wt/PATH           # each deleted or moved path
+git -C ../freeze-wt add -A -- PATHS
+git -C ../freeze-wt commit -m "…"
+NEW=$(git -C ../freeze-wt rev-parse HEAD)
+git update-ref refs/heads/BRANCH "$NEW" "$OLD"
+git reset -q -- PATHS
+git status --short -- PATHS       # prints nothing
+git worktree remove ../freeze-wt
+```
+
+The worktree is detached because the tree holds the branch.
+The hooks run in the worktree, on the session's paths alone.
+`git update-ref` is refused where another commit moved the branch since `OLD`, and then nothing has changed in the tree.
+The reset brings the index to the new commit, the files already holding its content, and the empty `git status --short -- PATHS` is the check; another session's changes still show as they did.
 A session opened in a subdirectory of the repository, in its own directory with its own `.claude` settings, is gated by the same hooks at its commits, while the plugins the root's settings enable are disabled for it, since Claude Code reads a project's settings from the directory the session opened in; `claude plugin list` there shows them so.
 Such a session runs the checks as the hooks do, from the root: `prek run flow-check --all-files` and `prek run library-check --all-files` (or `pre-commit run …`), and reads a failure by its code on [The flow](research/flow.md) or [The library](research/library.md) page; a transition is run by the session that holds the plugins, which draws and makes the task for the one that did the work.
 

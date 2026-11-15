@@ -1,6 +1,6 @@
 ---
 name: flow
-description: The typed flow of research work — ideas, tasks, questions, findings whose evidence a machine resolves, the goals the owner forms and the directions they set, one Markdown record each, linked by references and four links with a rule, moved through the `flow` CLI, with a validator, a generated index with a ranked next list, and a cold-start bundle. Use when reading a project's records to pick up work, when minting an idea, a question, a task, a finding, a goal or a direction, drawing or closing a task, answering, closing or reopening a question, removing a finding found false, adding evidence, reaching or giving up a goal, dropping a direction, parking or blocking a record, linking records, ranking the next list, or restructuring the records. The project's own instructions bind the directory, the prefixes and the gates through `flow.toml`; this skill names none of them.
+description: The typed flow of research work — ideas, tasks, questions, findings whose evidence a machine resolves, the goals the owner forms and the directions they set, one Markdown record each, linked by references and four links with a rule, moved through the `flow` CLI, with a validator, a generated index with a ranked next list, and a cold-start bundle. Use when reading a project's records to pick up work, when the person says an idea, a question or a task of their own in a session, when minting an idea, a question, a task, a finding, a goal or a direction, drawing or closing a task, answering, closing or reopening a question, removing a finding found false, adding evidence, reaching or giving up a goal, dropping a direction, parking or blocking a record, linking records, ranking the next list, or restructuring the records. The project's own instructions bind the directory, the prefixes and the gates through `flow.toml`; this skill names none of them.
 license: Apache-2.0
 compatibility: Python 3.11 or later, standard library only. Optional - markdownlint on PATH (a write that adds a violation is reverted), git (the log's part of the freeze check), a project reflow module (one sentence per line; built in otherwise); a resolver for the findings' formal evidence (the formal plugin's, where a formal.toml stands), a probes register and a reference library, without which formal, probe and peer-reviewed evidence is reported unchecked.
 metadata:
@@ -52,6 +52,8 @@ Its target is a record of any kind in any state, a closed or a removed one inclu
 It is written at any mint with `--ref ID`, repeatable, and changed afterwards with `flow ref ID +X -Y`; an entry is an id that exists, never the record's own and never one it holds already, and nothing else is refused, warned of or failed because one exists.
 Where the entry is an idea, the script writes the card into the idea's `consumed_by` in the same command, whatever the idea's state, and `flow ref ID -X` takes it out again: `consumed_by` is exactly the records that name the idea in `references`, and the command reports the idea as changed beside the record.
 A task connected to a question names it; a follow-up task that is not, does not, and nothing is inherited from the task it follows.
+A reference says nothing of order.
+Cards may be minted ahead; where they have an obvious order, the later one is blocked on the earlier, `flow block LATER --on EARLIER --reason "…"`, and cards that can be worked in parallel carry no block.
 
 ## Cards, decks and hands
 
@@ -89,13 +91,28 @@ A question may be answered with no task at all.
 A task it spawns may be a side story, off the list (`flow rank T --clear`); it blocks the question (`flow block Q --on T`) only where the question cannot move without it.
 A design round on a question is the held question itself: its record is a dated note on the question (`flow note Q --body FILE`), its discarded options one line each inside it, and no design task is minted for the round; the round mints tasks where a piece of the work is too big.
 A round on no question, on tooling or a process, is a task tagged `design`, its record the resolution.
-Where the agent needs the person's answer it asks.
-Before it asks, or passes a card for the person's decision, it applies the `method` skill's test under "Working with the owner": a choice a test settles is the agent's, run, decided and recorded, and what is correct is never put to the person as a choice.
-If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry; if the person postpones, the waiting card is passed to the person's deck (`flow pass ID --to owner --note "…"`, the note naming the decision and why no test of the agent's settles it), or into the person's hand at their word, and leaves the agent's hand at that moment; a decision is no card and no kind.
+Where the agent needs the person's answer it asks, with its question tool where it has one, in the turn it meets the decision.
+Before it asks, or puts a decision to the person's deck, it applies the `method` skill's test under "Working with the owner": a choice a test settles is the agent's, run, decided and recorded, and what is correct is never put to the person as a choice.
+If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry.
+A decision still open at the turn's end, the person having postponed it or the turn having ended first, becomes a task in the person's deck whose title names the decision, `flow task "…" --summary "…" --for OWNER`, and the card that waits is blocked on it, `flow block ID --on TASK --reason "…"`, which returns it to its deck if it was held.
+The log's State paragraph names that task and never carries the decision as prose alone; the task is drawn into the person's hand at their word, and made with the answer as its resolution.
+A card whose remaining steps are the person's own work is passed to their deck (`flow pass ID --to owner --note "…"`, the note saying why), and leaves the agent's hand at that moment.
 Parking stays for a card set down by decision, and for nothing waited on: a date and an outside event's words are items of a block.
 Deviations are the person's to rule and the agent's to propose: drawing a card in the middle of a session, taking another after one that took little effort, or drawing a task straight from the deck for a prover that runs in parallel while the session works on something else.
 A card drawn by a deviation counts against the hand's limit, one number and no second class of held card; a deviation that finds the hand full is the person's to settle with the ruling, a card returned or the limit raised.
 A project's instructions may carry the person's standing ruling for one.
+A session commits at its freeze, or when the person asks; a transition or a ranking commits nothing by itself.
+
+## What the person says
+
+This part is guidance and no rule of the flow: the agent judges which card a thought of the person's is, and the script reads none of it.
+
+The person's own word for a thing names the card's kind: an idea is minted with `flow idea`, a question with `flow question`, a task with `flow task`, and a goal or a direction is opened on their word alone, as ever.
+A fresh project starts from the idea of the project, which may grow into a goal and other cards: where the person names no other kind, the agent starts from an idea, and the next `whatsnext` processes it.
+Elsewhere, where they name no kind and the agent is not sure, it proposes the kind in one question and mints on the answer.
+The agent writes the body from the dialog, keeping the person's words and adding context where it is needed, and the title and the summary as "Writing a title and a summary" says; the source says the record came from the person, and the day, `--source "the person, 2026-03-02"`.
+The card is minted into a deck, and is drawn, `flow draw ID --owner agent`, only where the person's message asks for work on it now, as any card is.
+An idea is then worked as "The mints" says: what it produces names it with `--ref`, and `flow consume IDEA` closes it once it is folded.
 
 ## The mints
 
@@ -237,7 +254,7 @@ It refuses nothing, fails nothing and asks for no reference to be removed: what 
 | note | a file's text appended to a record's body under today's date, through the record's write; no field changes | `flow note task-0001 --body FILE` |
 
 A question or a task may be parked and blocked at once: parked is by decision, a thing not worked on on purpose; blocked is by an obstacle, a thing waited on.
-A card whose remaining steps wait on the person's decision is passed to the person's deck (the session, above), never parked for it.
+A card that waits on the person's decision is blocked on the task that holds the decision, and one whose remaining steps are the person's own work is passed to their deck (the session, above), never parked for either.
 Parking or blocking a question, propose what becomes of the tasks that reference it: those of a parked question are usually parked with it, while a blocked question may have tasks that go on.
 
 Blocked is calculated, never marked: a record is blocked while an item of its `blocked_by.on` holds, and is not once none does, and a blocker reopened blocks again.
@@ -284,7 +301,8 @@ The log is dated entries, newest first, each a level-2 heading `## YYYY-MM-DD �
 Then the generated index, which lists the ranked list with each question's `serves`, each record's waits and, on a held card, its holder, each owner's hand and deck, the open goals and directions with the questions serving each, the open tasks in no hand (each with its deck where it is an owner's), the open, parked and blocked questions, the questions whose tasks are all closed, and the settled ones.
 Locate records with `flow find` or `flow show ID`; open record files only by ID.
 Never glob the record directories, and never read a record directory whole.
-A session's start is the `whatsnext` skill: it reviews the agent's hand, reads the inbox, proposes what to make of each item, ranks under the focus the person gives, and refills the hand by rank.
+A session starts with `flow state` and then does what the person's message asks; where the message leaves open what to do, the agent recommends the next moves, the `whatsnext` skill among them.
+The `whatsnext` skill reviews the agent's hand, reads the inbox, proposes what to make of each item, ranks under the focus the person gives, and refills the hand by rank; it runs when the person asks what is next, when the agent recommends it and the person agrees, or when the ranked list is empty.
 
 ## Writing discipline
 

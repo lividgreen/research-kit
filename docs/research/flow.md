@@ -22,13 +22,27 @@ A question may be answered with no task at all.
 A task it spawns may be a side story, off the list (`flow rank T --clear`); it blocks the question (`flow block Q --on T`) only where the question cannot move without it.
 A design round on a question is the held question itself: its record is a dated note on the question (`flow note Q --body FILE`), its discarded options one line each inside it, and no design task is minted for the round; the round mints tasks where a piece of the work is too big.
 A round on no question, on tooling or a process, is a task tagged `design`, its record the resolution.
-Where the agent needs the person's answer it asks.
-Before it asks, or passes a card for the person's decision, it applies the `method` skill's test, whether a test settles the choice: one that does is the agent's to run, decide and record, and what is correct is never put to the person as a choice.
-If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry; if the person postpones, the waiting card is passed to the person's deck (`flow pass ID --to owner --note "…"`, the note naming the decision and why no test of the agent's settles it), or into the person's hand at their word, and leaves the agent's hand at that moment; a decision is no card and no kind.
+Where the agent needs the person's answer it asks, with its question tool where it has one, in the turn it meets the decision.
+Before it asks, or puts a decision to the person's deck, it applies the `method` skill's test, whether a test settles the choice: one that does is the agent's to run, decide and record, and what is correct is never put to the person as a choice.
+If the person answers, the work goes on, the answer written into the card's body (`flow note`) and the log entry.
+A decision still open at the turn's end becomes a task in the person's deck whose title names the decision, `flow task "…" --summary "…" --for OWNER`, and the card that waits is blocked on it (`flow block ID --on TASK --reason "…"`); the log's State paragraph names that task and never carries the decision as prose alone, and the task is drawn into the person's hand at their word.
+A card whose remaining steps are the person's own work is passed to their deck (`flow pass ID --to owner --note "…"`) and leaves the agent's hand at that moment.
 Parking stays for a card set down by decision, and for nothing waited on: a date and an outside event's words are items of a block.
 Deviations are the person's to rule and the agent's to propose: drawing a card in the middle of a session, taking another after one that took little effort, or drawing a task straight from the deck for a prover that runs in parallel while the session works on something else.
 A card drawn by a deviation counts against the hand's limit, one number and no second class of held card; a deviation that finds the hand full is the person's to settle with the ruling, a card returned or the limit raised.
 A project's instructions may carry the person's standing ruling for one.
+A session commits at its freeze, or when the person asks; a transition or a ranking commits nothing by itself.
+
+### What the person says
+
+This is guidance and no rule of the flow: the agent judges which card a thought of the person's is, and the script reads none of it.
+The person's own word for a thing names the card's kind: an idea is minted with `flow idea`, a question with `flow question`, a task with `flow task`, and a goal or a direction is opened on their word alone.
+A fresh project starts from the idea of the project, which may grow into a goal and other cards: where the person names no other kind, the agent starts from an idea, and the next `whatsnext` processes it.
+Elsewhere, where they name no kind and the agent is not sure, it proposes the kind in one question and mints on the answer.
+The agent writes the body from the dialog, keeping the person's words and adding context where it is needed, and the title, which says what the card is, and the summary, which explains it, as at any mint (below); the source says the record came from the person, and the day.
+The card is minted into a deck, and drawn only where the person's message asks for work on it now.
+An idea is then worked, what it produces naming it with `--ref`, and `flow consume` closes it once it is folded.
+A reference says nothing of order: cards may be minted ahead, and where they have an obvious order the later one is blocked on the earlier (`flow block LATER --on EARLIER --reason "…"`), while cards that can be worked in parallel carry no block.
 
 ## The commands
 
@@ -344,10 +358,10 @@ The built-in reflow leaves a sentence unsplit after the common scholarly abbrevi
 - **lines** — the `{"label", "text"}` pairs a record's `--json` carries for what its card says beside its summary (`waits`, `parked`, `due`, `for`, `serves`, `answered by`, `answers`, `evidence`, `fresh` or `produced`, `served by`), each only where it holds something, in finished words, a record named by its title.
 - **zone** — one place of the table `flow table` lays out: an owner's hand, an owner's deck, the common deck, the discard pile or the graveyard, each with its count, its note, its room where a hand has a limit, the `flow find` flags that list the whole of it and the cards on top of it.
 - **pile** — where a closed card is, read from its state: the discard pile holds a task done, an idea consumed, a question answered or impossible; the graveyard any card removed, a task aborted and a question wrong; `flow find --pile` lists one.
-- **session** — the work between a `/research:whatsnext` and a `/research:freeze`, dedicated to the agent's hand: it works the held cards one by one until each is closed or walled, then freezes, reports and stops; every card minted on the way goes to a deck and not to the hand, a question may be answered with no task, and a design round on a question is the held question itself, its record a dated note on it, a round on no question being a task tagged `design`.
+- **session** — the work between a first `flow state` and a `/research:freeze`, dedicated to the agent's hand: it works the held cards one by one until each is closed or walled, then freezes, reports and stops; every card minted on the way goes to a deck and not to the hand, a question may be answered with no task, and a design round on a question is the held question itself, its record a dated note on it, a round on no question being a task tagged `design`.
 - **hand, hand limit** — what an owner holds, the cards drawn into it of the three kinds, and how many at once `flow.toml`'s `[hand]` allows; the agent's spans its sessions, and the person's is the other; a task handed to a prover's session stays held in the agent's hand, and the handoff's log entry says it is with the prover.
 - **owner** — a name in `[hand]`: `agent` and `owner`, the person, by default, and the deck a card is in; the skills write those two, and the names a project's `[hand]` sets are what the commands take.
-- **the ranked list, the next list** — the records with a rank, a number alone, in `INDEX.md`: the schedule of the work, the agent's hand filled from its top, refreshed by `/research:whatsnext` when the person asks or it is empty, why each stands where it does said in the log's entry.
+- **the ranked list, the next list** — the records with a rank, a number alone, in `INDEX.md`: the schedule of the work, the agent's hand filled from its top, refreshed by `/research:whatsnext` when the person asks, when the agent recommends it and the person agrees, or when it is empty, why each stands where it does said in the log's entry.
 - **due date, after** — a task's date, which never moves a rank: the index lists the open tasks that have one under `Due`, `flow state` names one that has passed and `flow check` warns on it; and the words that follow a task's completion, printed by `make` and `abort` for the agent to follow.
 - **tag** — a free word on a record, no vocabulary validated; `flow tags` reports every one in use with its records and the untagged.
 - **artifact** — a repository path a record refers to, a paper, a dataset, a probe, a figure, by an evidence item or a Markdown link in its body; `flow artifacts` lists them with the records naming each, and the check fails a live record whose path is gone; no record, no register, a stale artifact being a task.

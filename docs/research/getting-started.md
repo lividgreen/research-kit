@@ -117,7 +117,9 @@ The entry for the result is written by the agent, or by you, in the same commit 
 
 ### A session's start and end
 
-With an agent, a session starts with `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`): it reviews what the agent's hand holds, reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and refills the agent's hand from the top of the list; [What is next](whatsnext.md) says the rest.
+With an agent, a session starts with `flow state`, and then does what your message asks; where the message leaves open what to do, the agent recommends the next moves, `/research:whatsnext` among them.
+A fresh project starts from an idea: say the idea of the project in your own words, and the agent mints it as an idea card, its body from what you said, for the first `whatsnext` to process; a thought you call an idea, a question or a task is minted as that card, and one you do not name is minted as the agent judges, asking you the kind where it is unsure.
+`/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`), reviews what the agent's hand holds, reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and refills the agent's hand from the top of the list; [What is next](whatsnext.md) says the rest.
 It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry, written out or within a range such as `finding-0015…0035`, a record whose only change is its rank not asked to be named), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
 
 ## A card

@@ -43,7 +43,7 @@ A project that already keeps decision records, a roadmap, a log and an agent's m
 | the order of the work | the ranked list in the index, with a reason for each rank | a roadmap's order, the memory |
 | what the project produces, and in what order it is read or shipped | the registry the instructions name, and nowhere else | the records |
 | the state of the project | the log's top `**State.**` paragraph | the agent's memory, a roadmap, a notes file |
-| a decision to take | the reason a task waiting on it is parked with; the person's answer unparks it | a record of its own, a tag |
+| a decision to take | a task in the person's deck whose title names it, the card that waits blocked on it; the person's answer is the task's resolution | a decision record, a tag, prose in another record's body |
 | a decision taken, with its reasons | the project's decision records where it keeps them, else the log entry that records it | a direction |
 | what interests the owner | a direction record, opened on the owner's word, its words its body | a decision record, the memory |
 | where the research is going | a goal record the owner forms, its body saying what reached means and how far out it lies; the questions serving it name it in `serves` | a direction, a roadmap |
