@@ -27,7 +27,7 @@ The [plugin's page](../plugins/research/README.md) says what each of its twelve 
 - [The attribution check](research/attribution.md) — `/research:attribution`: a claim about a named external result held to its primary source, each verdict an extract on the card
 - [The library](research/library.md) — the cards' tool: the commands, the store and the kept directory, `library.toml`, every code `library check` reports, its words
 - [Library cards](research/library-cards.md) — the specification of a card: the file and the key, the form, every field, the states and the grades, an extract, a copy
-- [The dashboard](research/dashboard.md) — the read-only page over the records and the cards: the flags, what it mounts, the component protocol
+- [The dashboard](research/dashboard.md) — the read-only page that opens on the table and lays the records as cards: the flags, what it mounts, the component protocol
 - [The working rules](research/working-rules.md) — `method`, `design` and `debug`, and the method's words
 
 ## The `formal` plugin

@@ -10,7 +10,9 @@ metadata:
 
 # The dashboard
 
-`python3 scripts/dashboard.py`, run by its path from the project root (`${CLAUDE_PLUGIN_ROOT}/skills/dashboard/scripts/dashboard.py` under Claude Code), serves one site on localhost, port 8765 by default, with one section per mounted component: the flow's records with the ranked list, each record with its links and back-references, the directions file and the validator's verdict; the library's cards with a ranked search, each card with our notes, extracts and citing sites, the candidates and watches and the check.
+`python3 scripts/dashboard.py`, run by its path from the project root (`${CLAUDE_PLUGIN_ROOT}/skills/dashboard/scripts/dashboard.py` under Claude Code), serves one site on localhost, port 8765 by default, with one section per mounted component.
+The flow's records are a card table: `/` opens on the table, each owner's hand, each owner's deck behind a stack of card backs, the common deck and the two piles, every card a face with its title, its summary, its value and effort, its standing and its place; the lists lay the same faces, a record is its card at the left with its panel beside it, and the directions, the artifacts, the tags, the index and the validator's verdict are pages of their own.
+The library's works are cards too, with a ranked search, each work with our notes, extracts and citing sites, and the candidates, the watches and the check as tables.
 It is a renderer and nothing else.
 Every page is the answer of the component's command with `--json`, so the command line and the dashboard cannot disagree; no work is shown and no path into the library's store is served.
 It re-asks on every request, so a transition run in another terminal shows on the next reload.
@@ -23,6 +25,6 @@ So a skill adds its pages to the one dashboard by being installed beside it — 
 
 ## Writing a component
 
-A component is any command that answers `<command> --json pages` with a page manifest and every other page as `<command> --json <subcommand> …`; `references/protocol.md` is the manifest's shape — the mount, the navigation entries, the link patterns that turn an id in any text into a link across components, and the routes with their views: `markdown`, `lines`, `list`, `record`, `tables`, `check`.
+A component is any command that answers `<command> --json pages` with a page manifest and every other page as `<command> --json <subcommand> …`; `references/protocol.md` is the manifest's shape — the mount, the navigation entries, the link patterns that turn an id in any text into a link across components, and the home page, the `card` key that lays a record on a card's face, and the routes with their views: `markdown`, `lines`, `list`, `table`, `record`, `tables`, `check`.
 A component ships a `component.toml` beside its `SKILL.md` naming its command relative to the skill directory and the project's bindings file.
-`scripts/dashboard.py --selftest` mounts a stub component and renders every view.
+`scripts/dashboard.py --selftest` mounts stub components, one with a `card` and one with none, and renders every view.
