@@ -429,9 +429,10 @@ class Site:
         hide = set(rt.get("hide") or [])
         hrefs = rt.get("hrefs") or {}
         heading = rec.get(rt["heading"]) if rt.get("heading") else None
+        named = rec.get("title") if not rt.get("heading") else None  # a record's `title` heads its page where the route names no heading field
         rows = []
         for k, v in rec.items():
-            if k in hide or k == "summary":
+            if k in hide or (k == "title" and named):
                 continue
             if isinstance(v, dict):
                 v = {sk: sv for sk, sv in v.items() if f"{k}.{sk}" not in hide}
@@ -445,7 +446,7 @@ class Site:
                 continue
             kind = sec.get("as", "lines")
             if kind == "refs" and isinstance(data, dict):
-                items = "".join(f"<li>{R.inline(x.get('id'))} <span class='small'>{R.inline(x.get('summary') or '')}</span>"
+                items = "".join(f"<li>{R.inline(x.get('id'))} <span class='small'>{R.inline(x.get('title') or '')}</span>"
                                 f" <span class='mut small'>via {esc(f.replace('_', ' '))}</span></li>"
                                 for f, xs in data.items() for x in xs)
             elif kind == "sites":
@@ -456,8 +457,8 @@ class Site:
             secs.append(f'<section class="card"><h2>{esc(sec.get("title") or sec["field"])}</h2><ul class="recs">{items}</ul></section>')
         body_md = dig(ans, rt["body"]) if rt.get("body") else None
         state = rec.get("state") or rec.get("status") or rec.get("forms")
-        if rec.get("summary"):
-            head = f"<h1>{esc(title)} {badge(state)}<br>{R.inline(rec['summary'])}</h1>"
+        if named:
+            head = f"<h1>{esc(title)} {badge(state)}<br>{R.inline(named)}</h1>"
         else:
             head = f"<h1>{R.inline(heading) if heading else esc(title)}</h1>"
         body = (f'<p class="mut small">{esc(comp.manifest.get("title") or comp.name)} / <code>{esc(title)}</code></p>{head}'
@@ -636,7 +637,7 @@ if cmd == "pages":
         "routes": [
             {"path": "/stub", "view": "markdown", "run": ["index"], "field": "text", "title": "Stub"},
             {"path": "/stub/list", "view": "list", "run": ["find"], "params": ["state"], "flags": ["ranked"], "words": "q",
-             "columns": ["id", "state", "summary"], "link": {"column": "id", "path": "/stub/r/{id}"}, "title": "Items"},
+             "columns": ["id", "state", "title"], "link": {"column": "id", "path": "/stub/r/{id}"}, "title": "Items"},
             {"path": "/stub/r/{id}", "view": "record", "run": ["show", "{id}"], "title": "{id}", "fields": "records.0", "body": "body",
              "hide": ["id", "secret.path"], "hrefs": {"doi": "https://doi.org/{}", "url": "{}"},
              "sections": [{"field": "backlinks", "title": "Back", "as": "refs"}, {"field": "sites", "title": "Sites", "as": "sites"}]},
@@ -646,7 +647,7 @@ if cmd == "pages":
 elif cmd == "index":
     out = {"ok": True, "text": "# Index\n\nSee item-001 and lib:jen1990#lemma here.\n"}
 elif cmd == "find":
-    recs = [{"id": "item-001", "state": "open", "summary": "the first, citing lib:jen1990"}, {"id": "item-002", "state": "done", "summary": "second"}]
+    recs = [{"id": "item-001", "state": "open", "title": "the first, citing lib:jen1990"}, {"id": "item-002", "state": "done", "title": "second"}]
     if "--state" in args:
         recs = [r for r in recs if r["state"] == args[args.index("--state") + 1]]
     if "--ranked" in args:
@@ -658,8 +659,8 @@ elif cmd == "show":
     if args[1] != "item-001":
         out = {"ok": False, "problems": [{"msg": args[1] + " does not exist"}]}
     else:
-        out = {"ok": True, "records": [{"id": "item-001", "state": "open", "summary": "the first", "doi": "10.1/x", "url": " JavaScript:alert(1)", "secret": {"path": "hidden", "n": 3}, "tags": ["t1"]}],
-               "body": "A body naming item-002, [a script](java\tscript:alert(2)) and [a page](https://example.org/).\n", "backlinks": {"references": [{"id": "item-002", "summary": "second"}]},
+        out = {"ok": True, "records": [{"id": "item-001", "state": "open", "title": "the first", "summary": "an explanation of the first, a paragraph", "doi": "10.1/x", "url": " JavaScript:alert(1)", "secret": {"path": "hidden", "n": 3}, "tags": ["t1"]}],
+               "body": "A body naming item-002, [a script](java\tscript:alert(2)) and [a page](https://example.org/).\n", "backlinks": {"references": [{"id": "item-002", "title": "second"}]},
                "sites": [{"path": "a.md", "line": 3, "text": "cites item-001"}]}
 elif cmd == "state":
     out = {"ok": True, "lines": ["a.md:1: one", "a.md:2: item-002 here"]}
@@ -749,6 +750,8 @@ def selftest():
         expect("record view: fields with a hidden nested path, an href, the body linked, sections rendered",
                code == 200 and "hidden" not in h and "<b>n</b>: 3" in h and 'href="https://doi.org/10.1/x"' in h
                and 'href="/stub/r/item-002"' in h and "Back" in h and "a.md" in h and "the first" in h)
+        expect("record view: the title heads the page, the summary is one more field of it, and a heading field the route names is kept over the title",
+               "<br>the first</h1>" in h and "<th>summary</th><td>an explanation of the first, a paragraph</td>" in h and "<th>title</th>" not in h)
         expect("record view: a javascript: address in a field or a body is text, never a link",
                "alert(1)" in h and not re.search(r'href="[^"]*script', h, re.I)
                and ('href="https://example.org/"' in h if _markdown else True))

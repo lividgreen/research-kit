@@ -9,10 +9,10 @@ In a project with an agent, `/research:research-init` does the setup of the firs
 ```sh
 flow init --log WORKLOG.md     # flow.toml, records/{ideas,tasks,questions,findings,goals,directions,archive} with records/INDEX.md, INBOX.md, a first log entry
 library init --kept --scan records --scan WORKLOG.md --documents "papers/*.md"
-flow idea "A might imply B" --source "a talk"
-printf 'A finite counterexample answers it, or a proof.\n' | flow question "Does A imply B?" --ref idea-0001 --body -
-flow task "prove the lemma" --ref question-0001 --tag research
-flow task "design the route" --ref question-0001 --tag research
+flow idea "A might imply B" --source "a talk" --summary "A hunch from a talk that every A has the property B, which nobody has tried on a small case."
+printf 'A finite counterexample answers it, or a proof.\n' | flow question "Does A imply B?" --ref idea-0001 --body - --summary "Whether every A has the property B, asked to decide if the hunch from the talk is worth a proof."
+flow task "prove the lemma" --ref question-0001 --tag research --summary "Prove the lemma that carries the step from A to B, so that the question can be answered by a proof."
+flow task "design the route" --ref question-0001 --tag research --summary "Choose between a direct proof of the lemma and a search for a counterexample, before either is started."
 flow check
 flow state
 ```
@@ -20,7 +20,8 @@ flow state
 `flow init` writes two hands: `agent`, the agent's across its sessions, with a limit of four (the cards it holds now: ideas, questions and tasks alike), and `owner`, the person's, with no limit (0 is unlimited); `--owner` names others.
 Ideas, questions and tasks are cards, kept in decks and hands: a new card lands in the common deck, or in an owner's deck where it is minted `--for` that owner, and a hand holds what its owner is working on now.
 A task has no kind: a tag says what it is, `research` for work that came from the research and `upkeep` for the project's own, any word of yours beside them, and `flow tags` reports them; a task may reference a question, an idea or another task, named in its `references`, or stand alone.
-A question's body says what counts as an answer, as the one above does, and a task's body what done means; the summary is the one line that states each.
+A question's body says what counts as an answer, as the one above does, and a task's body what done means.
+Every record carries a `title`, the one line that says what it is, which the positional of a mint gives, and a `summary`, a brief explanation of it in a paragraph, which `--summary` gives: an idea, a question, a task and a finding are refused with none, a goal and a direction may have none, and [The flow](flow.md#flowtoml) names the limits of both.
 The question names the idea in its `references` and the idea lists the question in its `consumed_by`, both written by the one mint; `flow consume idea-0001` closes the idea once everything in it is folded into cards, and `flow remove idea-0001 --reason "…"` drops one that led to nothing.
 It also writes `INBOX.md`, where you leave items between sessions; `flow state` prints it first, before the due tasks, the ranked list, the hands and the log's top entry.
 It writes the five evidence forms a finding's items may take, `[evidence] forms` in `flow.toml`, which [The flow](flow.md) shows whole: `formal`, `statistical`, `peer-reviewed`, `stated` and `reference`; keep the ones the project accepts, add its own words, and say in the project's instructions what each means here.
@@ -42,7 +43,8 @@ The first task the block above minted is `records/tasks/task-0001-prove-the-lemm
 id: task-0001
 type: task
 state: open
-summary: prove the lemma
+title: prove the lemma
+summary: Prove the lemma that carries the step from A to B, so that the question can be answered by a proof.
 references:
 - question-0001
 size: null
@@ -91,7 +93,7 @@ printf 'The lemma holds, and probes/lemma.py asserts it.\n' > resolution.md
 flow draw task-0001 --owner agent
 flow make task-0001 --resolution resolution.md
 flow remove task-0002 --reason "the lemma settles the question, so no route is left to design"
-flow finding "A implies B" --evidence statistical:probes/lemma.py --ref task-0001 --answers question-0001
+flow finding "A implies B" --evidence statistical:probes/lemma.py --ref task-0001 --answers question-0001 --summary "A implies B, shown by the lemma and asserted by a probe that checks it, which settles the question."
 flow check
 flow state
 ```

@@ -79,14 +79,14 @@ def main():
         (proj / "scripts").mkdir()
         (proj / "scripts" / "decls.txt").write_text("module Lib.A 1\nLib.A thm\n", encoding="utf-8")
         check("with no formal.toml at the root a formal item is minted unchecked, and the coverage says why",
-              flow("finding", "unbound", "--evidence", "formal:Lib/A.lean#thm").returncode == 0
+              flow("finding", "unbound", "--evidence", "formal:Lib/A.lean#thm", "--summary", "s").returncode == 0
               and "resolver formal unchecked (no formal.toml at the root)" in flow("check").stdout)
         (proj / "formal.toml").write_text('[workspace]\ndir = "lean"\n[manifest]\nfiles = ["scripts/decls.txt"]\n[packages]\nLib = "."\n', encoding="utf-8")
-        r = flow("finding", "A holds", "--evidence", "formal:Lib/A.lean#thm", "formal:Lib/A.lean")
+        r = flow("finding", "A holds", "--evidence", "formal:Lib/A.lean#thm", "formal:Lib/A.lean", "--summary", "s")
         check("flow finding resolves a formal item of the manifest through the formal script, with no manifest key in flow.toml", r.returncode == 0, r.stdout + r.stderr)
-        r = flow("finding", "B holds", "--evidence", "formal:Lib/A.lean#nope")
+        r = flow("finding", "B holds", "--evidence", "formal:Lib/A.lean#nope", "--summary", "s")
         check("a name the manifest lacks is refused with the resolver's why", r.returncode == 1 and "`nope` is not in the manifest" in r.stderr, r.stdout + r.stderr)
-        r = flow("finding", "C holds", "--evidence", "formal:Lib/Z.lean#thm")
+        r = flow("finding", "C holds", "--evidence", "formal:Lib/Z.lean#thm", "--summary", "s")
         check("a path that is no file of the package is refused with the resolver's why", r.returncode == 1 and "Lib/Z.lean is not a file under lean/" in r.stderr, r.stdout + r.stderr)
         r = flow("check")
         check("flow check is green with the item resolved, and says the formal plugin beside the research plugin answered",
@@ -328,10 +328,11 @@ def main():
                 check(f"{page} shows {name} as init writes it", len(shown) == len(names) and shown[i] == written)
         lite = Path(tmp) / "lite"
         lite.mkdir()
-        for argv in (["init", "--log", "WORKLOG.md"], ["idea", "A might imply B", "--source", "a talk"],
-                     ["question", "Does A imply B?", "--ref", "idea-0001"],
-                     ["task", "prove the lemma", "--ref", "question-0001", "--tag", "research"],
-                     ["task", "design the route", "--ref", "question-0001", "--tag", "research"]):
+        TASK_SUMMARY = "Prove the lemma that carries the step from A to B, so that the question can be answered by a proof."
+        for argv in (["init", "--log", "WORKLOG.md"], ["idea", "A might imply B", "--source", "a talk", "--summary", "s"],
+                     ["question", "Does A imply B?", "--ref", "idea-0001", "--summary", "s"],
+                     ["task", "prove the lemma", "--ref", "question-0001", "--tag", "research", "--summary", TASK_SUMMARY],
+                     ["task", "design the route", "--ref", "question-0001", "--tag", "research", "--summary", "s"]):
             subprocess.run([sys.executable, str(SCRIPTS["flow"]), *argv], capture_output=True, text=True, cwd=lite, check=True)
         started = (ROOT / "docs/research/getting-started.md").read_text(encoding="utf-8")
         record = re.findall(r"```markdown\n(.*?)```", started, re.S)[0]

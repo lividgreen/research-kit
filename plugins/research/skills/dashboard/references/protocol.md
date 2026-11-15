@@ -29,11 +29,11 @@ A route is `{"path": …, "view": …, "run": […], "title": …}` plus the key
 | `markdown` | `field` (default `text`), a Markdown string | `field` |
 | `lines` | `field` (default `lines`), a list of lines, shown in a block with links | `field` |
 | `list` | `records`, a list of objects; `total`, `next`, `rankers` when present | `columns` (dotted paths into a record), `link` (`{"column": "id", "path": "/flow/r/{id}"}`, the path filled from the record's own scalar fields), `words` (the query parameter whose words become positional arguments), `params` (query parameters passed as `--name value`), `flags` (passed as `--name` when set), `note` |
-| `record` | `fields` (default `records.0`), `body` (a Markdown string), and each section's `field` | `fields`, `body`, `heading` (the field shown as the page heading), `hide` (fields never shown, `a.b` for a key inside a map), `hrefs` (`{"doi": "https://doi.org/{}"}`), `sections` (`{"field": …, "title": …, "as": "refs" \| "sites" \| "lines"}`) |
+| `record` | `fields` (default `records.0`), `body` (a Markdown string), and each section's `field` | `fields`, `body`, `heading` (the field shown as the page heading; where the route names none, the record's `title` heads the page and is not repeated among its fields), `hide` (fields never shown, `a.b` for a key inside a map), `hrefs` (`{"doi": "https://doi.org/{}"}`), `sections` (`{"field": …, "title": …, "as": "refs" \| "sites" \| "lines"}`) |
 | `tables` | one answer per table | `tables` (`{"title": …, "run": […], "field": …, "columns": […]}`), `note` |
 | `check` | `problems`, `warnings`, `coverage` | — |
 
-A `refs` section is `{field: [{"id": …, "summary": …}]}`; a `sites` section is `[{"path": …, "line": …, "text": …}]`.
+A `refs` section is `{field: [{"id": …, "title": …}]}`; a `sites` section is `[{"path": …, "line": …, "text": …}]`.
 A `state`, `status` or `grade` value is shown as a badge wherever it appears.
 A `list` answer carrying `next` (an offset) gets a next-page link that passes it as `--from`.
 
