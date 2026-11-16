@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.11.1 — 2026-11-16
 
 A patch release on how a session talks with the person: the setup asks with the agent's question tool instead of a list in prose, the agent names a record with its title, and an idea worked can produce a goal and a direction, put to the person first.
