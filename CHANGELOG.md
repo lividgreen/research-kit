@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.11.3 — 2026-11-17
 
 A patch release before the kit is shown publicly, on the details the first test projects showed: a transition's line names the record by its title, `flow reflow` stops failing on the index and on a draft's first line, the setup proposes a markdownlint configuration, `whatsnext` asks only what the agent's tool accepts, and the README and the entry pages are brought to the kit as it stands, with its pre-1.0 status stated.
