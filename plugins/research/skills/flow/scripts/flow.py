@@ -3287,8 +3287,8 @@ def hand_lines(cfg, recs, today):
 
 
 def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
-    """The inbox, the index's due list, ranked list and hands, the dates that have passed, and the log's top
-    entry, every line carrying its FILE:LINE, under a byte budget; returns (lines, next_from)."""
+    """The inbox, the index's due list, open goals and directions (their top-level lines), ranked list and hands,
+    the dates that have passed, and the log's top entry, every line carrying its FILE:LINE, under a byte budget; returns (lines, next_from)."""
     out = []
     if cfg.inbox.is_file():
         ls = cfg.inbox.read_text(encoding="utf-8").rstrip("\n").split("\n")
@@ -3298,7 +3298,7 @@ def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
     if cfg.index.is_file():
         ls = cfg.index.read_text(encoding="utf-8").split("\n")
         computed = recs is not None and bool(today)  # the hands and the decks read the day: ages, standings
-        for heading in ("Due", "Next (ranked)", "Hand"):
+        for heading in ("Due", "Goals", "Directions", "Next (ranked)", "Hand"):
             if heading == "Hand" and computed:
                 out += hand_lines(cfg, recs, today)
                 continue
@@ -3306,6 +3306,8 @@ def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
             if not sec:
                 continue
             rows = range(*sec)
+            if heading in ("Goals", "Directions"):  # the top-level lines only; the questions serving each are the ranked list's `serves`
+                rows = [i for i in rows if i == sec[0] or ls[i].startswith("- ") or not ls[i].strip()]
             later = []
             if heading == "Due" and cfg.due_within is not None and today:  # the window: passed dates and those within it
                 until = (dt.date.fromisoformat(today) + dt.timedelta(days=cfg.due_within)).isoformat()
@@ -5832,6 +5834,23 @@ def selftest():
                and any(f"due 2026-09-01 has passed: {wt}" in l for l in lines)
                and any(l.startswith("WORKLOG.md:") and "the top entry" in l for l in lines)
                and not any("older" in l for l in lines) and more is None)
+        with tempfile.TemporaryDirectory() as t3:  # a project of its own: the goals and directions are closed by now in this one
+            r3 = Path(t3)
+            do_init(r3, build_parser().parse_args(["init", "--log", "LOG.md"]))
+            c3 = Config(r3)
+            quiet = lambda argv: dispatched(c3, argv, today=today, as_json=True, quiet=True)
+            lines3 = state_lines(c3, recs=load_all(c3), today=today)[0]
+            expect("state prints no goal or direction line where there are none", not any("## Goals" in l or "## Directions" in l for l in lines3))
+            g3 = quiet(["goal", "Reach the far shore"])[1]["created"][0]
+            d3 = quiet(["direction", "Along the coast"])[1]["created"][0]
+            quiet(["question", "A question the goal needs", "--summary", "S.", "--serves", g3])
+            lines3 = state_lines(c3, recs=load_all(c3), today=today)[0]
+            at = lambda needle: next(i for i, l in enumerate(lines3) if needle in l)
+            expect("state prints each open goal and direction as its index line with FILE:LINE before the ranked list, and not the questions serving it",
+                   any(l.startswith("records/INDEX.md:") and f"`{g3}` — Reach the far shore" in l for l in lines3)
+                   and any(l.startswith("records/INDEX.md:") and f"`{d3}` — Along the coast" in l for l in lines3)
+                   and not any("A question the goal needs" in l for l in lines3)
+                   and at("## Goals") < at("## Next (ranked)") and at("## Directions") < at("## Next (ranked)"))
         far = dispatched(cfg, ["task", "a chore due in December", "--due", "2026-12-01"], today=today, as_json=True, quiet=True)[1]["created"][0]
         cfg.due_within = 7
         lines, _ = state_lines(cfg, recs=load_all(cfg), today=today)
