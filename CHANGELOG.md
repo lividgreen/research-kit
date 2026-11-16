@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.11.2 — 2026-11-17
 
 A patch release on three details of the first day: a goal is read from an idea while the idea is worked, the project's instructions state no card, and `formal` is always among the evidence forms offered.
