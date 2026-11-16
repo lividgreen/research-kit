@@ -27,6 +27,9 @@ Required, each for the reason it gives (the flow itself runs without a library, 
 - the hooks `flow-check` and `library-check`, through `prek` or `pre-commit`, since a check that runs only when remembered is not a gate.
 
 Recommended: `markdownlint` on PATH, so a record write that adds a violation is reverted.
+Its configuration is the project item `markdownlint config`: present, with the file's name, where the root holds one of the files the flow's own lint reads there (`.markdownlint.jsonc`, `.markdownlint.json`, `.markdownlint.yaml`, `.markdownlint.yml`, `.markdownlint-cli2.jsonc`, `.markdownlint-cli2.yaml`, `.markdownlint-cli2.cjs`, `.markdownlint-cli2.mjs`), else absent; a `.markdownlintrc` alone does not count.
+Where it is absent, a bare `markdownlint` or an editor reports line length on the one-sentence lines, which the flow's own lint does not, so the probe proposes `.markdownlint.jsonc` holding the flow's built-in rules, with one line of comment saying why: line length off, and a record's `title:` front matter taken as the document's title, as the flow reads it.
+A project with a configuration of its own is left alone, the flow reading it.
 Optional, by what the project does: the `markdown` package for the dashboard's rendered bodies, `pdftotext` for the text of a kept PDF, and the `formal` plugin for a project with a Lean workspace.
 The probe labels each item of the machine with one of these words, ok or MISSING beside it, and each of the project's with what it found, present or absent, found or none: a machine's item is installed, a project's is written by the setup where it is absent, so an absent one is no failure.
 
@@ -70,6 +73,7 @@ Where `formal.toml` stands at the project root, the section ends with one more l
 3. Install what was chosen, with the proposal's command as shown, then run the probe again.
 4. Write the bindings.
    `flow init --log LOG` where `flow.toml` is absent; `library init --scan RECORDS --scan LOG --documents GLOB…` where `library.toml` is absent, RECORDS the records directory `flow init` named, the globs those the probe found with a References section, `--kept` only when ruled.
+   Where the probe proposes `.markdownlint.jsonc`, write it at the root, on the person's word as every proposal, with the text the probe prints (`--json`: `file.text` of the proposal); declined, it is named in the report, to be written later from the probe's text.
    Where `formal.toml` stands (the `formal` plugin is set up), propose running `/formal:formal-init` again, which fills its own `[handoff]` bindings from the files just written; the flow binds nothing of the plugin's manifests, since it asks `formal resolve` for its formal evidence.
    An `init` refuses over an existing bindings file; `--force` is used only when the person asks for the file to be rewritten.
    `flow init` writes the five evidence forms the kit ships in `[evidence] forms` (`formal`, `statistical`, `peer-reviewed`, `stated`, `reference`): ask the person, in the question of step 2, which the project accepts and which words of its own to add (a project with a prover keeps `formal`, one with datasets `statistical`, one with a library `peer-reviewed`; `stated` is the project's own word and the trust to raise), edit the list, and put what each form means for the project into the instructions section of step 5.

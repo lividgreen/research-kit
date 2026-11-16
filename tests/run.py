@@ -66,6 +66,21 @@ def main():
     for n in PINS:
         check(f"{n} identical in setup.py and formal.py", n in s and n in f and s[n] == f[n])
 
+    # the markdownlint file the setup proposes holds the rules the flow's own lint runs with, so a bare `markdownlint` and an editor agree with it
+    ns = {}
+    exec(source_of(SCRIPTS["flow"], ("MDLINT_DEFAULT",)).get("MDLINT_DEFAULT", ""), ns)
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = subprocess.run([sys.executable, str(SCRIPTS["setup"]), "probe", "--root", tmp, "--json"], capture_output=True, text=True)
+        files = [p["file"] for p in json.loads(probe.stdout).get("proposals", []) if p["item"] == "markdownlint config"] if probe.returncode == 0 else []
+        jsonc = files[0]["text"] if files else ""
+        rules = json.loads("".join(l for l in jsonc.splitlines(True) if not l.lstrip().startswith("//"))) if files else None
+        check("the setup proposes .markdownlint.jsonc with one comment line, its rules equal to MDLINT_DEFAULT of flow.py",
+              bool(files) and files[0]["path"] == ".markdownlint.jsonc" and jsonc.startswith("//") and jsonc.count("\n//") == 0
+              and rules == json.loads(ns["MDLINT_DEFAULT"]), probe.stdout[-300:] + probe.stderr)
+
+    ma, mb = source_of(SCRIPTS["flow"], ("_MDLINT_ROOT_CONFIGS",)), source_of(SCRIPTS["setup"], ("_MDLINT_ROOT_CONFIGS",))
+    check("_MDLINT_ROOT_CONFIGS identical in flow.py and setup.py", "_MDLINT_ROOT_CONFIGS" in ma and ma == mb)
+
     print("the flow and the formal plugin's resolver, the two sides of one protocol")
     versions = {n: re.search(r"^RESOLVER_PROTOCOL = (\d+)$", SCRIPTS[n].read_text(encoding="utf-8"), re.M) for n in ("flow", "formal")}
     check("RESOLVER_PROTOCOL is one number, equal in flow.py and formal.py", all(versions.values()) and versions["flow"].group(1) == versions["formal"].group(1))

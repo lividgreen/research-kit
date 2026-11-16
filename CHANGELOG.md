@@ -4,6 +4,36 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A patch release before the kit is shown publicly, on the details the first test projects showed: a transition's line names the record by its title, `flow reflow` stops failing on the index and on a draft's first line, the setup proposes a markdownlint configuration, `whatsnext` asks only what the agent's tool accepts, and the README and the entry pages are brought to the kit as it stands, with its pre-1.0 status stated.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+The setup proposes `.markdownlint.jsonc` at its next run where the project has none of the files the flow's lint reads, and writes it on the person's word.
+A project's own script that matches a transition's text line finds the record's title on it, after the id.
+
+The `research` plugin:
+
+- Every text line a transition prints that names a record gives its title after the id, in the form a mint's `created ID — Title` has, the title printed whole, so the agent names a record to the person without a read: `changed ID (state, standing; path) — Title`, `ranked ID (rank N) — Title`, `unranked ID (was N) — Title`, `re-ranked ID (N → M) — Title`, `returned ID (to OWNER's deck; why) — Title`, the refill's `passed over ID (rank N, type) — Title`, `closed ID (answered) — Title` and `after ID — Title`.
+  The title is always the end of its line, so a title with words like "to" or "closed" or a dash is read whole; what is free text goes before it or on a line of its own beneath: the passed-over card's reason, the closed question's `by ID — Title`, the instruction after a make, and each record of the follow-up notice, one to a line.
+  `--json` is unchanged.
+- `flow reflow --check` and `--write` leave the generated index out of the targets, a directory's among them, and say so in one line, since a row of it holds a block's reason on one line; named alone, the index is refused with that reason, exit 2.
+- `flow reflow --as DEST DRAFT` refuses a DEST outside the project, or in a directory that cannot be written, with a message and exit 2, where it ended in a `PermissionError`; with a DEST that names no minted record the draft is linted with MD041 off, since a record's `title:` front matter, which serves as its heading, is not in the draft.
+- The probe reports a project item `markdownlint config`, present with the file's name where the root holds one of the files the flow's own lint reads there (`.markdownlint.jsonc`, `.json`, `.yaml` and `.yml`, and the `.markdownlint-cli2` files; a `.markdownlintrc` alone does not count), else absent; where it is absent the setup proposes `.markdownlint.jsonc` holding the flow's built-in rules with one line of comment, so a bare `markdownlint` and an editor agree with the flow's lint, and a project with its own configuration is left alone.
+  The tests hold the proposed rules equal to the flow's built-in ones.
+- `whatsnext` step 8 puts the question for the person's hand with options the agent's tool accepts: a multi-select of the cards where the person's deck holds several, two options, draw it and leave it in the deck, where it holds one, no question where it holds none.
+  Its report ends with one line, `Work the hand.`, for the person to type to have the session work the agent's hand; the skill stays a ranking and a refill.
+
+The README and the documentation:
+
+- The README puts `## Documentation` before `## How to use`, shows the dashboard's table in a screenshot under the "How to use" table, and says in `## Install` that the kit is before 1.0, a release may change the records' model, each release's **Upgrading** paragraph says how a project moves, and the setup names the steps a project still needs, with a link to Install's "Following the releases".
+  The dashboard's page gains two screenshots and the library's page one.
+- Two sentences before the README's "How to use" table and the index's "Try it" table say that ideas, questions and tasks are cards, each in a deck or in a hand, and that a session ends with a freeze.
+- The two tables' rows "Let's look into it." and "What's next?" say what the skills do: the idea is drawn into the agent's hand and worked, its questions and tasks minted from it, a goal or a direction it holds put to the person; the reasons for the ranks go in the log entry.
+  The page of `whatsnext` no longer says it runs on "what is on the table", which the skill does not name.
+- How to use drops the design pass from `whatsnext` and "autonomous mode", which exists nowhere, moves "What's on the table?" to the dashboard, says a rank is a number with no check on a reason, and has the agent work the cards in its hand, then freeze and stop.
+- Why research-kit says what would settle a question is fixed when it is minted, not a kill criterion before the work, and that evidence is resolved by the check or reported unchecked; Scope says `whatsnext` fills the hand, not a session's opening, and keeps the rank's reason in the log entry.
+- The plugins' READMEs install at `latest`, as the root README shows, and no longer say the check fails a rank without a reason.
+
 ## v0.11.2 — 2026-11-17
 
 A patch release on three details of the first day: a goal is read from an idea while the idea is worked, the project's instructions state no card, and `formal` is always among the evidence forms offered.

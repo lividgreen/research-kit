@@ -20,20 +20,30 @@ It asks again about things settled weeks before, a notes file drifts from what t
 With research-kit, a session starts from a ranked list, a record changes state only through the tool, and a citation stands on how far the work was read.
 [Why research-kit](docs/why.md) tells how each failure became a check.
 
+## Documentation
+
+The full documentation is at **[research-kit.livid.work](https://research-kit.livid.work)**, and [every page](docs/README.md) is listed there.
+[Scope](docs/scope.md) says what the kit assumes, what the agent may do without asking, and what it is not.
+[What goes online](docs/network.md) names the commands that use the network and the hosts they call.
+
 ## How to use
 
+Ideas, questions and tasks are cards, each waiting in a deck or held in a hand, the few cards its owner is working on now.
+A session ends with a freeze, which saves what it found and commits the work.
 You talk to the agent as you already do, and the skills fold the kit into that conversation:
 
 | You say | What happens |
 | --- | --- |
 | "Set up research-kit in this project." | The project is probed, what is missing proposed, and on your word the records, the library and the hooks are written. |
 | "At yesterday's talk someone claimed A might imply B. Keep that." | An idea record appears, with its source. |
-| "Let's look into it." | The idea becomes a question with what would settle it, split into tasks you see before they are written. |
-| "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus with a reason for each rank, and the agent's hand is refilled from the top of it. |
+| "Let's look into it." | The idea is drawn into the agent's hand and worked: the questions and tasks it holds are minted from it, a goal or a direction it holds is put to you, and the idea is closed once folded. |
+| "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus, the reasons going in the log entry, and the agent's hand is refilled from the top of it. |
 | "Add Stuart and Humphries (1996) to the library; I read chapter 2." | A card for the book records how far it was read, and a citation of it is checked against that. |
 | "Show me the dashboard." | The table of hands, goals and directions, decks and piles opens as a read-only page on localhost, the records laid as cards. |
 | "Where were we?" | The session summary is printed, and the work goes on from the agent's hand. |
 | "Let's freeze here." | What the session found and did not record is saved to the records, the checks run, and the work is committed for the next session. |
+
+![The dashboard's table on a project's first day: the person's hand holds a task, the agent's hand two questions, and below them the open goal and the open direction](docs/assets/screenshots/dashboard-table.webp)
 
 In Claude Code each skill is also a slash command: `/research:research-init`, `/research:whatsnext`, `/research:freeze`, `/research:flow`, `/research:library` and the rest.
 [How to use](docs/how-to-use.md) follows a whole research thread, the prover's part included, and [Getting started](docs/research/getting-started.md) shows the commands the agent runs and the files they write.
@@ -90,11 +100,9 @@ Then ask the agent to set research-kit up in the project (`/research:research-in
 The agent needs a shell, since each skill runs its script with Python.
 [Install](docs/install.md) has every other agent and the pre-commit hooks.
 
-## Documentation
-
-The full documentation is at **[research-kit.livid.work](https://research-kit.livid.work)**, and [every page](docs/README.md) is listed there.
-[Scope](docs/scope.md) says what the kit assumes, what the agent may do without asking, and what it is not.
-[What goes online](docs/network.md) names the commands that use the network and the hosts they call.
+The kit is before 1.0, so a release may change the records' model.
+Each release's **Upgrading** paragraph in the [changelog](CHANGELOG.md) says how a project moves, and `/research:research-init` names the steps a project still needs.
+[Following the releases](docs/install.md#following-the-releases) says how to keep the plugins on them.
 
 ## Licence and citation
 

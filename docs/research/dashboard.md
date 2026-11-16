@@ -35,12 +35,16 @@ The flow names the table, `/flow`, and the library none.
 - a deck is a stack of card backs with the number of its cards on the top one, its note under the stack and a link, *The whole deck*, to the list of all of it, then its top cards face up; an empty deck is its heading and `no cards`;
 - the two piles are one row under *Piles*, each a small stack with its count and its note beside it, the whole a link to its list.
 
+![The table of a project on its first day: the person's hand holds a task, the agent's hand two questions with two free places, and below them the open goal and the open direction](../assets/screenshots/dashboard-table.webp)
+
 Findings are in no hand and no deck and are reached from the navigation, as cards, and so are the goals and the directions that are no longer open.
 
 **A list** lays the same cards for the flow's `list` route, for the open directions and for the library, under the filter form the route names: a filter with a fixed set of values is a select, any other a text input, and a flag a checkbox.
 A component that has not told the dashboard how to lay its records on a card keeps its table of rows.
 
 **A record** is its card at the left, enlarged, and beside it a paper panel with the title as its heading, the summary whole, the body, and under them the fields the face does not carry; its links and back-references are a row of small cards each, the band with the id and the name of the link, and the title under it.
+
+![A question's page: its card at the left, waiting on another question, and the panel with its body, its fields, its links and its back-references](../assets/screenshots/dashboard-record.webp)
 
 **The face** is one for every entity, 240 px wide, from the top:
 

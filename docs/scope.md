@@ -18,7 +18,7 @@ What the kit assumes of a project, what its agent does without asking, and what 
 
 ## What the agent does without asking, and what it may not do
 
-Without asking, the agent works its hand, filled from the top of the ranked list, when a session opens, corrects a sentence it finds false of the project's artifact at the sentence's own size, and, where the project has no rule of its own, registers a landed result by the `method` skill's register test, naming the clause that fired.
+Without asking, the agent works its hand, filled from the top of the ranked list by `whatsnext`, corrects a sentence it finds false of the project's artifact at the sentence's own size, and, where the project has no rule of its own, registers a landed result by the `method` skill's register test, naming the clause that fired.
 These are the `method` and `flow` skills' defaults, and the `audit`, `scrutinize` and `attribution` skills' once their report is given; a project that wants to be asked first says so in one sentence of its instructions file, and the skills yield.
 
 What it may not do, and what fails when it does:
@@ -40,7 +40,7 @@ A project that already keeps decision records, a roadmap, a log and an agent's m
 | --- | --- | --- |
 | open work: an idea, a question, a task | a record, moved by `flow` | a roadmap, a to-do list, the log |
 | a result | a finding naming its evidence, registered in a document | a table of results kept by hand |
-| the order of the work | the ranked list in the index, with a reason for each rank | a roadmap's order, the memory |
+| the order of the work | the ranked list in the index, the reasons in the log entry | a roadmap's order, the memory |
 | what the project produces, and in what order it is read or shipped | the registry the instructions name, and nowhere else | the records |
 | the state of the project | the log's top `**State.**` paragraph | the agent's memory, a roadmap, a notes file |
 | a decision to take | a task in the person's deck whose title names it, the card that waits blocked on it; the person's answer is the task's resolution | a decision record, a tag, prose in another record's body |

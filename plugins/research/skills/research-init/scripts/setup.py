@@ -32,6 +32,20 @@ REQUIRED, RECOMMENDED, OPTIONAL = "required", "recommended", "optional"
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".lake", "build", "dist"}
 INSTRUCTION_FILES = ("CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md", ".github/copilot-instructions.md", "GEMINI.md")
 LOG_NAMES = ("WORKLOG.md", "LOG.md", "worklog.md", "log.md")
+# the files the flow's lint reads from a project's root (the list of flow.py, which tests/run.py holds identical), and the one the
+# setup proposes where the root holds none: the flow's own rules (`MDLINT_DEFAULT` in flow.py, which tests/run.py holds this equal to),
+# so a bare `markdownlint` and an editor agree with the flow's lint
+_MDLINT_ROOT_CONFIGS = (".markdownlint.jsonc", ".markdownlint.json", ".markdownlint.yaml", ".markdownlint.yml",
+                        ".markdownlint-cli2.jsonc", ".markdownlint-cli2.yaml", ".markdownlint-cli2.cjs", ".markdownlint-cli2.mjs")
+MARKDOWNLINT_PROPOSED = ".markdownlint.jsonc"
+MARKDOWNLINT_TEXT = r"""// The flow's own markdownlint rules: one sentence to a line, so no line length, and a record's `title:` front matter serves as its heading.
+{
+  "MD013": false,
+  "MD041": { "front_matter_title": "^\\s*title\\s*:" },
+  "MD001": { "front_matter_title": "" },
+  "MD025": { "front_matter_title": "" }
+}
+"""
 
 
 def kit_version():
@@ -290,6 +304,11 @@ def project(root):
                       "exists without the kit's hooks; the block is added to it"})
     else:
         items.append({"item": ".pre-commit-config.yaml", "need": "absent", "ok": True, "detail": "not written yet; the init writes it with the kit's hooks"})
+    mdl = [f for f in _MDLINT_ROOT_CONFIGS if (root / f).is_file()]
+    items.append({"item": "markdownlint config", "need": "present" if mdl else "absent", "ok": True,
+                  "detail": f"{mdl[0]}, which the flow's lint reads in place of its built-in rules; the setup leaves it as it is" if mdl else
+                  f"none of {', '.join(_MDLINT_ROOT_CONFIGS)}; a bare `markdownlint` or an editor reports line length on the one-sentence lines, "
+                  f"so the setup proposes {MARKDOWNLINT_PROPOSED} holding the flow's own rules"})
     mk = root / "Makefile"
     try:
         make = mk.read_text(encoding="utf-8", errors="replace") if mk.is_file() else None
@@ -302,6 +321,17 @@ def project(root):
     items.append(kit_pins(root, kit_version()))
     return items, {"globs": globs, "logs": logs, "instructions": found, "lake": lake, "git_root": str(git_root) if git_root else None,
                    "instructions_parts": parts}
+
+
+def file_proposals(proj):
+    """What the setup proposes to write where the project lacks it, from the project's items: for now the markdownlint
+    configuration, with the file's text; written on the person's word, as every proposal."""
+    out = []
+    for it in proj:
+        if it["item"] == "markdownlint config" and it["need"] == "absent":
+            out.append({"item": it["item"], "need": "proposed", "commands": [f"write {MARKDOWNLINT_PROPOSED} at the root:"] + ["  " + l for l in MARKDOWNLINT_TEXT.splitlines()],
+                        "file": {"path": MARKDOWNLINT_PROPOSED, "text": MARKDOWNLINT_TEXT}})
+    return out
 
 
 def externally_managed():
@@ -804,7 +834,7 @@ def probe(root, flow=FLOW):
     pins = next(it for it in proj if it["item"] == "pins at one tag")
     return {"root": str(root), "environment": env, "project": proj, "facts": facts,
             "kit": {"version": version, "tag": f"v{version}" if version else None, "layout": kind, "path": where},
-            "proposals": proposals(env, hook_runner, installers),
+            "proposals": proposals(env, hook_runner, installers) + file_proposals(proj),
             "upgrade": {"flow": str(flow), "steps": upgrade(root, pins, flow, facts), "formal": formal_pointer(root)}}
 
 
@@ -1269,6 +1299,18 @@ def selftest():
         rep2 = probe(root)
         by2 = {it["item"]: it for it in rep2["project"]}
         expect("an existing flow.toml and log are reported present", by2["flow.toml"]["need"] == "present" and rep2["facts"]["logs"] == ["WORKLOG.md"])
+        mdl_item = lambda r: next(it for it in project(r)[0] if it["item"] == "markdownlint config")
+        mdl_prop = lambda r: [p for p in probe(r)["proposals"] if p["item"] == "markdownlint config"]
+        expect("a root holding no markdownlint configuration reports the item absent, proposes .markdownlint.jsonc with the file's text, and counts it",
+               mdl_item(root)["need"] == "absent" and mdl_item(root)["ok"] and mdl_prop(root)[0]["file"] == {"path": ".markdownlint.jsonc", "text": MARKDOWNLINT_TEXT}
+               and "write .markdownlint.jsonc at the root:" in render(probe(root)) and "markdownlint config [proposed]:" in render(probe(root)))
+        for name in _MDLINT_ROOT_CONFIGS:
+            (root / name).write_text("{}\n", encoding="utf-8")
+            expect(f"a root holding {name} reports the item present with its name, and proposes nothing",
+                   mdl_item(root)["need"] == "present" and name in mdl_item(root)["detail"] and not mdl_prop(root))
+            (root / name).unlink()
+        expect("the proposed file is JSON with comment lines, and holds the flow's rules", MARKDOWNLINT_TEXT.startswith("//")
+               and json.loads("".join(l for l in MARKDOWNLINT_TEXT.splitlines(True) if not l.startswith("//")))["MD013"] is False)
         bare = Path(tmp) / "bare"
         bare.mkdir()
         rep3 = probe(bare)

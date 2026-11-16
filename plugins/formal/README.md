@@ -6,10 +6,11 @@ The bar it assumes is no `sorry`, `admit` or `native_decide` behind a landed dec
 Another prover would need its own generator writing the same seven row kinds, and none is written.
 It needs the `research` plugin; nothing in `research` needs it.
 
-In Claude Code 2.1.275 or later it installs in one step, after the `research` plugin; [Install](../../docs/install.md) covers every other agent:
+In Claude Code it installs after the `research` plugin from the same marketplace at `latest`, the branch that follows the releases; [Install](../../docs/install.md) covers every other agent:
 
 ```text
-/plugin install formal --marketplace lividgreen/research-kit
+/plugin marketplace add lividgreen/research-kit#latest
+/plugin install formal@research-kit
 ```
 
 Three skills, an agent and a generator; the sections below take them one by one, and each skill has a page of its own in the documentation.

@@ -47,7 +47,7 @@ It works no card: a card is read to be ranked, and what an idea holds, a goal, a
    A parked or blocked card keeps its rank, and the list shows the wait; a card that waits on the person's decision is blocked on the task in the person's deck that holds the decision, and keeps its rank, and the refill of the agent's hand passes over it.
    Where the project pairs documents with a machine-checked library, the `method` skill's rules under "With a prover" order ties among its formal targets.
 5. **Write the ranks.**
-   A rank is a number alone: `flow rank ID N` for one item, `flow rank ID 1 --insert` to take a rank another record holds, moving that record and the ones below it down by one, or `flow rank --set ID …` for the whole order at once, which clears every other rank, writes an order only, refreshing no question's checked date, and prints each record as `ranked ID N` or `unranked ID (was N)`.
+   A rank is a number alone: `flow rank ID N` for one item, `flow rank ID 1 --insert` to take a rank another record holds, moving that record and the ones below it down by one, or `flow rank --set ID …` for the whole order at once, which clears every other rank, writes an order only, refreshing no question's checked date, and prints each record as `ranked ID (rank N) — Title` or `unranked ID (was N) — Title`.
    Why each item stands where it does, and its first move, or "none yet", go in the log entry for this ranking, one clause each, a pointer by ID and never a restatement.
    A goal or a direction a question serves is given with `flow serves Q +G`, on any open question, ranked or not.
    A list whose ranked records have not changed since its last refresh is left as it is, and the log entry says so with that refresh's date.
@@ -67,10 +67,11 @@ It works no card: a card is read to be ranked, and what an idea holds, a goal, a
    Name the person's deck in rank order and what the person's hand holds, both printed by `flow state`.
    Read each card of the person's deck against the `method` skill's test under "Working with the owner" before proposing it: a card a test of the agent's settles is taken back, `flow pass ID --to agent --note "…"`, the note saying the test, named in the log entry and not proposed, and the next refill draws it by rank.
    The take-back is made without asking, a pass being reversible.
-   Propose which cards of the deck go into the person's hand in one multi-select question, asked with the agent's question tool where it has one and in the turn otherwise.
+   Propose which cards of the deck go into the person's hand with the agent's question tool where it has one and in the turn otherwise, in a form the tool accepts, which refuses a question of one option: with several cards, one multi-select question, a card to an option; with one card, a question of two options, draw it and leave it in the deck; with none, no question.
    A draw into the person's hand, `flow draw ID --owner owner`, is made only on that answer.
 
 **On a wall**, in the round an item commissions: change whatever reaches the goal — the statement, the definition, the object or the currency — under the `method` skill's "Changing the target honestly" invariants, the statement before and after written in the round's record, the question's body and the log entry; a result about the changed statement is never registered as settling the original.
 
 **Output.** The inbox items with what each became, what each held card became, the refreshed ranks, both hands after the refill, the agent's as `3 of 4` and the person's, `flow check` green, a log entry (`flow log add FILE`), the project's offline gates by exit code.
-The commit is the session's, made at its freeze or when the person asks; this skill commits nothing by itself.
+The report ends with one line, the go-word the person types to have the session work the agent's hand: `Work the hand.`
+The skill stops there, a ranking and a refill, and works no card; the commit is the session's, made at its freeze or when the person asks, and this skill commits nothing by itself.
