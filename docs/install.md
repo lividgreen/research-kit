@@ -53,6 +53,7 @@ A repository enables it for everyone in its committed `.claude/settings.json`; e
 
 From Claude Code 2.1.275, `/plugin install research --marketplace lividgreen/research-kit` adds the marketplace and installs in one step.
 A marketplace added so follows the default branch; the setup probe names the move to `latest`.
+[Getting started](research/getting-started.md#a-fresh-project-in-claude-code) runs the same commands from the shell before Claude Code starts, so that no restart is needed, and goes on to the first setup and the first day.
 The skills are then `/research:flow`, `/research:library`, `/research:dashboard`, `/research:method`, `/formal:handoff`, `/formal:land` and so on, the prover agent `formal:prover`, and a skill runs its script by the path its text gives.
 A plugin's skills and agents load when a session starts, so restart the session after an install or an update, before the next handoff or transition; in the session that installed `formal`, the `formal:prover` agent type is not loaded yet and the `handoff` skill takes its general-purpose fallback.
 The repository has no `bin/` directory on purpose: claude.ai and Cowork refuse a plugin that has one.
@@ -168,6 +169,7 @@ A copy is the one route that does not update itself.
 In Claude Code say `/research:research-init`; with another agent, ask it to set research-kit up in the project.
 The setup probes the project and the machine, proposes what is missing, installs it only on your word, writes the bindings files, the paragraphs for the instructions file and the hooks' block, runs the checks and reports.
 [The research setup](research/research-init.md) says what it requires, recommends and leaves optional, and [Getting started](research/getting-started.md) shows what it writes, command by command.
+[Getting started](research/getting-started.md#a-fresh-project-in-claude-code) also has the first day in Claude Code, from the install in the shell to the first commit.
 With a Lean workspace, `/formal:formal-init` follows for the prover side ([The formal setup](formal/formal-init.md)).
 
 ## 3. The hooks

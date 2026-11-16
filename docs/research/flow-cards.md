@@ -221,7 +221,7 @@ A transition that changes a record's state, or parks, unparks, blocks or unblock
 | `open` | `removed` | `remove` | `closed` with its date and reason; `owner`, `drawn` and `rank` cleared; `consumed_by` and `started` stay as they are |
 
 A fresh idea is an open one whose `consumed_by` is empty, calculated and never stored.
-Drawn, an idea is worked: what it produces — ideas, questions, tasks, findings, goals and directions, on the owner's word for the last two — references it (`--ref`) and is listed in its `consumed_by`, until the idea is fully processed and consumed, or removed.
+Drawn, an idea is worked: what it produces — ideas, questions, tasks, findings, goals and directions, the last two on the owner's answer to the agent's question — references it (`--ref`) and is listed in its `consumed_by`, until the idea is fully processed and consumed, or removed.
 No mint closes an idea, and a removed idea stays final: it is restored from git where it was removed by mistake.
 A drawn idea counts toward its owner's hand limit as any held card does.
 A consumed idea is in the discard pile, a removed one in the graveyard.
