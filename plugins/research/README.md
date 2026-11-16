@@ -4,10 +4,11 @@ The record side of research-kit: what a research project keeps in its own reposi
 Ideas, questions, tasks and findings are Markdown records the `flow` command moves through their states; the works the project cites are cards in a library that records how far each was read; a dashboard shows both; three reviews hold the documents to one another, an argument to its premises and a claim to its source; three working rules say how the agent reviews, designs and debugs.
 It needs nothing else, and the [`formal` plugin](../formal/README.md) builds on it for a project with a Lean 4 library.
 
-In Claude Code 2.1.275 or later it installs in one step; [Install](../../docs/install.md) covers every other agent:
+In Claude Code it installs from the marketplace at `latest`, the branch that follows the releases; [Install](../../docs/install.md) covers every other agent:
 
 ```text
-/plugin install research --marketplace lividgreen/research-kit
+/plugin marketplace add lividgreen/research-kit#latest
+/plugin install research@research-kit
 ```
 
 Twelve skills: four over a script each, two over the flow for a session's start and its freeze, three reviews, three working rules with no script behind them; the sections below take them one by one, and each tool has a page of its own in the documentation with its commands, the files it keeps, its bindings, its check and its words.
@@ -18,8 +19,8 @@ Ideas, questions, tasks and findings are Markdown files, one per item, that the 
 You note an idea, mint a question from it whose body says what would answer it, mint the tasks it needs, close each task, and mint the finding that answers the question.
 A finding names its evidence, such as a proved declaration or a script that asserts the result, and the check confirms that the evidence exists.
 
-`flow check` fails when a hand-edited state leaves a record inconsistent, when a record points to an id that does not exist, when a finding's evidence does not resolve, when a rank has no reason, or when the index is out of date; it checks that the records hold together, not who wrote them, runs offline as a pre-commit hook, and its last line lists what it did not look at.
-A generated index keeps a ranked list of open work with a reason for each rank, and `flow state` prints the summary a new session reads first, so the agent goes on from its hand and the list instead of asking where things stand.
+`flow check` fails when a hand-edited state leaves a record inconsistent, when a record points to an id that does not exist, when a finding's evidence does not resolve, or when the index is out of date; it checks that the records hold together, not who wrote them, runs offline as a pre-commit hook, and its last line lists what it did not look at.
+A generated index keeps a ranked list of open work, and `flow state` prints the summary a new session reads first, so the agent goes on from its hand and the list instead of asking where things stand.
 
 The [`flow`](skills/flow/SKILL.md) skill, `/research:flow` in Claude Code; [The flow](../../docs/research/flow.md) is its page, and [Flow cards](../../docs/research/flow-cards.md) the specification of the records.
 
@@ -27,7 +28,7 @@ The [`flow`](skills/flow/SKILL.md) skill, `/research:flow` in Claude Code; [The 
 
 A session starts with `flow state` and then does what your message asks; a fresh project starts from the idea of the project in your own words, minted as an idea card, and where the message leaves open what to do the agent recommends the next moves, `/research:whatsnext` among them.
 `/research:whatsnext` is what is next: the cards the agent's hand holds are reviewed, what you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under the focus you give, and the agent's hand is refilled from the top of it.
-It ends with `/research:freeze`: what the conversation found and no record holds is saved, `flow state --check` and the gates run, and the work is committed, so a cold session on another machine continues without asking.
+A session ends with `/research:freeze`: what the conversation found and no record holds is saved, `flow state --check` and the gates run, and the work is committed, so a cold session on another machine continues without asking.
 
 The [`whatsnext`](skills/whatsnext/SKILL.md) and [`freeze`](skills/freeze/SKILL.md) skills; [What is next](../../docs/research/whatsnext.md) and [The freeze](../../docs/research/freeze.md) are their pages.
 

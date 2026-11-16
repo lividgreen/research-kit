@@ -10,16 +10,20 @@ A research thread, from a remark at a talk to a result, looks like this:
   An idea record appears with its source.
   Capturing costs nothing, and most ideas are removed as ideas, each with its reason.
 - **"Let's look into it."**
-  The agent frames the idea as a question and fixes what would settle it before any work starts, say a finite counterexample or a proof, then proposes the split into tasks: design the route, prove the lemma.
-  You see the split before it is written, because anything ready may be drawn without asking again.
-- **"What's next?"**, **"What's on the table?"** or `/research:whatsnext let's focus on the proofs`
-  The agent reads what you left in the inbox and proposes a record for each item, refreshes the ranked list under your focus with a reason for each rank, refills its hand from the top of it and runs a design pass before building anything.
-- **"Continue."** or **"Go on with task-0007 in autonomous mode."**
-  The agent works down the list.
+  The agent draws the idea into its hand and works it: the questions and tasks it holds are minted from it, each question saying what would settle it, say a finite counterexample or a proof, and a task naming a unit of work such as designing the route or proving the lemma.
+  A goal or a direction the idea holds is put to you, and the idea is closed once it is folded into what it produced.
+  The cards it minted stand unranked until the next "What's next?".
+- **"What's next?"** or `/research:whatsnext let's focus on the proofs`
+  The agent reads what you left in the inbox and proposes a record for each item, refreshes the ranked list under your focus, the reason for each rank going in the log entry, and refills its hand from the top of it.
+- **"Show me the dashboard."** or **"What's on the table?"**
+  The table of hands, goals and directions, decks and piles opens as a read-only page on localhost, the records laid as cards.
+- **"Work the hand."** or **"Continue."**
+  The agent works the cards in its hand one by one.
   A work it reads gets a card with how far it was read; a task is made, and its result minted as a finding naming its evidence, a script that asserts it or a proved declaration; residue sharp enough to name becomes a task or a question of its own rather than prose; the log entry lands in the same commit as the transition.
+  When the hand is worked it freezes and stops.
 - **"Let's re-rank so the split work finishes first."**
-  The order changes with its reasons, and the index regenerates.
-  A rank without a reason fails the check at commit, and so does a state edited by hand that leaves the records inconsistent.
+  The order changes, a rank being a number and its reason going in the log entry, and the index regenerates.
+  A state edited by hand that leaves the records inconsistent fails the check at commit.
 - **"Do the two papers still agree?"**, `/research:audit`, `/research:scrutinize the main lemma` or `/research:attribution`
   The agent runs the checks first, then reads what no script sees: each import against the statement it comes from, one argument for its gaps, each claim about a named external result against its primary source.
   It reports before it edits, then corrects each sentence it found false of the work and asks you what is yours to decide.

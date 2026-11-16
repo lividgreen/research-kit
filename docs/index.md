@@ -13,14 +13,16 @@ Everything is plain Markdown in git, and each tool is a single Python 3.11 scrip
 
 ## Try it
 
+Ideas, questions and tasks are cards, each waiting in a deck or held in a hand, the few cards its owner is working on now.
+A session ends with a freeze, which saves what it found and commits the work.
 Install the plugin ([Install](install.md)), open your agent in a project and talk to it; each line below is what you might say, and the skill it brings in does the rest:
 
 | You say | What happens |
 | --- | --- |
 | "Set up research-kit in this project." | The project is probed, what is missing proposed, and on your word the records, the library and the hooks are written. |
 | "At yesterday's talk someone claimed A might imply B. Keep that." | An idea record appears, with its source. |
-| "Let's look into it." | The idea becomes a question with what would settle it, split into tasks you see before they are written. |
-| "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus with a reason for each rank, and the agent's hand is refilled from the top of it. |
+| "Let's look into it." | The idea is drawn into the agent's hand and worked: the questions and tasks it holds are minted from it, a goal or a direction it holds is put to you, and the idea is closed once folded. |
+| "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus, the reasons going in the log entry, and the agent's hand is refilled from the top of it. |
 | "Add Stuart and Humphries (1996) to the library; I read chapter 2." | A card for the book records how far it was read, and a citation of it is checked against that. |
 | "Show me the dashboard." | The table of hands, goals and directions, decks and piles opens as a read-only page on localhost, the records laid as cards. |
 | "Where were we?" | The session summary is printed, and the work goes on from the agent's hand. |

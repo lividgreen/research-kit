@@ -115,12 +115,13 @@ A record's `--json` carries beside its fields the keys the flow calculates and n
 `flow init` is the write behind the setup, and `flow init --print-instructions` prints the paragraphs for the instructions file for the bindings as they stand, writing nothing and refusing nothing; `flow --help` lists every command and `flow <command> --help` its flags, and neither needs a bindings file; a command that does not exist is answered with the nearest ones and, for a usual word such as `done` or `close`, or a command that went, `capture`, `frame` or `refine`, the way it goes.
 A `--reason` is words: an empty one is refused, as an empty `--on` is.
 A `--body` or `--resolution` is a file, `--body FILE`, whose text the command takes, never inline words, which are refused as a file not found; `-` reads the text from the standard input, for `flow log add -` too.
-A transition that closes a ranked record renumbers the ranks below it and prints each as `re-ranked ID N → M`; `flow rank --set` prints each record it placed as `ranked ID N` and each it cleared as `unranked ID (was N)`.
+Every text line of a transition that names a record is `VERB ID (details) — Title`, as a mint's `created ID — Title` is, so the record is named to you without a read: `changed ID (state, standing; path) — Title`, `ranked ID (rank N) — Title`, `unranked ID (was N) — Title`, `re-ranked ID (N → M) — Title`, `returned ID (to OWNER's deck; why) — Title`, `passed over ID (rank N, type) — Title`, `closed ID (answered) — Title` and `after ID — Title`; the title is printed whole and is always the end of its line, and what is free text comes before it or on a line of its own beneath (the passed-over card's reason, the closed question's `by ID — Title`, the instruction after a make, each record of the follow-up notice); `--json` is unchanged.
+A transition that closes a ranked record renumbers the ranks below it and prints each as `re-ranked ID (N → M) — Title`; `flow rank --set` prints each record it placed as `ranked ID (rank N) — Title` and each it cleared as `unranked ID (was N) — Title`.
 The [skill](../../plugins/research/skills/flow/SKILL.md) names every flag, and the kit's tests hold it to the script.
 
 ## The notice
 
-A transition that changes a record's state, or parks, unparks, blocks or unblocks it, prints one line under that record's `changed` line naming the records that refer to it by any link — `references`, `answered_by`, `serves`, `consumed_by` or an item of `blocked_by.on` — each with its state: `refers to it, may need a follow-up: task-0002 (open)`.
+A transition that changes a record's state, or parks, unparks, blocks or unblocks it, prints under that record's `changed` line the records that refer to it by any link — `references`, `answered_by`, `serves`, `consumed_by` or an item of `blocked_by.on` — each on a line of its own with its state: `task-0002 (open) — Write up the table`, under `refers to it, may need a follow-up:`.
 Under `--json` it is the list `notices`, `[{"id": "question-0003", "refers": [{"id": "task-0002", "state": "open"}]}]`, empty where there is none.
 A removed record is left out, and so is one the same command minted or changed; a closed one is listed, since a finding removed as false reaches closed work.
 A mint changes no state and prints none for the record it mints; a finding's evidence replaced or retired prints none.
@@ -343,9 +344,12 @@ Under `--json` the judgment lines are problems of code `DOCTOR`, the mechanical 
 ### `flow reflow`
 
 `flow reflow --check PATH…` prints each line, as file and line, that the reflow would change, and under it the lines it would become.
+The generated index, the file `flow.toml` binds as the index, is not prose under the one-sentence rule, since a row of it holds a block's reason on one line: `--check` and `--write` leave it out where it is among the targets, a directory's among them, and say so in one line, and named alone it is refused with that reason, exit 2.
 `flow reflow --write TARGET…` rewrites each target, a file's path or a record's id, one sentence per line by that reflow, leaving a record's front matter as it is, and prints each file it changed.
 Markdownlint runs after the rewrite as on any write: a file that fails is put back as it was and refused with the lint's line, the command exits 1, and the other targets of the run stay rewritten.
 `flow reflow --as DEST DRAFT` prints each line of the draft that the reflow would change and each markdownlint violation the draft adds appended to DEST, never one DEST had already.
+DEST is a file or a record's id of the project: one outside the project, or in a directory that cannot be written, is refused with a message, exit 2.
+A DEST that names a minted record is linted as appended to that record, and one named for a record not minted yet as a body under its front matter; any other file that is not there stands for the draft alone, linted with MD041 off, since a record's `title:` front matter, which serves as its heading, is not in the draft.
 Under `--json` they are problems of code `REFLOW` and `MARKDOWNLINT`; the last line says which reflow ran and whether markdownlint did.
 The built-in reflow leaves a sentence unsplit after the common scholarly abbreviations (`cf.`, `e.g.`, `i.e.`, `et al.`, `Prop.`, `Thm.`, `Fig.` and their like) but splits after a single capital, as in `Theorem A. Then it holds.`, and a project whose prose carries others, such as a journal's `Amer.` and `Math.`, binds its own reflow module, which is the escape.
 

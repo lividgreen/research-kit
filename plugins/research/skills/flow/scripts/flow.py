@@ -85,7 +85,8 @@ check; `pages` (the dashboard's page manifest); `--json` on every command.
                                  now; --fix writes every edit whose line states it, the rest left to the hand
   flow log add FILE              one entry at the top of the log, reflowed and linted as a record is
   flow log archive --before DATE the older entries moved verbatim, one file per month, into `[paths] log_archive`
-  flow reflow --check PATH...    the lines of the project's other prose that are not one sentence per line
+  flow reflow --check PATH...    the lines of the project's other prose that are not one sentence per line (the
+                                 generated index is left out)
   flow reflow --as DEST DRAFT    a draft checked as if appended to DEST (a file or a record's id): the reflow,
                                  then markdownlint
 `flow init [--records DIR] [--log FILE] [--owner O]... [--force]` writes a project's `flow.toml`, its
@@ -3004,6 +3005,13 @@ def row_state(cfg, recs, r, today):
     return stat(r)
 
 
+def changed_words(cfg, recs, r, today):
+    """What a transition's `changed` line says of a record inside its parentheses: the state, a card's standing or pile after
+    a comma (`open, held`), a finding's forms."""
+    st = row_state(cfg, recs, r, today) or ""
+    return st.replace(" (", ", ", 1)[:-1] if r.type in CARDS and st.endswith(")") else st
+
+
 def library_keys(cfg):
     """What the bound library answers to `keys`: its cite prefix and each card's state and grade.
     None when the project binds no library; `{"error": …}` when the command does not answer."""
@@ -3727,11 +3735,34 @@ def reflow_problems(cfg, text, where):
     return [{"code": "REFLOW", "id": None, "path": where(n), "msg": line, "becomes": becomes} for n, line, becomes in reflow_changes(cfg, text)]
 
 
+def is_index(cfg, path):
+    """Whether `path` is the generated index, the file `flow.toml` binds as the index."""
+    try:
+        return path.resolve() == cfg.index.resolve()
+    except OSError:
+        return False
+
+
+def without_index(cfg, paths, named):
+    """`paths` without the generated index, which is no prose under the one-sentence rule: a table, one row to a line.
+    Returns (the paths kept, the line saying the index was left out, or "").  The index named alone, `named` being the
+    paths as the person gave them, is refused with that reason."""
+    kept = [p for p in paths if not is_index(cfg, p)]
+    if len(kept) == len(paths):
+        return paths, ""
+    why = f"{rel(cfg, cfg.index)} is the generated index, not prose under the one-sentence rule"
+    if not any(not is_index(cfg, Path(n)) for n in named):
+        raise NotRun(f"{why}: `flow index` writes it")
+    return kept, f"left out: {why}"
+
+
 def reflow_write(cfg, targets):
     """`--write TARGET…`: each target, a file's path or a record's id, has its body (the text after a leading front matter
     block, which is left as it is) rewritten one sentence per line by the reflow `--check` runs, and then markdownlint runs as
     on any write: a file that fails is put back as it was and is refused, the other targets of the run staying rewritten.
-    Returns (the paths written, the paths already as the reflow leaves them, the problems of the refused)."""
+    The generated index is left out of the targets.
+    Returns (the paths written, the paths already as the reflow leaves them, the problems of the refused, the line saying
+    the index was left out, or "")."""
     recs = None
     paths = []
     for t in targets:  # every target is found before any is written
@@ -3742,6 +3773,7 @@ def reflow_write(cfg, targets):
                 raise NotRun(f"{t}: no such file, and no record of that id")
             path = recs[t].path
         paths.append(path)
+    paths, left = without_index(cfg, paths, targets)
     written, same, problems = [], [], []
     for path in paths:
         try:
@@ -3763,7 +3795,7 @@ def reflow_write(cfg, targets):
             problems.append({"code": "MARKDOWNLINT", "id": None, "path": rel(cfg, path), "msg": str(e)})
             continue
         written.append(rel(cfg, path))
-    return written, same, problems
+    return written, same, problems, left
 
 
 def cmd_reflow(cfg, a):
@@ -3777,19 +3809,27 @@ def cmd_reflow(cfg, a):
             if not p.exists():
                 raise NotRun(f"{p}: no such file or directory")
             files += sorted(p.rglob("*.md")) if p.is_dir() else [p]
+        files, left = without_index(cfg, files, a.check)
         for f in files:
             try:
                 text = f.read_text(encoding="utf-8")
             except UnicodeDecodeError as e:
                 raise Refused(f"{f}: not UTF-8 ({e.reason} at byte {e.start})")
             problems += reflow_problems(cfg, text, lambda n, f=f: f"{rel(cfg, f)}:{n}")
-        return problems, f"{len(files)} file(s) read; reflow via {cfg.reflow_source}"
+        return problems, f"{len(files)} file(s) read; reflow via {cfg.reflow_source}" + (f"; {left}" if left else "")
     dest, draft = map(Path, a.as_)
     if not draft.is_file():
         raise NotRun(f"{draft}: no such file")
     recs = load_all(cfg, []) if not dest.is_file() else {}
     if a.as_[0] in recs:  # a record named by its id: its file, whatever its name
         dest = recs[a.as_[0]].path
+    inside = True
+    try:
+        dest.resolve().relative_to(cfg.root.resolve())
+    except ValueError:
+        inside = False
+    if not inside:
+        raise NotRun(f"{a.as_[0]} is outside the project ({cfg.root}): the draft is checked as appended to a file or a record of the project")
     m = cfg.id_re.match(dest.name) if not dest.is_file() else None
     if m:
         twin = recs.get(f"{m.group(1)}-{m.group(2)}")
@@ -3797,9 +3837,14 @@ def cmd_reflow(cfg, a):
             raise Refused(f"{dest} does not exist; {twin.id} is {rel(cfg, twin.path)}: name the record by its id, `--as {twin.id}`")
     text = read_body(draft).strip("\n")
     problems += reflow_problems(cfg, text, lambda n: f"{draft}:{n}")
-    # a record not minted yet: its body will stand under front matter whose `title:` is the document's title, as for any record
-    had = dest.read_text(encoding="utf-8").rstrip("\n") if dest.is_file() else f"{FENCE}\ntitle: the record's\n{FENCE}" if m else ""
-    fd, name = tempfile.mkstemp(prefix=f".{dest.stem}.", suffix=".flow-draft.md", dir=dest.parent if dest.parent.is_dir() else cfg.root)
+    # a record not minted yet: its body will stand under front matter whose `title:` is the document's title, as for any record;
+    # a DEST that is no file and names no record: the draft is no record's body either, so MD041 (first line a heading) is off for it
+    had = (dest.read_text(encoding="utf-8").rstrip("\n") if dest.is_file() else f"{FENCE}\ntitle: the record's\n{FENCE}" if m
+           else "<!-- markdownlint-disable MD041 -->")
+    try:
+        fd, name = tempfile.mkstemp(prefix=f".{dest.stem}.", suffix=".flow-draft.md", dir=dest.parent if dest.parent.is_dir() else cfg.root)
+    except OSError as e:
+        raise NotRun(f"{a.as_[0]}: a temporary file cannot be made beside it ({e.strerror or e}); name a file in a directory of the project that can be written")
     os.close(fd)
     tmp = Path(name)
     try:
@@ -5406,7 +5451,7 @@ def selftest():
         txt = text_of(cfg, ["unpark", q4])
         expect("unpark prints the notice under the changed line, in the owner's words, a referring record that is not removed, "
                "and not the idea that produced the question, an unpark being no end or return of it",
-               f"changed {q4}" in txt and f"  refers to it, may need a follow-up: {rt} (open)" in txt.split(f"changed {q4}", 1)[1]
+               f"changed {q4} (" in txt and f"  refers to it, may need a follow-up:\n    {rt} (open){dash_title(load_all(cfg), rt)}\n" in txt.split(f"changed {q4}", 1)[1]
                and load_all(cfg)[q4]["references"][0] not in txt)
         run(["ref", rt, "-" + q4])
         raw = load_all(cfg)[q4]
@@ -5481,9 +5526,12 @@ def selftest():
         p = run(["rank", q7, "1", "--insert"])
         expect("rank --insert puts a new record at N in one step and moves the rest down, reporting them as re-ranked",
                [load_all(cfg)[i]["rank"] for i in (q7, q4, q3)] == [1, 2, 3] and {x["id"] for x in p["reranked"]} == {q4, q3})
-        run(["rank", q3, "1", "--insert"])
+        txt = text_of(cfg, ["rank", q3, "1", "--insert"])
         expect("rank --insert moves a ranked record up, the rest closing round it",
                [load_all(cfg)[i]["rank"] for i in (q3, q7, q4)] == [1, 2, 3] and not validate(cfg, load_all(cfg), today)[0])
+        expect("a transition's text lines name each record as `VERB ID (details) — Title`, the title last on its line: the changed line and each re-ranked one",
+               f"changed {q3} (open, ready; " in txt and f"re-ranked {q7} (1 → 2){dash_title(load_all(cfg), q7)}\n" in txt
+               and f"re-ranked {q4} (2 → 3){dash_title(load_all(cfg), q4)}\n" in txt)
         run(["rank", q7, "4", "--insert"], ok=False)  # past the end of the ranks
         # --set writes an order and asserts no read: no question's checked date moves; a rank given to one record refreshes it
         later = "2026-09-20"  # another day than the one the questions were checked on (a later one would be in the future)
@@ -5497,8 +5545,9 @@ def selftest():
                rc == 0 and load_all(cfg)[q3]["checked"] == later and load_all(cfg)[q4]["checked"] == was[q4])
         txt = text_of(cfg, ["rank", "--set", q3, q7])
         p = run(["rank", "--set", q3, q7, q4])
-        expect("rank --set says each record it placed as `ranked ID N`, one it cleared as `unranked ID (was N)`, never as plain changed",
-               f"ranked {q3} 1" in txt and f"ranked {q7} 2" in txt and f"unranked {q4} (was 2)" in txt and "changed" not in txt
+        expect("rank --set says each record it placed as `ranked ID — Title (rank N)`, one it cleared as `unranked ID — Title (was N)`, never as plain changed",
+               f"ranked {q3} (rank 1){dash_title(load_all(cfg), q3)}\n" in txt and f"ranked {q7} (rank 2){dash_title(load_all(cfg), q7)}\n" in txt
+               and f"unranked {q4} (was 2){dash_title(load_all(cfg), q4)}\n" in txt and "changed" not in txt
                and p["ranked"] == [{"id": q3, "rank": 1}, {"id": q7, "rank": 2}, {"id": q4, "rank": 3}] and p["unranked"] == []
                and set(p["changed"]) == {q3, q7, q4})
         run(["rank", q7, "--clear", "--insert"], ok=False)  # --insert takes a rank
@@ -5533,8 +5582,13 @@ def selftest():
         run(["answer", q8, "--by", ta], ok=False)  # a task settles nothing
         txt = text_of(cfg, ["answer", q8, "--by", fa])
         expect("answer closes an open question answered by a finding, and says so",
-               load_all(cfg)[q8]["state"] == "answered" and load_all(cfg)[q8]["answered_by"] == fa and f"{q8} closed answered by {fa}" in txt)
+               load_all(cfg)[q8]["state"] == "answered" and load_all(cfg)[q8]["answered_by"] == fa and f"closed {q8} (answered){dash_title(load_all(cfg), q8)}\n  by {with_title(load_all(cfg), fa)}\n" in txt)
         run(["answer", q8, "--by", fa], ok=False)  # answered already
+        qt = new(["question", "Does a title with to, closed or a — dash end its line?"])
+        txt = text_of(cfg, ["finding", "A finding closed by to — the answer", "--evidence", "stated:papers/alpha.md#Theorem 2.1", "--answers", qt])
+        ft = next(i for i, r in load_all(cfg).items() if r["title"] == "A finding closed by to — the answer")
+        expect("a finding minted --answers Q prints the closing as `closed ID (answered) — Title` and, under it, `by ID — Title` of the finding it minted, each title the end of its line",
+               f"closed {qt} (answered) — Does a title with to, closed or a — dash end its line?\n  by {ft} — A finding closed by to — the answer\n" in txt)
         # a finding found false: removed, its card kept, the notice naming what rests on it; the check says nothing afterwards
         ff = new(["finding", "a claim found false", "--evidence", "stated:papers/alpha.md#Theorem 2.1"])
         run(["reopen", q8, "--reason", "a second look"])
@@ -6005,7 +6059,7 @@ def selftest():
         go(["draw", t2, "--owner", "agent"])
         txt = text_of(cfg, ["block", t2, "--on", "the vendor's reply", "--reason", "needs the vendor"])
         expect("block on a held card returns it to its owner's deck in the same command and says so; its standing is blocked",
-               card(t2)["drawn"] is None and card(t2)["owner"] == "agent" and stand(t2) == "blocked" and f"returned {t2} to agent's deck" in txt)
+               card(t2)["drawn"] is None and card(t2)["owner"] == "agent" and stand(t2) == "blocked" and f"returned {t2} (to agent's deck; a held card that waits is not held){dash_title(load_all(cfg), t2)}\n" in txt and f"changed {t2} (" in txt)
         go(["unblock", t2])
         expect("a block cleared leaves the card in its owner's deck until a draw", stand(t2) == "ready" and card(t2)["owner"] == "agent")
         go(["draw", t2, "--owner", "agent"])
@@ -6204,7 +6258,7 @@ def selftest():
                and p["unranked_ready"] == 2)
         txt = text_of(cfg, ["draw", "--refill", "--owner", "agent"])
         expect("the text lists each card in rank order, drawn or passed over, then the hand as `3 of 4` with the room left",
-               "passed over " + tp + " (rank 2, task): parked" in txt and "agent's hand: 3 of 4, room for 1" in txt
+               "passed over " + tp + f" (rank 2, task){dash_title(load_all(cfg), tp)}\n  why: parked\n" in txt and "agent's hand: 3 of 4, room for 1" in txt
                and txt.index("passed over " + tb) < txt.index("passed over " + qd) and "unranked and a refill never draws one" in txt)
         go(["return", i1, "--note", "q"])
         go(["return", tr, "--note", "q"])
@@ -7082,6 +7136,31 @@ def selftest():
         go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)])
         expect("reflow --as writes nothing", (root / "docs" / "a.md").read_text(encoding="utf-8") == "# A\n\nIt is fine.\n"
                and sorted(p.name for p in (root / "docs").iterdir()) == ["a.md"])
+        rc, out = dispatched(cfg, ["reflow", "--as", "/nonexistent/x.md", str(draft)], today=today, as_json=True, quiet=True)
+        expect("reflow --as with a DEST outside the project refuses with a message, exit 2, and no traceback",
+               rc == 2 and "outside the project" in out["problems"][0]["msg"])
+        rc, out = dispatched(cfg, ["reflow", "--as", str(root.parent / "elsewhere.md"), str(draft)], today=today, as_json=True, quiet=True)
+        expect("reflow --as with an existing-looking DEST that is another place refuses the same", rc == 2 and "outside the project" in out["problems"][0]["msg"])
+        if mdl:
+            draft.write_text("Prose first, no heading.\n", encoding="utf-8")
+            p = go(["reflow", "--as", str(root / "docs" / "not-a-record.md"), str(draft)])
+            expect("reflow --as with a DEST that names no minted record lints the draft with MD041 off", not p["problems"])
+            p = go(["reflow", "--as", str(root / "docs" / "a.md"), str(draft)])
+            expect("reflow --as with a DEST that is a file lints as appended to it, as before", not p["problems"])
+            draft.write_text("A clean draft.\n", encoding="utf-8")
+        # the generated index is no prose under the one-sentence rule: left out of --check and --write, refused when named alone
+        index_was = cfg.index.read_text(encoding="utf-8")
+        cfg.index.write_text(index_was + "| a row | two sentences. A reason on one line. |\n", encoding="utf-8")
+        p = go(["reflow", "--check", str(cfg.index.parent), str(root / "docs")])
+        expect("reflow --check leaves the generated index out of a directory among the targets and says so in one line",
+               not any(x["path"].startswith(rel(cfg, cfg.index)) for x in p["problems"]) and "generated index" in p["coverage"] and "left out" in p["coverage"])
+        p = go(["reflow", "--check", str(cfg.index), str(root / "docs")])
+        expect("reflow --check leaves the index out where it is named among others", "generated index" in p["coverage"] and not p["problems"])
+        for argv in (["reflow", "--check", str(cfg.index)], ["reflow", "--write", str(cfg.index)]):
+            rc, out = dispatched(cfg, argv, today=today, as_json=True, quiet=True)
+            expect(f"reflow {argv[1]} with the index named alone is refused with that reason, exit 2",
+                   rc == 2 and "generated index" in out["problems"][0]["msg"])
+        cfg.index.write_text(index_was, encoding="utf-8")
         # --write: a file or a record rewritten one sentence per line, the front matter as it was, markdownlint after
         wf = root / "docs" / "w.md"
         wf.write_text("# W\n\nOne thing. Another thing.\n\n- A list. With two.\n", encoding="utf-8")
@@ -7894,6 +7973,16 @@ def title_of(recs, id_):
     return str(recs[id_]["title"]) if id_ in recs and recs[id_]["title"] else str(id_)
 
 
+def with_title(recs, id_):
+    """A record as the mints name it, `ID — Title`, the title printed whole; the id alone where the record has no title."""
+    return f"{id_} — {recs[id_]['title']}" if id_ in recs and recs[id_]["title"] else str(id_)
+
+
+def dash_title(recs, id_):
+    """` — Title` to end a line that names a record, the title printed whole and last, so it is read to the end of the line; nothing where the record has none."""
+    return f" — {recs[id_]['title']}" if id_ in recs and recs[id_]["title"] else ""
+
+
 def titles(recs, ids):
     return "; ".join(title_of(recs, i) for i in ids)
 
@@ -8152,24 +8241,27 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["records"] = [summary_of(cfg, r, recs, today) for r in created + changed]
             out["notices"] = notices(recs, before, created, changed)
             said = {n["id"]: n["refers"] for n in out["notices"]}
+            recs = load_all(cfg)  # the records as the transition wrote them, so a record it minted has its title for the lines below
             for r in created:
                 emit(f"created {r.id} — {r['title']}  ({rel(cfg, r.path)})")
             if a.cmd == "task":  # a task minted from a ranked question takes its place on the list
                 out["ranked"] = [{"id": i, "rank": n} for w, i, n in _SET_RANKS if w == "ranked"]
                 for w, i, n in _SET_RANKS:
-                    emit(f"ranked {i} {n}")
+                    emit(f"ranked {i} (rank {n}){dash_title(recs, i)}")
             if a.cmd == "rank" and a.set:  # an order written: each record said as placed or cleared, never as plain `changed`
                 out["ranked"] = [{"id": i, "rank": n} for w, i, n in _SET_RANKS if w == "ranked"]
                 out["unranked"] = [{"id": i, "was": n} for w, i, n in _SET_RANKS if w == "unranked"]
                 for w, i, n in _SET_RANKS:
-                    emit(f"ranked {i} {n}" if w == "ranked" else f"unranked {i} (was {n})")
+                    emit(f"ranked {i} (rank {n}){dash_title(recs, i)}" if w == "ranked" else f"unranked {i} (was {n}){dash_title(recs, i)}")
             elif a.cmd == "draw" and a.refill:  # a refill: each card said as drawn or passed over, then the hand
                 f = _REFILL
                 out["drawn"], out["skipped"] = f["drawn"], f["skipped"]
                 out["hand"] = {"owner": f["owner"], "count": f["count"], "limit": f["limit"], "room": f["room"]}
                 out["unranked_ready"] = f["unranked_ready"]
                 for word, d in f["walk"]:  # in rank order, each card drawn or passed over
-                    emit(f"{word} {d['id']} (rank {d['rank']}, {d['type']})" + (f" — {d['title']}" if word == "drawn" else f": {d['why']}"))
+                    emit(f"{word} {d['id']} (rank {d['rank']}, {d['type']}){dash_title(recs, d['id'])}")
+                    if word != "drawn":  # why is free text (a block's item among it), so it never follows a title on the line
+                        emit(f"  why: {d['why']}")
                 if not f["room"] and not f["drawn"]:
                     emit(f"nothing drawn: {f['owner']}'s hand is full")
                 if f["room"]:
@@ -8178,20 +8270,24 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 emit(f"{f['owner']}'s hand: {f['count']} of {f['limit']}" + (f", room for {f['room']}" if f["room"] else ", full"))
             else:
                 for r in changed:
-                    emit(f"changed {r.id} — {row_state(cfg, recs, r, today) or ''} ({rel(cfg, r.path)})")
+                    emit(f"changed {r.id} ({changed_words(cfg, recs, r, today)}; {rel(cfg, r.path)}){dash_title(recs, r.id)}")
                     if r.id in said:  # who refers to it, for the session to decide on: never a refusal
-                        emit("  refers to it, may need a follow-up: " + ", ".join(f"{x['id']} ({x['state']})" for x in said[r.id]))
+                        emit("  refers to it, may need a follow-up:")
+                        for x in said[r.id]:  # one to a line, the title ending it
+                            emit(f"    {x['id']} ({x['state']}){dash_title(recs, x['id'])}")
             out["returned"] = [{"id": i, "owner": o} for i, o in _RETURNED]
             for i, o in _RETURNED:  # a held card made to wait goes back to its owner's deck in the same command
-                emit(f"returned {i} to {o}'s deck: a held card that waits is not held")
+                emit(f"returned {i} (to {o}'s deck; a held card that waits is not held){dash_title(recs, i)}")
             out["reranked"] = [{"id": i, "from": f, "to": n} for i, f, n in _RERANKED]
             for i, f, n in _RERANKED:
-                emit(f"re-ranked {i} {f} → {n}")
+                emit(f"re-ranked {i} ({f} → {n}){dash_title(recs, i)}")
             if (a.cmd in ("answer", "impossible") or (a.cmd == "finding" and a.answers)) and changed:  # the question is changed[0], ideas after it
-                emit(f"{changed[0].id} closed {changed[0]['state']} by {changed[0]['answered_by']}")
+                emit(f"closed {changed[0].id} ({changed[0]['state']}){dash_title(recs, changed[0].id)}")
+                emit(f"  by {with_title(recs, changed[0]['answered_by'])}")
             if a.cmd in ("make", "abort") and changed and changed[0]["after"]:  # the post-done instruction, for the agent to follow
                 out["after"] = changed[0]["after"]
-                emit(f"after {changed[0].id}: {changed[0]['after']}")
+                emit(f"after {with_title(recs, changed[0].id)}")  # the instruction is free text, so it is a line of its own
+                emit(f"  {changed[0]['after']}")
             recs = load_all(cfg)
             cfg.index.parent.mkdir(parents=True, exist_ok=True)
             write_whole(cfg.index, render_index(cfg, recs))
@@ -8305,8 +8401,11 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["written"] = [rel(cfg, p) for p in written]
             emit(said)
         elif a.cmd == "reflow" and a.write:
-            written, same, problems = reflow_write(cfg, a.write)
+            written, same, problems, left = reflow_write(cfg, a.write)
             out["written"], out["unchanged"], out["problems"] = written, same, problems
+            if left:
+                out["left_out"] = left
+                emit(left)
             for w in written:
                 emit(f"reflowed {w}")
             for p in problems:

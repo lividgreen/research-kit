@@ -32,6 +32,8 @@ Online lookups — arXiv, Crossref, OpenAlex and others — fill in a card's fie
 
 A card is named by its key or by any of its identifiers wherever a command takes `REF`; every command takes `--json`; `library init` is the write behind the setup, and `library init --print-instructions` prints the paragraphs for the instructions file for the bindings as they stand, writing nothing and refusing nothing; `library --help` lists every command and `library <command> --help` its flags, and neither needs a bindings file.
 A card's `--json` carries beside its fields `lines`, the list of `{"label", "text"}` pairs a card says beside its title, only the ones that hold something, in finished words: `by` (the authors, by surname, and the year, `Jen & Lovelace, 1990`, `Jen et al., 1990` for more than two) and `read` (what was read of the work, the words `library read --what` wrote); `library find`, `library show` and the other commands that answer cards carry it, and the [dashboard](dashboard.md) prints it at the foot of the card's face without reading a file.
+
+![A work's page on the dashboard: its card at the left, with its authors and what was read of it, and the panel with the notes, the extracts with their pages and the fields](../assets/screenshots/dashboard-library-card.webp)
 The [skill](../../plugins/research/skills/library/SKILL.md) names every flag, and the kit's tests hold it to the script.
 
 ## The files it keeps

@@ -4,10 +4,10 @@ research-kit came out of one research project, a series of papers with a Lean 4 
 
 - **The agent started every session cold.**
   It asked again about matters settled weeks before, and a roadmap written by hand was where answers went to drift.
-  One parked item collected forty-two dated re-test lines before a ranked list replaced the triage, with a reason for each rank and a kill criterion fixed before the work.
+  One parked item collected forty-two dated re-test lines before a ranked list replaced the triage, with a reason for each rank and, for each question, what would settle it fixed when it is minted.
 - **Hand-edited state was the single largest source of drift.**
   A pool of ideas, a brainstorming file and a table of results each lagged behind what the project had actually done, and one entry cited a declaration the library did not have.
-  Now a record changes state through the tool, which writes everything the new state needs, a finding must name evidence that a machine can resolve, and the check fails on a record that does not hold together.
+  Now a record changes state through the tool, which writes everything the new state needs, a finding must name its evidence, which the check resolves or marks unchecked, and the check fails on a record that does not hold together.
 - **Reading the records cost more than the research.**
   In eight of ten measured sessions the records were the largest thing the agent read.
   Now a session starts from a short generated summary and reads records by id, never the directory whole.
