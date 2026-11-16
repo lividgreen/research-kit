@@ -11,7 +11,7 @@ metadata:
 # The dashboard
 
 `python3 scripts/dashboard.py`, run by its path from the project root (`${CLAUDE_PLUGIN_ROOT}/skills/dashboard/scripts/dashboard.py` under Claude Code), serves one site on localhost, port 8765 by default, with one section per mounted component.
-The flow's records are a card table: `/` opens on the table, each owner's hand, each owner's deck behind a stack of card backs, the common deck and the two piles, every card a face with its title, its summary, its value and effort, its standing and its place; the lists lay the same faces, a record is its card at the left with its panel beside it, and the directions, the artifacts, the tags, the index and the validator's verdict are pages of their own.
+The flow's records are a card table: `/` opens on the table, each owner's hand, the open goals and the open directions face up, each owner's deck behind a stack of card backs, the common deck and the two piles, every card a face with its title, its summary, its value and effort, its standing and its place; the lists lay the same faces, a record is its card at the left with its panel beside it, and the directions, the artifacts, the tags, the index and the validator's verdict are pages of their own.
 The library's works are cards too, with a ranked search, each work with our notes, extracts and citing sites, and the candidates, the watches and the check as tables.
 It is a renderer and nothing else.
 Every page is the answer of the component's command with `--json`, so the command line and the dashboard cannot disagree; no work is shown and no path into the library's store is served.

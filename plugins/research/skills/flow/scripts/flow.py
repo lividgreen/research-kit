@@ -4503,6 +4503,9 @@ INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should 
   that file is named here and nowhere else; none is needed to start.
 - `INBOX.md` is where the person leaves items between sessions; a session reads it at its start.
 - `flow state` prints the cold-start bundle a session reads first.
+- What the agent writes to the person names a record with its title: the first mention in a message is
+  `task-0012 (the title)`, later mentions in the same message the id alone, however long the message; a few
+  records are named each, never as a range of ids.
 - A session starts with `flow state`, then does what the person's message asks; where the message leaves open
   what to do, the agent recommends the next moves, the `whatsnext` skill among them; a session ends with the
   `freeze` skill.
@@ -7399,11 +7402,12 @@ def selftest():
                by9(q_plain)["lines"] == [] and by9(i_gone)["lines"] == [])
         expect("a ranked, held card carries both keys under `show` as under `find`",
                all("place" in x and "lines" in x for x in say(["show", t_for])[1]["records"]))
-        # the table: three hands, decks, the common deck and two piles, in the order of the brief
+        # the table: three hands, the goals and the directions, decks, the common deck and two piles, in the order of the brief
         zs = say(["table"])[1]["zones"]
-        expect("flow table: a hand for each owner but `agent` in the file's order and then `agent`'s, the decks in the same order, the common deck, the discard pile, the graveyard",
+        expect("flow table: a hand for each owner but `agent` in the file's order and then `agent`'s, the goals and the directions of the board, the decks in the same order, the common deck, the discard pile, the graveyard",
                [(z["kind"], z["owner"], z["title"]) for z in zs] == [
                    ("hand", "mentor", "mentor's hand"), ("hand", "owner", "owner's hand"), ("hand", "agent", "agent's hand"),
+                   ("board", None, "the goals"), ("board", None, "the directions"),
                    ("deck", "mentor", "mentor's deck"), ("deck", "owner", "owner's deck"), ("deck", "agent", "agent's deck"),
                    ("deck", None, "the common deck"), ("pile", None, "the discard pile"), ("pile", None, "the graveyard")]
                and all(list(z) == ["kind", "owner", "title", "count", "note", "room", "find", "cards"] for z in zs))
@@ -7442,6 +7446,12 @@ def selftest():
         od = zone("owner's deck")
         expect("an owner's deck lists its cards in the same order, with the standings of all of them counted",
                od["count"] == 2 and re.fullmatch(r"1 ready, 1 parked", od["note"]) is not None and od["room"] is None)
+        goals9, dirs9 = zone("the goals"), zone("the directions")
+        expect("the board's zones hold every open goal and every open direction, the oldest first, each as `flow find --json` gives it, with no room; `--top` cuts neither",
+               [c["id"] for c in goals9["cards"]] == [g1, g2] and [c["id"] for c in dirs9["cards"]] == [d1] and goals9["cards"][0] == by9(g1)
+               and (goals9["count"], goals9["note"], goals9["room"], dirs9["count"], dirs9["note"], dirs9["room"]) == (2, "2 open", None, 1, "1 open", None)
+               and {x["label"]: x["text"] for x in goals9["cards"][0]["lines"]} == {"served by": "3 open questions"}
+               and len(zone("the goals", 1)["cards"]) == 2 and zone("the goals", 1)["count"] == 2)
         discard, grave = zone("the discard pile"), zone("the graveyard")
         expect("a pile holds no cards and says what it holds, by state",
                (discard["cards"], discard["count"], discard["note"]) == ([], 3, "1 done, 1 answered, 1 consumed")
@@ -7456,12 +7466,29 @@ def selftest():
         expect("each zone's `find` is flags `flow find` takes, and selects exactly the zone's `count` cards, the shown ones among them",
                all(len(via(z["find"])) == z["count"] and {c["id"] for c in z["cards"]} <= set(via(z["find"])) for z in zs)
                and [z["find"] for z in zs] == [{"held": True, "owner": "mentor"}, {"held": True, "owner": "owner"}, {"held": True, "owner": "agent"},
+                                               {"type": "goal", "state": "open"}, {"type": "direction", "state": "open"},
                                                {"deck": "mentor"}, {"deck": "owner"}, {"deck": "agent"}, {"deck": "common"}, {"pile": "discard"}, {"pile": "graveyard"}])
         txt = text_of(c9, ["table", "--top", "2"])
         expect("flow table in text: a heading for each zone with its note, and a line for each card shown",
-               txt.count(" \u2014 ") >= 9 + sum(len(z["cards"]) for z in say(["table", "--top", "2"])[1]["zones"])
+               txt.count(" \u2014 ") >= 11 + sum(len(z["cards"]) for z in say(["table", "--top", "2"])[1]["zones"])
                and "mentor's hand \u2014 0 of 2; room for 2" in txt and "the graveyard \u2014 1 aborted, 1 removed" in txt
+               and f"the goals \u2014 2 open\n  {g1} \u2014 Know every street tree's health by spring (goal, open)\n  {g2} \u2014" in txt
+               and f"the directions \u2014 1 open\n  {d1} \u2014 Sample by street segment (direction, open)\nmentor's deck" in txt
                and f"{c_rank2} \u2014 An earlier ranked common task (task, ready, rank 3)" in txt and "cards, the top 2 shown" in txt)
+        # a board zone with none: still printed, its note saying none is set; a goal reached leaves the open ones
+        with tempfile.TemporaryDirectory() as t9e:
+            r9e = Path(t9e)
+            do_init(r9e, build_parser().parse_args(["init", "--log", "LOG.md"]))
+            ce = Config(r9e)
+            zbe = [z for z in dispatched(ce, ["table"], today=d0, as_json=True, quiet=True)[1]["zones"] if z["kind"] == "board"]
+            txte = text_of(ce, ["table"])
+            expect("a board zone with no record is still there: `none set`, no cards, no room, its `find` selecting nothing; the text prints its heading as a hand's",
+                   [(z["title"], z["count"], z["note"], z["room"], z["cards"]) for z in zbe] == [("the goals", 0, "none set", None, []), ("the directions", 0, "none set", None, [])]
+                   and "the goals \u2014 none set\nthe directions \u2014 none set\nowner's deck" in txte
+                   and dispatched(ce, ["find", "--type", "goal", "--state", "open"], today=d0, as_json=True, quiet=True)[1]["records"] == [])
+        say(["reach", g2, "--reason", "done"])
+        expect("a goal reached leaves the goals' zone, which counts the open ones",
+               [c["id"] for c in zone("the goals")["cards"]] == [g1] and zone("the goals")["note"] == "1 open")
         # the manifest: card, home, the routes and the navigation
         pm = pages_manifest(c9)
         routes9 = {r["path"]: r for r in pm["routes"]}
@@ -7918,9 +7945,10 @@ def table_owners(cfg):
 
 
 def table_zones(cfg, recs, today, top=5):
-    """The table as it lies: one hand and then one deck for each owner, the common deck, the discard pile and the graveyard.
+    """The table as it lies: one hand for each owner, the board's two zones (the open goals and the open directions), one deck
+    for each owner, the common deck, the discard pile and the graveyard.
     A zone is {kind, owner, title, count, note, room, find, cards}; `find` is the query that lists the whole zone, as
-    `flow find`'s flags, and `cards` the ones shown: a hand's all, a deck's first `top`, a pile's none."""
+    `flow find`'s flags, and `cards` the ones shown: a hand's all, a board zone's all, a deck's first `top`, a pile's none."""
     def shown(rs):
         return [summary_of(cfg, r, recs, today) for r in rs]
 
@@ -7932,6 +7960,12 @@ def table_zones(cfg, recs, today, top=5):
         zones.append({"kind": "hand", "owner": o, "title": f"{o}'s hand", "count": len(held),
                       "note": f"{len(held)} of {lim}" if lim else f"{len(held)} held, no limit",
                       "room": max(0, lim - len(held)) if lim else None, "find": {"held": True, "owner": o}, "cards": shown(held)})
+    for t, title in (("goal", "the goals"), ("direction", "the directions")):  # what stands on the board, no card's: every open one, the oldest first
+        if not cfg.has(t):
+            continue
+        open_ = sorted((r for r in recs.values() if r.type == t and r["state"] == "open"), key=lambda r: (str(r["created"] or ""), r.id))
+        zones.append({"kind": "board", "owner": None, "title": title, "count": len(open_), "note": f"{len(open_)} open" if open_ else "none set",
+                      "room": None, "find": {"type": t, "state": "open"}, "cards": shown(open_)})
     for o in owners + [None]:
         deck = sorted(in_deck(recs, o), key=lambda r: card_order(r, "created"))
         standings = Counter(w for r in deck for w in card_standing(cfg, recs, r, today))
@@ -7957,7 +7991,7 @@ def table_text(zones):
                    + (f"; {count_of(z['count'], 'card')}, the top {len(z['cards'])} shown" if z["kind"] == "deck" and z["count"] > len(z["cards"]) else "")
                    + (f"; room for {z['room']}" if z["room"] else ""))
         for c in z["cards"]:
-            out.append(f"  {c['id']} — {c.get('title')} ({c['type']}, {c['standing']}" + (f", rank {c['rank']}" if c["rank"] is not None else "") + ")")
+            out.append(f"  {c['id']} — {c.get('title')} ({c['type']}, {c.get('standing') or c['state']}" + (f", rank {c['rank']}" if c.get("rank") is not None else "") + ")")
     return out
 
 

@@ -24,7 +24,7 @@ Components are found in this order, the first of a name and then the first of a 
 Views: `markdown` (a field rendered as Markdown), `lines` (a list of lines), `list` (the records of an
 answer, laid as cards where the manifest has `card` and as a table of rows where it has none; the query
 string is mapped to the command's flags, a `params` entry with `choices` is a select, and the answer's
-`next` pages it), `table` (the zones of an answer: hands, decks and piles of cards), `record` (one
+`next` pages it), `table` (the zones of an answer: hands, the board's goals and directions, decks and piles of cards), `record` (one
 answer's card, fields, body and sections), `tables` (several answers, one table each) and `check`
 (problems, warnings, coverage).  The manifest's `card` key says how a record is laid on a card's face
 and its `home` which page `/` goes to.  Standard library only, no script in a page and nothing fetched
@@ -365,6 +365,7 @@ box-shadow:var(--lines),var(--glow),var(--shadow);color:var(--ink);text-decorati
 .zone{display:flex;flex-direction:column;gap:14px;margin:0}
 .zone.sep{padding-top:24px;border-top:1px solid var(--line);margin-top:36px}
 .hands{display:flex;flex-wrap:wrap;align-items:flex-start;gap:36px 40px}
+.hands+.hands{margin-top:36px}
 .zh{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}.zh h2{margin:0}
 .zh .note{font-size:13px;color:var(--mut)}
 .void{width:240px;max-width:100%;height:336px;display:flex;align-items:center;justify-content:center;padding:16px;border:2px dashed var(--line);border-radius:10px;font-size:13px;text-align:center;color:var(--mut)}
@@ -793,7 +794,8 @@ class Site:
 
     def view_table(self, comp, rt, ans, title):
         """The table: each zone of the answer, its heading and its cards (a hand's with a dashed place for each free one,
-        a deck's behind a stack of backs carrying its count), the piles in one row at the end."""
+        a board zone's, the goals or the directions, face up with no place and no stack, the two in a row of their own
+        after the hands, a deck's behind a stack of backs carrying its count), the piles in one row at the end."""
         spec = comp.manifest.get("card") or {"id": "id", "title": "title"}
         lst = rt.get("list")
 
@@ -813,12 +815,13 @@ class Site:
             unit = "card" if count == 1 else "cards"
             return f'<span class="stack">{layers}<span class="back b1"><b>{esc(count)}</b><span>{unit}</span></span></span>'
 
-        out, hands = [f'<h1 class="vh">{esc(title)}</h1>'], []
+        out, hands, board = [f'<h1 class="vh">{esc(title)}</h1>'], [], []
 
         def flush():
-            if hands:
-                out.append('<div class="hands">' + "".join(hands) + "</div>")
-                hands.clear()
+            for row, rows in (('hands', hands), ('hands board', board)):
+                if rows:
+                    out.append(f'<div class="{row}">' + "".join(rows) + "</div>")
+                    rows.clear()
 
         piles = []
         for z in [z for z in dig(ans, rt.get("field", "zones")) or [] if isinstance(z, dict)]:
@@ -835,7 +838,12 @@ class Site:
                     pack = f'<div class="pack">{stack(count)}<span class="note">{esc(z.get("note"))}</span>{more}</div>'
                     body = f'{heading(z)}<div class="row">{pack}{cards(z)}</div>'
                 out.append(f'<section class="zone sep">{body}</section>')
+            elif kind == "board":
+                body = heading(z, z.get("note") or "no cards") + (f'<div class="cards">{cards(z)}</div>' if z.get("cards") else "")
+                board.append(f'<section class="zone">{body}</section>')
             else:
+                if board:
+                    flush()
                 room = z.get("room") if isinstance(z.get("room"), int) and not isinstance(z.get("room"), bool) else 0
                 row = cards(z) + '<div class="void">room for one more</div>' * max(0, room)
                 body = heading(z, z.get("note")) + (f'<div class="cards">{row}</div>' if row else '<p class="mut">no cards</p>')
@@ -1033,11 +1041,15 @@ elif cmd == "table":
          "cards": [CARDS[0], CARDS[2]]},
         {"kind": "hand", "owner": "bot", "title": "bot's hand", "count": 1, "note": "1 held, no limit", "room": None, "find": {"held": True, "owner": "bot"},
          "cards": [CARDS[3]]},
+        {"kind": "board", "owner": None, "title": "the goals", "count": 1, "note": "1 open", "room": None, "find": {"type": "goal", "state": "open"},
+         "cards": [CARDS[5]]},
+        {"kind": "board", "owner": None, "title": "the directions", "count": 0, "note": "none set", "room": None, "find": {"type": "direction", "state": "open"},
+         "cards": []},
         {"kind": "deck", "owner": "ann", "title": "ann's deck", "count": 0, "note": "", "room": None, "find": {"deck": "ann"}, "cards": []},
         {"kind": "deck", "owner": "bot", "title": "bot's deck", "count": 2, "note": "2 ready", "room": None, "find": {"held": True, "owner": "bot"},
-         "cards": [CARDS[6]]},
+         "cards": [CARDS[7]]},
         {"kind": "deck", "owner": None, "title": "the common deck", "count": 7, "note": "3 ready", "room": None, "find": {"deck": "common"},
-         "cards": [CARDS[4], CARDS[5]]},
+         "cards": [CARDS[4], CARDS[8]]},
         {"kind": "pile", "owner": None, "title": "the discard pile", "count": 3, "note": "2 done, 1 answered", "room": None, "find": {"pile": "discard"}, "cards": []},
         {"kind": "pile", "owner": None, "title": "the graveyard", "count": 1, "note": "1 aborted", "room": None, "find": {"pile": "graveyard"}, "cards": []}]}
 elif cmd == "show":
@@ -1204,17 +1216,33 @@ def selftest():
         expect("with no home named, `/` stays as it was: a lone component's mount, a home page for several",
                respond(Site([plain]), "/") == (302, "/plain") and respond(Site([plain, plain2]), "/")[1].count('<section class="panel">') == 2)
         code, h = get("/stub/table")
-        names = [esc(n) for n in ("Ann's hand", "Bot's hand", "Ann's deck", "Bot's deck", "The common deck", "Piles")]
+        names = [esc(n) for n in ("Ann's hand", "Bot's hand", "The goals", "The directions", "Ann's deck", "Bot's deck", "The common deck", "Piles")]
         expect("table view: the zones in the answer's order, each heading in the serif face with its first letter raised",
                code == 200 and all(n in h for n in names) and [h.index(n) for n in names] == sorted(h.index(n) for n in names)
-               and h.count("<h2>") == 6 and '<h1 class="vh">Table</h1>' in h)
+               and h.count("<h2>") == 8 and '<h1 class="vh">Table</h1>' in h)
         expect("table view: a hand's cards, then a dashed empty place for each free one, and its note beside the heading",
                h.count('class="void"') == 1 and h.index('class="void"') > h.index("item-003") and '<span class="note">2 of 3</span>' in h
-               and names[0] in h[h.index('<div class="hands">'):h.index(names[2])] and names[1] in h[h.index('<div class="hands">'):h.index(names[2])])
+               and names[0] in h[h.index('<div class="hands">'):h.index(names[4])] and names[1] in h[h.index('<div class="hands">'):h.index(names[4])])
+        hrow = h[h.index('<div class="hands">'):h.index('<div class="hands board">')]
+        brow = h[h.index('<div class="hands board">'):h.index('<section class="zone sep">')]
+        goals = h[h.index(names[2]):h.index(names[3])]
+        expect("table view: the board's zones are a row of their own after the hands' and before the decks, the two sharing it, each a row of cards on their own faces with no dashed place and no stack, its note beside the heading",
+               hrow.count("<section") == 2 and brow.count("<section") == 2 and brow.count("</section>") == 2 and h.count('<div class="hands">') == 1 and h.count('<div class="hands board">') == 1
+               and names[2] in brow and names[3] in brow and names[0] not in brow and '<span class="note">1 open</span>' in goals
+               and goals.count('<a class="cd ') == 1 and 'class="cd k-goal ' in goals and "item-006" in goals and 'class="void"' not in goals and 'class="stack"' not in goals
+               and h.index(names[1]) < h.index('<div class="hands board">') < h.index(names[2]) < h.index(names[3]) < h.index(names[4]))
+        expect("table view: an empty board zone is its heading with its note and no cards, no stack and no dashed place",
+               names[3] + '</h2><span class="note">none set</span></div></section>' in h and 'class="void"' not in h[h.index(names[3]):h.index(names[4])])
+        _site = Site([])
+        _zones = [{"kind": "hand", "title": "a hand", "count": 1, "note": "1 held", "room": 1, "find": {}, "cards": [{"id": "item-001", "type": "idea", "state": "open", "title": "one"}]},
+                  {"kind": "shelf", "title": "a shelf", "count": 1, "note": "1 shelved", "room": 1, "find": {}, "cards": [{"id": "item-002", "type": "goal", "state": "open", "title": "two"}]}]
+        shelf = _site.view_table(types.SimpleNamespace(manifest={"card": {"id": "id", "title": "title", "label": "type", "faces": FACES}}), {"field": "zones"}, {"zones": _zones}, "T")
+        expect("table view: a zone of a kind the dashboard does not know is laid as a hand is, its free places included, in the hands' row",
+               shelf.count('<div class="hands">') == 1 and 'hands board' not in shelf and shelf.count('class="void"') == 2 and "A shelf" in shelf and '<span class="note">1 shelved</span>' in shelf)
         expect("table view: a deck is a stack of backs carrying the count, the note under it and The whole deck, then its cards face up",
                h.count('class="stack"') == 2 and "<b>7</b><span>cards</span>" in h and '<span class="note">3 ready</span>' in h
                and 'href="/stub/list?deck=common">The whole deck</a>' in h and h.index('class="stack"') < h.index("item-005"))
-        expect("table view: an empty deck is its heading and `no cards`, with no stack", names[2] + "</h2><span class=\"note\">no cards</span>" in h)
+        expect("table view: an empty deck is its heading and `no cards`, with no stack", names[4] + "</h2><span class=\"note\">no cards</span>" in h)
         expect("table view: a zone's link is the route's list path with the zone's find as its query, a flag as `1`",
                'href="/stub/list?held=1&amp;owner=bot">The whole deck</a>' in h)
         expect("table view: the piles are one row under a heading Piles, each a small stack with its count and its note and a link to its list",

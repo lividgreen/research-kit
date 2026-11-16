@@ -1,6 +1,6 @@
 # The dashboard
 
-The dashboard serves the records and the cards as a read-only card table on localhost: the table of hands and decks, the lists of cards, each record with its links and back-references, the directions, the artifacts, the tags and the validator's verdict; each work of the library with its notes, extracts and citing sites, the candidates and the watches and the check.
+The dashboard serves the records and the cards as a read-only card table on localhost: the table of hands, goals, directions and decks, the lists of cards, each record with its links and back-references, the directions, the artifacts, the tags and the validator's verdict; each work of the library with its notes, extracts and citing sites, the candidates and the watches and the check.
 The tool is `scripts/dashboard.py` of the [`dashboard`](../../plugins/research/skills/dashboard/SKILL.md) skill (`/research:dashboard` in Claude Code), one Python 3.11 file on the standard library; the `markdown` package renders bodies where it is installed, paragraphs otherwise.
 This page is the tool: its commands, its pages, what it mounts, how a component is written, and its words.
 
@@ -31,10 +31,11 @@ The flow names the table, `/flow`, and the library none.
 **The table** is the flow's home page, the zones of `flow table` in its order, each a heading in the serif, then a row of cards that wraps:
 
 - a hand is its note beside the heading, then its cards and a dashed empty place for each free one where the hand has a limit;
+- the goals and the directions are each a row of the open ones face up, the oldest first, with its note beside the heading, no dashed place and no stack, and the two share one wrapping row of their own, right after the hands' and before the decks; one with none set is its heading and its note;
 - a deck is a stack of card backs with the number of its cards on the top one, its note under the stack and a link, *The whole deck*, to the list of all of it, then its top cards face up; an empty deck is its heading and `no cards`;
 - the two piles are one row under *Piles*, each a small stack with its count and its note beside it, the whole a link to its list.
 
-Findings, goals and directions are in no hand and no deck, and are reached from the navigation, as cards.
+Findings are in no hand and no deck and are reached from the navigation, as cards, and so are the goals and the directions that are no longer open.
 
 **A list** lays the same cards for the flow's `list` route, for the open directions and for the library, under the filter form the route names: a filter with a fixed set of values is a select, any other a text input, and a flag a checkbox.
 A component that has not told the dashboard how to lay its records on a card keeps its table of rows.
@@ -68,6 +69,6 @@ The skill's [`references/protocol.md`](../../plugins/research/skills/dashboard/r
 ## Words
 
 - **component** — a skill whose CLI answers `--json pages`, which the dashboard mounts.
-- **table** — the flow's home page: its zones laid out as hands, decks and piles of cards; also the `table` view a component's route may name.
-- **zone** — one place of the table, a hand, a deck or a pile, the dashboard laying it from the component's own `zones`: its title, its count, its note, its free places, the query that lists all of it and the cards on top.
+- **table** — the flow's home page: its zones laid out as hands, the goals and the directions, decks and piles of cards; also the `table` view a component's route may name.
+- **zone** — one place of the table, a hand, the goals or the directions, a deck or a pile, the dashboard laying it from the component's own `zones`: its title, its count, its note, its free places, the query that lists all of it and the cards on top.
 - **face** — what one entity looks like as a card, laid from the component's `card` key: one of seven, `idea`, `question`, `task`, `finding`, `goal`, `direction` or `work`, or a neutral one.

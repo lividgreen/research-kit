@@ -342,7 +342,7 @@ def main():
               task.name == "task-0001-prove-the-lemma.md" and task.read_text(encoding="utf-8").replace(today, "2026-10-23") == record)
         task.write_text(task.read_text(encoding="utf-8").replace("owner: null\ndrawn: null", f"owner: agent\ndrawn: '{today}'"), encoding="utf-8")
         r = subprocess.run([sys.executable, str(SCRIPTS["flow"]), "check"], capture_output=True, text=True, cwd=lite)
-        failed = re.findall(r"```text\n(.*?)```", started, re.S)[0]
+        failed = re.findall(r"```text\n(.*?)```", started.split("### What a failed check looks like", 1)[1], re.S)[0]
         check("docs/research/getting-started.md shows the failed check as the tool reports it",
               r.returncode == 1 and r.stdout.splitlines()[:2] == failed.splitlines()[:2])
     records = (ROOT / "docs/research/flow-cards.md").read_text(encoding="utf-8")

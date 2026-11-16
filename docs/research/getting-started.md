@@ -1,8 +1,74 @@
 # Getting started
 
 A first project, step by step, as the commands the agent runs and the files they write; you never need to type them, but they show what the agent does and what a record holds.
-The shell blocks below run in order in one empty directory, and the kit's tests run them exactly so.
+From "The records" on, the shell blocks run in order in one empty directory, and the kit's tests run them exactly so.
 In a project with an agent, `/research:research-init` does the setup of the first block and more; [The research setup](research-init.md) says what it probes, asks and writes.
+
+## A fresh project in Claude Code
+
+This is the whole first day in Claude Code, from an empty directory to the first commit, as you would type it; the sections below show what the agent runs behind it.
+The blocks here are fenced as `text`: they are keystrokes and prompts, not a script, and the kit's tests run none of them.
+
+Start in the shell, before Claude Code starts, since the skills load when a session starts, and a plugin installed first needs no restart:
+
+```text
+mkdir my-project && cd my-project
+git init
+claude plugin marketplace add 'lividgreen/research-kit#latest' --scope project
+claude plugin install research@research-kit --scope project
+claude
+```
+
+The first command adds the kit's marketplace at `latest`, the branch each release moves to its tag, and writes it into `.claude/settings.json`; the second installs the `research` plugin and enables it there.
+Both record the install for this project, so a collaborator who clones it has the marketplace and the plugin named in the repository and installs once.
+[Install](../install.md) has the other agents and the other ways in.
+
+Say the setup, the first thing in the session:
+
+```text
+/research:research-init
+```
+
+The agent probes the project and the machine and says in one message what exists, what it will write and what is missing, with the command for each.
+Then it asks with its question tool, each question with its options and a recommended one first.
+The first is the idea of the project, asked alone, since the others are put against it: where the folder's name says what the project is, the agent proposes the idea in a sentence for you to take or reword, and where it does not, it asks for it in your own words, or you decline and the setup goes on.
+An idea can be this plain:
+
+```text
+Whether a short plain-language summary at the top of a report changes how often readers finish it.
+```
+
+The other questions follow together.
+One is the install: which proposals to take, among them the hooks and the pins to the kit's latest release, and the log's name, `WORKLOG.md` by default.
+Another is the evidence forms the project accepts, a choice of several (`stated`, `reference`, `statistical`, `peer-reviewed`, and `formal` only where the folder holds a Lean workspace), each with an example of what it takes; the list is changed later in `flow.toml`.
+You answer; nothing is installed before.
+
+Then the setup writes, and names each file in its report: `flow.toml`, the records directory with `records/INDEX.md`, `INBOX.md` and the log `WORKLOG.md`; `library.toml` and `library/`; a section `## Records and method` in `CLAUDE.md`, which the next session reads; `.pre-commit-config.yaml` with the two hooks, installed in the git repository; and, from your idea, the project's first idea card, with your words in its body, left in the common deck for the first `whatsnext`.
+It commits nothing; the first commit is the freeze's.
+
+Leave Claude Code and run `claude` again.
+The setup wrote the instructions file, which, Claude Code's documentation says, is read at the start of a session.
+It says nothing of a reload within one, and `/clear` is not documented as one.
+In the new session the work begins:
+
+```text
+/research:whatsnext
+```
+
+It reads the project, ranks the next list, and draws the cards the agent will work into its hand, the first idea among them.
+Then the agent works what its hand holds: it reads the idea for what it holds, mints the questions and tasks that follow from it, and consumes the idea once everything in it is folded into them.
+Where the idea names a destination you would commit to or a direction your interest points, the agent asks you in the turn whether to open it as a goal or a direction, with the title drafted from your words, and opens it on your yes; with no such thing in the idea, it opens none.
+To see the cards, run the dashboard, which serves the table of hands, goals, directions and decks on localhost, and, to end the session, the freeze, which saves what the conversation found and no record holds, runs the checks and makes the first commit:
+
+```text
+/research:dashboard
+/research:freeze
+```
+
+A restart is needed in two cases only.
+A plugin installed or updated while a session is open is applied by a restart, or by Claude Code's `/reload-plugins`, which its documentation gives for that.
+After the setup, a new session reads the instructions file.
+A plugin installed before Claude Code starts needs none, as above, and between `whatsnext`, the work, the dashboard and the freeze there is never one: they run in one session.
 
 ## The records
 
@@ -118,7 +184,7 @@ The entry for the result is written by the agent, or by you, in the same commit 
 ### A session's start and end
 
 With an agent, a session starts with `flow state`, and then does what your message asks; where the message leaves open what to do, the agent recommends the next moves, `/research:whatsnext` among them.
-A fresh project starts from an idea: say the idea of the project in your own words, and the agent mints it as an idea card, its body from what you said, for the first `whatsnext` to process; a thought you call an idea, a question or a task is minted as that card, and one you do not name is minted as the agent judges, asking you the kind where it is unsure.
+A fresh project starts from an idea: say the idea of the project in your own words, and the agent mints it as an idea card, its body from what you said, for the first `whatsnext` to process, which asks you in the turn about a goal or a direction the idea holds and mints one on your answer; a thought you call an idea, a question or a task is minted as that card, and one you do not name is minted as the agent judges, asking you the kind where it is unsure.
 `/research:whatsnext`, optionally with a focus (`/research:whatsnext let's focus on the proofs`), reviews what the agent's hand holds, reads the inbox and proposes what to make of each item, ranks the next list with `flow rank` under the goals you have formed and the directions you have set (`flow goal`, `flow direction`, both on your word), and refills the agent's hand from the top of the list; [What is next](whatsnext.md) says the rest.
 It ends with `/research:freeze`, which saves what the conversation found and no record holds, runs `flow state --check` (the log's top entry dated today where the tree changed, every changed record named by an entry, written out or within a range such as `finding-0015…0035`, a record whose only change is its rank not asked to be named), the gates and a commit, and leaves one directive in the inbox for the next session where there is one; [The freeze](freeze.md) says the rest.
 
@@ -177,7 +243,7 @@ It is read-only and reads no record or card file itself: every page is the compo
 
 ## The agent's instructions
 
-Each `init` prints the paragraph the project's agent instructions (`CLAUDE.md`, `AGENTS.md`) should carry, in the project's own words: where the records are, that a state changes only through a transition, that the check runs before a commit, that the ranked list is the schedule.
+Each `init` prints the paragraph the project's agent instructions (`CLAUDE.md`, `AGENTS.md`) should carry, in the project's own words: where the records are, that a state changes only through a transition, that the check runs before a commit, that the ranked list is the schedule, and that the agent names a record to you with its title.
 The skills name no project path themselves; the bindings files do.
 
 ## An existing project

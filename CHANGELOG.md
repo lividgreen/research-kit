@@ -4,6 +4,35 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A patch release on how a session talks with the person: the setup asks with the agent's question tool instead of a list in prose, the agent names a record with its title, and an idea worked can produce a goal and a direction, put to the person first.
+The dashboard's home page shows the open goals and directions right after the hands, and Getting started gains the first day in Claude Code, from the shell to the first commit.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+A project's instructions add the bullet `flow init --print-instructions` prints now, that what the agent writes to the person names a record with its title, the first mention in a message as `task-0012 (the title)`; the setup's step 5 proposes it at its next run.
+A project's own script that reads `flow table --json` finds two zones of the new kind `board` in `zones`, "the goals" and "the directions", between the last hand and the first deck; a script that takes every zone for a hand, a deck or a pile reads or skips them as it chooses.
+
+The `research` plugin:
+
+- The setup's questions all go through the agent's question tool where it has one, each with its options and the recommended one first, and in the turn only where the agent has no such tool: the plan stays one message of prose with no question list.
+  The idea of the project comes first, where `flow.toml` is absent and no document has a References section: the agent proposes it in one sentence of its own where the folder's name and the probe say what the project is, with the options to take it and to record no idea now, and asks for it in the turn as free text where they do not.
+  The install, the evidence forms as a multi-select, and the reviews' question follow in one call; `formal` is offered among the forms only where the probe finds a Lean workspace or `formal.toml`.
+  A proposed idea taken by the person is minted with a body that says the wording is the agent's reading of the folder's name, taken by the person on that day.
+- The agent names a record to the person with its title: a first mention in a message is `task-0012 (the title)`, later mentions in the same message the id alone, a few records are named each and never as a range of ids.
+  The rule stands in the `flow` skill's "The session", in `flow.md` and in the paragraphs `flow init --print-instructions` prints; the log keeps its own rule, a pointer by id.
+- An idea worked can produce goals and directions: before an idea is consumed the agent reads it for a destination the person would commit to and for where their interest points, puts what it finds to the person with its question tool, the goal's title drafted from their words, and mints on their answer (`flow goal "…" --ref IDEA`, `flow direction "…" --ref IDEA`), giving the questions it minted from the same idea `--serves`.
+  One left unanswered is a decision open at the turn's end, a task in the person's deck whose title names the decision, minted `--ref IDEA`; no card is blocked on it, an idea being never blocked, and the idea is consumed like any other once the rest of it is folded.
+  On the person's answer the task is made with it, the goal or the direction is minted `--ref IDEA`, and the idea's questions are given it with `flow serves`; a goal or a direction the agent sees elsewhere is put to the person in the same way, and none is minted unasked.
+  "Propose in the log entry" leaves the `flow` skill's "Goals and directions" and `whatsnext` step 6, and the pages that repeated it.
+- Getting started opens with "A fresh project in Claude Code": the shell commands before Claude Code starts, the first session with the setup's questions, a new session for the work, `whatsnext`, the dashboard and the freeze, and when a restart is needed; Install and the setup's page point at it.
+- `flow table` has a fourth kind of zone, `board`: "the goals" and "the directions", two zones after the last hand and before the first deck, each holding every open record of its kind as a card, the oldest first, with `--top` cutting neither; `count` is their number, `note` says `2 open` or `none set`, `room` is null, and `find` is `{"type": "goal", "state": "open"}` or the same for a direction.
+  A zone with none is still printed, and the text prints a board zone as it prints a hand.
+- The dashboard's home page lays the goals and the directions right after the hands: a row of cards on their own faces, no free places and no stack of backs, the two sharing a wrapping row of their own, right after the hands' row and before the decks, an empty one showing its note; a zone of a kind the dashboard does not know is laid as before.
+
+The `formal` plugin:
+
+- `formal-init` asks its one question through the agent's question tool where it has one, and in the turn otherwise.
+
 ## v0.11.0 — 2026-11-16
 
 What a session does with the person's own words: a thought they call an idea, a question or a task is minted as that card, a fresh project starts from the idea of the project, and a session starts with the flow's state and then does what their message asks.

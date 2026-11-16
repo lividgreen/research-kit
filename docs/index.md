@@ -22,7 +22,7 @@ Install the plugin ([Install](install.md)), open your agent in a project and tal
 | "Let's look into it." | The idea becomes a question with what would settle it, split into tasks you see before they are written. |
 | "What's next? Let's focus on the proofs." | What you left in the inbox is read and a record proposed for each item, the ranked list is refreshed under that focus with a reason for each rank, and the agent's hand is refilled from the top of it. |
 | "Add Stuart and Humphries (1996) to the library; I read chapter 2." | A card for the book records how far it was read, and a citation of it is checked against that. |
-| "Show me the dashboard." | The table of hands, decks and piles opens as a read-only page on localhost, the records laid as cards. |
+| "Show me the dashboard." | The table of hands, goals and directions, decks and piles opens as a read-only page on localhost, the records laid as cards. |
 | "Where were we?" | The session summary is printed, and the work goes on from the agent's hand. |
 | "Let's freeze here." | What the session found and did not record is saved to the records, the checks run, and the work is committed for the next session. |
 
