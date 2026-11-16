@@ -4,6 +4,28 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A patch release on three details of the first day: a goal is read from an idea while the idea is worked, the project's instructions state no card, and `formal` is always among the evidence forms offered.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+A project may take a sentence that restates a goal or the idea of the project out of its own instructions, which the setup's step 5 names at its next run.
+`flow state` now prints the open goals and the open directions, one line each, before the ranked list; a project's own script that reads its lines finds them there.
+
+The `research` plugin:
+
+- `whatsnext` works no card: it reads a card to rank it, and what an idea holds, a goal, a direction, its open terms, is found out when the idea is worked from a hand, after the refill; it puts no question to the person about what an idea in a deck holds and mints nothing from one.
+  Step 6 leaves a goal or a direction an idea holds to that working, and the `flow` skill's "The mints" says the reading of an idea for them is part of working it, done while the idea is held and before it is consumed; one in an idea not yet drawn waits for it, and one the agent meets in a finding or in the person's own words is put to them in the turn.
+  "The next `whatsnext` processes it" becomes that the next `whatsnext` ranks and draws the idea and the session works it from the hand.
+- The setup's instructions state no card: the section `## Records and method` holds how the project works with its records, the bindings, the rules that stand before a skill is loaded and what each evidence form means, and no idea, goal, direction, question or task, in its own words or reworded, and no description of what the project is about, which the records say and `flow state` prints.
+  A file the setup creates holds a title, one line saying that what the project is for is in its records, and the section; at a re-check a sentence of the section that restates a card is named with the edit proposed, on the person's word, and the rest of the file is left.
+- `freeze` sends a ruling to where the project keeps its rules and never a card's content.
+- `flow state` prints the open goals and the open directions, each with its `FILE:LINE`, between the due list and the ranked list, and nothing where there are none; the questions serving each are not printed, the ranked list carrying each question's `serves`.
+- The setup offers the five evidence forms in every project, `formal` among them, where v0.11.1 offered it only where the probe found a Lean workspace or `formal.toml`; the question is split in two where the agent's tool takes fewer than five options, and no form is left out.
+  The `formal` option says, where the probe finds no `formal.toml`, that taking it brings the `formal` plugin installed and its setup run, which needs a Lean workspace.
+  Where the person takes it and `formal.toml` is absent, the setup keeps `formal` in `[evidence] forms`, proposes the plugin's install where it is not installed (`claude plugin install formal@research-kit --scope project` under Claude Code, `docs/install.md` for another agent) and runs it on the person's word, and mints one task in the person's deck for what is left to them: a new session or a plugin reload, then `/formal:formal-init`, until which `flow check` reports formal evidence unchecked; the report names that task among the first moves.
+  The setup creates no Lean workspace and installs no prover.
+- The probe's `Lean workspace` item, where none is found, says that the `formal` plugin is needed only where the project accepts `formal` evidence.
+
 ## v0.11.1 — 2026-11-16
 
 A patch release on how a session talks with the person: the setup asks with the agent's question tool instead of a list in prose, the agent names a record with its title, and an idea worked can produce a goal and a direction, put to the person first.

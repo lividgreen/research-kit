@@ -274,7 +274,7 @@ def project(root):
         if "lakefile.toml" in filenames or "lakefile.lean" in filenames:
             lake.append(Path(dirpath).relative_to(root).as_posix())
     items.append({"item": "Lean workspace", "need": "found" if lake else "none", "ok": True,
-                  "detail": ", ".join(lake) + "; the formal plugin's init sets the prover side up" if lake else "no lakefile under the root; the formal plugin is not needed"})
+                  "detail": ", ".join(lake) + "; the formal plugin's init sets the prover side up" if lake else "no lakefile under the root; the formal plugin is needed only where the project accepts formal evidence"})
     pc = root / ".pre-commit-config.yaml"
     if pc.is_file():
         try:
@@ -1274,6 +1274,9 @@ def selftest():
         rep3 = probe(bare)
         by3 = {it["item"]: it for it in rep3["project"]}
         expect("a directory outside any repository fails the repository item", not by3["git repository"]["ok"])
+        expect("where no Lean workspace is found, its detail says the formal plugin is needed only for formal evidence",
+               by3["Lean workspace"]["need"] == "none" and "only where the project accepts formal evidence" in by3["Lean workspace"]["detail"]
+               and "not needed" not in by3["Lean workspace"]["detail"])
         text = render(rep3)
         expect("the report ends with its coverage line", text.splitlines()[-1].startswith("setup probe: ") and "wrote nothing" in text)
         expect("the environment names the required items", {it["item"] for it in rep3["environment"] if it["need"] == REQUIRED} == {"python", "git", "pre-commit runner"})

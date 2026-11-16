@@ -15,6 +15,7 @@ The question is: what do we do next, for the whole project?
 `flow …` below is the `flow` skill's `scripts/flow.py`, run by its path from the project root as that skill says.
 Where the `flow` skill is not loaded, load it before the steps: no record is minted without it.
 A focus the person gives with the command, "let's focus on the research tasks", biases the ranking as a direction does and never orders it.
+It works no card: a card is read to be ranked, and what an idea holds, a goal, a direction, its open terms, is found out when the idea is worked from a hand, after the refill; no question about what an idea in a deck holds is put to the person here, and nothing is minted from one.
 
 1. **Review the agent's hand.**
    `flow state` prints each hand's held cards with their drawn dates and ages.
@@ -24,7 +25,7 @@ A focus the person gives with the command, "let's focus on the research tasks", 
    A task handed to a prover session stays held, since its handoff's landing closes it.
    A card whose work landed was closed by its own transition, which cleared its rank and took it out of the hand; one that stalled is returned or passed here, and parked only where it is set down by decision.
 2. **Read the inbox.**
-   `flow state` prints it first, then the ranked list, the hands, the decks and the log's top State paragraph.
+   `flow state` prints it first, then the open goals and directions, the ranked list, the hands, the decks and the log's top State paragraph.
    For each item the person left, propose what it becomes: an idea, a question or a task minted, its kind named by the item's own word as the `flow` skill's part "What the person says" says, a goal or a direction the person opens (`flow goal`, `flow direction`, minted on their word alone), an act done in the turn, or nothing, with the reason.
    Make the records the person agrees to, name each item in the log entry, and remove it from the inbox; an item the person has not answered stays.
    A directive a freeze left for this session is the first move, unless the person says otherwise.
@@ -56,7 +57,7 @@ A focus the person gives with the command, "let's focus on the research tasks", 
    Mint newly seen residues, each into a deck and never into the hand: `flow idea "…" --summary "…"` for an idea, `flow question "…" --summary "…" --ref IDEA` for a question from one (`flow consume IDEA` once the idea is fully processed), or `flow question "…" --summary "…" --ref FINDING` from the finding that exposed it — a question of its own, its body saying what counts as an answer, never a line added to the question it came from — and the ones that are plainly the person's or the agent's `--for` that owner.
    Cards minted ahead stand in the decks; where two of them have an obvious order, the later one is blocked on the earlier, `flow block LATER --on EARLIER --reason "…"`, before the refill, which then passes over it, and cards that can be worked in parallel carry no block; a reference between cards says nothing of order.
    Record the read of each question the session opened in step 3 or touched here with `flow checked ID …`, where no `flow rank ID N` refreshed it already; `--set` asserts no read.
-   Goals and directions are the person's: one the agent sees, while ranking, in the inbox, in a finding or most often in an idea it works, is put to them with its question tool in the turn as the `flow` skill's "The mints" says, and one is minted or closed (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal reached or given up, or a direction dropped, clears nothing on its questions, and the notice it prints names them: each is decided on here, re-ranked, given another goal or direction with `flow serves`, or left.
+   Goals and directions are the person's: one the person names in an inbox item is step 2's, and one an idea holds is put to them while the idea is held and worked, as the `flow` skill's "The mints" says, and never here; one is minted or closed (`flow goal`, `flow reach`, `flow giveup`, `flow direction`, `flow drop`) only on their word; a goal reached or given up, or a direction dropped, clears nothing on its questions, and the notice it prints names them: each is decided on here, re-ranked, given another goal or direction with `flow serves`, or left.
 7. **Refill the agent's hand.**
    `flow draw --refill --owner agent` (`agent` is the agent's name as `[hand]` names it by default, and a project that names its hands otherwise uses its own name here and below) draws by rank from the top every ready card of the common deck and the agent's own, ideas, questions and tasks alike, until the hand's limit.
    It prints each card drawn, each ranked card it passed over with why, and the hand as `3 of 4` with the room left; an unranked card is never drawn by it, and a card parked or blocked is unparked or unblocked first only with a reason.
