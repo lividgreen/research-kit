@@ -427,7 +427,14 @@ def resolve_target(cfg, index, target, public=False, bare=True):
         module = path[:-len(".lean")].replace("/", ".")
         if not module_path(cfg, module).is_file():
             base = cfg.packages.get(module.split(".")[0], cfg.workspace)
-            return f"{path} is not a file under {Path(os.path.relpath(base, cfg.root)).as_posix()}/"
+            under = Path(os.path.relpath(base, cfg.root)).as_posix() + "/"
+            why = f"{path} is not a file under {under}"
+            ws = Path(os.path.relpath(cfg.workspace, cfg.root)).as_posix() + "/"
+            if ws != "./" and path.startswith(ws):  # written from the project's root: the path is relative to the workspace
+                rest = path[len(ws):]
+                if rest.endswith(".lean") and module_path(cfg, rest[:-len(".lean")].replace("/", ".")).is_file():
+                    return f"{why}: a path is relative to the workspace {ws}, did you mean {rest + target[len(path):]}?"
+            return why
         if mod:  # a whole module as evidence: it must be a manifest module
             return None if module in modules else f"module {module} is not in the manifest"
         name, scope = d.group(2), module if module in modules else None
@@ -2822,6 +2829,12 @@ def resolve_scenarios(root, expect):
            "is not in the manifest" in rt("Lib/A.lean#nope") and "is not declared in Lib.A, the module of Lib/A.lean" in rt("Lib/A.lean#Cond"), str(rt("Lib/A.lean#Cond")))
     expect("resolve: a path that is no file of the package, and a file that is no manifest module, are refused",
            "Lib/Zed.lean is not a file under ws/" in rt("Lib/Zed.lean#x") and "Lib/Zed.lean is not a file under ws/" in rt("Lib/Zed.lean"))
+    expect("resolve: a path written from the project's root is answered with the workspace-relative one, its declaration kept",
+           rt("ws/Lib/A.lean#kb_le") == "ws/Lib/A.lean is not a file under ws/: a path is relative to the workspace ws/, did you mean Lib/A.lean#kb_le?"
+           and rt("ws/Lib/A.lean") == "ws/Lib/A.lean is not a file under ws/: a path is relative to the workspace ws/, did you mean Lib/A.lean?",
+           str((rt("ws/Lib/A.lean#kb_le"), rt("ws/Lib/A.lean"))))
+    expect("resolve: a path from the root whose remainder is no file keeps the plain message",
+           rt("ws/Lib/Zed.lean#x") == "ws/Lib/Zed.lean is not a file under ws/")
     (root / "ws" / "Lib" / "D.lean").write_text("namespace Lib.D\nend Lib.D\n")
     expect("resolve: a module with no `module` row is not a manifest module", rt("Lib/D.lean") == "module Lib.D is not in the manifest")
     expect("resolve: a hypothesis, an instance and a uses row name no declaration",

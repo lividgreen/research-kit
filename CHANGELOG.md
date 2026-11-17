@@ -4,6 +4,28 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A patch release on small details: `flow check` no longer warns that a parked question needs a task, a `formal:` path written from the project's root is answered with the workspace-relative one, a transition writes the index before it prints, and the skills and the install page say how `flow find --value none` reads and how a commit after a transition stages the move.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+A parked question no longer prints the `needs a task` warning, so a project's check output has one line fewer for each.
+
+The `research` plugin:
+
+- `flow check` skips the `needs a task or an answer` warning on a question that is parked, since parking is the decision to set it down; an open question that is not parked warns as before.
+- A transition writes the index straight after the transition's records, before it prints its first line, so an output pipe closed early (`| head -1`) leaves no stale index; `index refreshed: …` stays the last line.
+- `flow find --value none` is said, in the `flow` and `whatsnext` skills and the parser's help, to list every card with no value, the closed among them, and `--state open` with it the live ones, which are the cards to judge; the command is unchanged.
+- The `flow` skill says that a `formal:` path is relative to the formal workspace, and that a commit after a transition stages the records directory whole, since a hook runner leaves an untracked move out of its stash and `flow-check` then fails a commit of anything else.
+
+The `formal` plugin:
+
+- `formal resolve`, and so the flow's `formal:` evidence, answers a path written from the project's root with the workspace's directory in front (`ws/Lib/A.lean#decl`) with `a path is relative to the workspace ws/, did you mean Lib/A.lean#decl?`; any other path that is no file keeps its message.
+- The `land` skill says that a `formal:` path is relative to the workspace.
+
+The documentation:
+
+- Install, by the hooks, says how a commit after a transition stages the move, and the flow's page and the cards page say the sentences of the skills on the parked question's warning, `--value none` and the `formal:` path.
+
 ## v0.11.3 — 2026-11-17
 
 A patch release before the kit is shown publicly, on the details the first test projects showed: a transition's line names the record by its title, `flow reflow` stops failing on the index and on a draft's first line, the setup proposes a markdownlint configuration, `whatsnext` asks only what the agent's tool accepts, and the README and the entry pages are brought to the kit as it stands, with its pre-1.0 status stated.

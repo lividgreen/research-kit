@@ -193,7 +193,7 @@ A finding, a goal and a direction carry neither.
 The agent judges the `value` at every mint of a card, and the `size` at a question's and a task's, from the card's title, its summary and the work it opens; it leaves `--value` out only where it cannot judge, and the card is judged later.
 It changes either with `flow set ID value V --note "why"` or `flow set ID size S --note "why"` when the person says so or the work shows the judgment was wrong (a consequence, a discussion, a finding), the note saying what changed it; `none` clears one, and a question's `checked` stays as it was.
 A value is a judgment, never a rank: it moves no card up the ranked list by itself, and a rank is still the agent's order, `whatsnext` reading the value and the size when it sets it.
-`flow find --value V` lists the ideas, questions and tasks of that value, and `flow find --value none` the cards not judged.
+`flow find --value V` lists the ideas, questions and tasks of that value, and `flow find --value none` every card not judged, the closed among them, `--state open` with it giving the live ones, which are the cards to judge.
 The check fails a value outside `[card] values`, and nothing warns on a card not judged.
 
 ## The closings
@@ -218,6 +218,9 @@ The check fails a value outside `[card] values`, and nothing warns on a card not
 Every closing clears the card's `owner` and `drawn` and keeps its `started`, and `flow reopen` brings the card back into the common deck.
 A task closes one of three ways: made (state `done`), held or not, aborted when started and failed, held or not, or removed with a reason while never started.
 A closed task moves to the archive at its closing transition, so the record directories show the live front of work.
+A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, so a transition's move that is not staged, the file at its old path restored and its new path untracked, fails `flow-check` on a commit of anything else.
+A commit made after a transition stages the records directory whole (`git add -A` on it), and a batch of transitions is committed at once.
+A session that shares a working tree with another and commits only its own paths commits from a work tree of its own.
 A done task with no resolution is never legitimate: the resolution says what was done, and the archived task keeps what was asked and its notes.
 A residue sharp enough to name becomes a task, a question or an idea of its own, minted after the make with `--ref T`, rather than prose in the resolution or a line appended to a question's body.
 A design round on no question is a task tagged `design`: drawn before the round, closed by make or abort with the round record as its resolution and its discarded options one line each inside that record; a round on a question is the held question, its record a dated note (the session, above).
@@ -308,7 +311,7 @@ A transition that closes a ranked record closes the ranks up, and prints each re
 - Every body is one sentence per line; the committed index equals a fresh render.
 - Every library key a record cites is a card the library holds, where a library is bound.
 
-The warnings, never failures: an open question whose tasks are all closed, a due date passed, a closed record's body linking a path that is gone, evidence reported unchecked.
+The warnings, never failures: an open question whose tasks are all closed (not a parked one: parking is the decision to set it down), a due date passed, a closed record's body linking a path that is gone, evidence reported unchecked.
 `flow check` prints a coverage line saying which resolvers were configured, so a green says what it did not look at; on a failure it names the command that reproduces it, for a session where no skill is loaded.
 `flow.py --selftest` plants one defect per code the check reports, fails when one is planted nowhere, and must stay green.
 
@@ -401,7 +404,7 @@ The kit ships five forms, words with no rank, and a project picks the ones it ac
 
 | Form | Example | Resolved against |
 | --- | --- | --- |
-| `formal` | `formal:Lib/Foo.lean#lemma_L`, or a whole module `formal:Lib/Foo.lean` | machine-checked: asked of the resolver, `formal resolve --protocol` of the `formal` plugin, which answers from the manifests `formal.toml` binds and whose rules (the module a path names, the names a declaration answers to) are its own; the flow reads no manifest |
+| `formal` | `formal:Lib/Foo.lean#lemma_L`, or a whole module `formal:Lib/Foo.lean` | machine-checked, the path relative to the formal workspace, not to the project's root: asked of the resolver, `formal resolve --protocol` of the `formal` plugin, which answers from the manifests `formal.toml` binds and whose rules (the module a path names, the names a declaration answers to) are its own; the flow reads no manifest |
 | `statistical` | `statistical:probes/p.py`; `statistical:results/run.md#FV-1`; `statistical:results/run.md#measured-rates` | the project's own data: a self-asserting script, named with its directory, listed in the probes register the project binds (`[evidence] probes`, a Markdown table whose first column holds the file's name in backticks); or a committed result by its path, with an anchor checked as a document's is where it has one; a result too big to commit is named by its probe alone |
 | `peer-reviewed` | `peer-reviewed:jen1990`, `peer-reviewed:jen1990#lemma` | a card of the reference library the project binds, by its key, an extract after `#` |
 | `stated` | `stated:papers/alpha.md#Theorem 2.1`; `stated:papers/alpha.md#FV-1`; `stated:docs/adr/0003.md#decision` | the project's own word, a document of the project and an anchor in it: a table row whose first cell is the id, two or three capitals, a hyphen, then letters and digits (`\| FV-1 \|`; `[evidence] row_id` binds another pattern); a numbered statement — Theorem, Proposition, Lemma, Corollary, Definition, Remark, Fact, Conjecture or Example, then `N` or `N.M…`, found at a line start, after `**` or in a heading (`[evidence] statement_words` binds other words, a symbol such as `§` taking its number with no space); or a heading, by the anchor GitHub gives it, a repeated one numbered `-1`, `-2` |
