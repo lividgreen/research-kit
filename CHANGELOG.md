@@ -2,6 +2,8 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
+## Unreleased
+
 ## v0.11.4 — 2026-11-18
 
 A patch release on small details: `flow check` no longer warns that a parked question needs a task, a `formal:` path written from the project's root is answered with the workspace-relative one, a transition writes the index before it prints, and the skills and the install page say how `flow find --value none` reads and how a commit after a transition stages the move.
