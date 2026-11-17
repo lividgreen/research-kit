@@ -1757,7 +1757,7 @@ def validate(cfg, recs, today):
                                   f"(`flow finding … --ref TASK`, then `flow answer`), or the question reads as removed")
             elif by is not None:
                 bad("V18", r, f"answered_by on a question that is {r['state']}")
-            if r["state"] == "open":
+            if r["state"] == "open" and r["parked"] is None:
                 ts = tasks_of.get(r.id, [])
                 if ts and all(x["state"] in CLOSED_TASK for x in ts):
                     warnings.append(f"{r.id}: needs a task (`flow task TITLE --summary S --ref {r.id}`) or an answer (every task closed)")
@@ -5793,6 +5793,8 @@ def selftest():
                any(f"{wt}: due 2026-09-01 has passed" in w for w in warnings) and not any(q4 in w for w in warnings))
         was = {k: load_all(cfg)[wt][k] for k in ("state", "references")}
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="done", references=[q4]))
+        parked_q4 = load_all(cfg)[q4]["parked"]  # a parked question draws no such warning, so the tests below read it unparked
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=None))
         _, warnings, _ = validate(cfg, load_all(cfg), today)
         run(["index"])
         expect("an open question whose every task is closed is warned of as needing a task or an answer, and the index's section says so",
@@ -5811,6 +5813,16 @@ def selftest():
         _, warnings, _ = validate(cfg, load_all(cfg), today)
         expect("planted: the same task open, the question referencing it is not warned of",
                not any(f"{q4}: needs a task" in w for w in warnings))
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="done"))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked={"date": today, "reason": "set down", "revival": "when it matters"}))
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        expect("a parked question whose every task is closed is not warned of as needing a task",
+               not any(f"{q4}: needs a task" in w for w in warnings))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=None))
+        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        expect("the same question unparked is warned of again",
+               any(f"{q4}: needs a task" in w for w in warnings))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=parked_q4))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(references=was_q4))
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(**was))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(blocked_by={"date": today, "on": ["2026-09-01", q3], "reason": "both"}))
@@ -6053,6 +6065,17 @@ def selftest():
                            capture_output=True, text=True)
         expect("the command line reads `pass --to` as the pass's flag, never as an abbreviation of the global --today",
                r.returncode == 0 and card(t1)["owner"] is None and card(t1)["drawn"] is None and "passed from owner to common" in card(t1).body)
+        flow_cmd = [sys.executable, __file__, "--root", str(root), "--today", today]
+        was_clean = subprocess.run(flow_cmd + ["check"], capture_output=True, text=True).returncode == 0
+        pipe = subprocess.Popen([flow_cmd[0], "-u", *flow_cmd[1:]] + ["idea", "An idea minted with the output closed", "--summary", "s"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        pipe.stdout.close()  # unbuffered, so the first print meets the closed pipe, as `| head -1` goes
+        pipe.wait()
+        r = subprocess.run(flow_cmd + ["check"], capture_output=True, text=True)
+        expect("a transition whose output is closed early still writes the index first: the check is as clean as before it",
+               was_clean and r.returncode == 0 and any(x["title"] == "An idea minted with the output closed" for x in load_all(cfg).values()))
+        for x in [x for x in load_all(cfg).values() if x["title"] == "An idea minted with the output closed"]:
+            x.path.unlink()  # the tree goes on as it was
+        dispatched(cfg, ["index"], today=today, as_json=True, quiet=True)
         p = go(["pass", t1, "--to", "common", "--note", "again"], ok=False)
         expect("a card passed to the common deck has owner null, and pass refuses the common deck's own", card(t1)["owner"] is None and "common deck already" in said(p))
         # a held card that must wait is returned by the park or the block in the same command, which says so
@@ -7380,6 +7403,13 @@ def selftest():
         expect("find --value lists the cards of that level, and `none` the cards not judged, a finding among neither",
                found(["find", "--value", "high"]) == sorted([i1, q0, q1]) and found(["find", "--value", "none"]) == sorted([i0])
                and found(["find", "--value", "low", "--type", "task"]) == sorted([t1, t0]))
+        qw = say(["question", "A question found wrong, never judged"])[1]["created"][0]
+        rc, pl = say(["wrong", qw, "--reason", "it asks the wrong thing"])
+        expect("find --value none lists a closed card too, and --state open with it only the live ones",
+               rc == 0 and qw in found(["find", "--value", "none"]) and qw not in found(["find", "--value", "none", "--state", "open"])
+               and found(["find", "--value", "none", "--state", "open"]) == [i0])
+        load_all(c8)[qw].path.unlink()
+        say(["index"])
         rc, pl = say(["find", "--value", "huge"])
         expect("find --value refuses a word outside the list, naming it and `none`", rc == 1 and "low, medium, high, nor `none`" in pl["problems"][0]["msg"])
         rc, pl = say(["check"])
@@ -7861,7 +7891,7 @@ def build_parser():
     p = sp.add_parser("find")
     for f in ("type", "state", "tag", "owner", "grep"):
         p.add_argument("--" + f)
-    p.add_argument("--value", help="the ideas, questions and tasks of that value, one of `[card] values`; `none` the cards not judged")
+    p.add_argument("--value", help="the ideas, questions and tasks of that value, one of `[card] values`; `none` every card not judged, the closed among them (`--state open` with it, the live ones)")
     p.add_argument("--form", action="append", help="a finding's evidence form; repeatable, a finding listed when it carries every one given")
     p.add_argument("--only", action="store_true", help="with --form: the findings whose evidence carries those forms and no other")
     p.add_argument("--refers", metavar="ID|PATH", help="the records naming ID or PATH by a link, an evidence item, a source that is a path or a body link")
@@ -8242,6 +8272,8 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["notices"] = notices(recs, before, created, changed)
             said = {n["id"]: n["refers"] for n in out["notices"]}
             recs = load_all(cfg)  # the records as the transition wrote them, so a record it minted has its title for the lines below
+            cfg.index.parent.mkdir(parents=True, exist_ok=True)
+            write_whole(cfg.index, render_index(cfg, recs))  # before the first line is printed: an output closed early leaves no stale index
             for r in created:
                 emit(f"created {r.id} — {r['title']}  ({rel(cfg, r.path)})")
             if a.cmd == "task":  # a task minted from a ranked question takes its place on the list
@@ -8288,9 +8320,6 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 out["after"] = changed[0]["after"]
                 emit(f"after {with_title(recs, changed[0].id)}")  # the instruction is free text, so it is a line of its own
                 emit(f"  {changed[0]['after']}")
-            recs = load_all(cfg)
-            cfg.index.parent.mkdir(parents=True, exist_ok=True)
-            write_whole(cfg.index, render_index(cfg, recs))
             emit(f"index refreshed: {rel(cfg, cfg.index)}")
         elif a.cmd == "find":
             hits = cmd_find(cfg, recs, a, today)

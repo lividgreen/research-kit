@@ -169,7 +169,7 @@ An evidence item's form is one of the words `[evidence] forms` lists; the kit sh
 
 | Form | Example | Resolved against |
 | --- | --- | --- |
-| `formal` | `formal:Lib/Foo.lean#lemma_L`, or a whole module `formal:Lib/Foo.lean` | machine-checked: asked of the resolver, `formal resolve --protocol` of the `formal` plugin, which answers from the manifests `formal.toml` binds ([The flow](flow.md#evidence-resolvers) has the protocol) |
+| `formal` | `formal:Lib/Foo.lean#lemma_L`, or a whole module `formal:Lib/Foo.lean` | machine-checked, the path relative to the formal workspace, not to the project's root: asked of the resolver, `formal resolve --protocol` of the `formal` plugin, which answers from the manifests `formal.toml` binds ([The flow](flow.md#evidence-resolvers) has the protocol) |
 | `statistical` | `statistical:probes/p.py`; `statistical:results/run.md#FV-1` | the project's own data: a probe listed in the register of `[evidence] probes`, a Markdown table whose first column holds the file's name in backticks; or a committed result by its path, a row anchor checked as a document's |
 | `peer-reviewed` | `peer-reviewed:jen1990`, `peer-reviewed:jen1990#lemma` | a card of the bound reference library, by its key; an extract after `#` |
 | `stated` | `stated:papers/alpha.md#Theorem 2.1`; `stated:papers/alpha.md#FV-1` | the project's own word: a numbered statement of a document of the project — Theorem, Proposition, Lemma, Corollary, Definition, Remark, Fact, Conjecture or Example, then its number, at a line start, after `**` or in a heading — or a table row of it whose first cell is the id, two or three capitals, a hyphen, then letters and digits |

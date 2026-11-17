@@ -189,6 +189,9 @@ With a Lean workspace, `/formal:formal-init` follows for the prover side ([The f
 ```
 
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the setup proposes one where none is on PATH.
+A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, so a transition's move that is not staged, the file at its old path restored and its new path untracked, fails `flow-check` on a commit of anything else.
+A commit made after a transition stages the records directory whole (`git add -A` on it), and a batch of transitions is committed at once.
+A session that shares a working tree with another and commits only its own paths commits from a work tree of its own, as [Several sessions in one tree](#several-sessions-in-one-tree) says.
 Each check reads its bindings file at the project root; a project with no `flow.toml`, `library.toml` or `formal.toml` leaves that hook out.
 A bindings file names code that runs — the reflow module, the library's command, the resolvers of `[evidence.resolvers]` and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
 To update the hooks, set `rev` to the latest tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it); the plugins follow the releases through the marketplace's `latest`, as the next section says.
