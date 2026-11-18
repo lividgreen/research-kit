@@ -39,6 +39,13 @@ Each tool's page in the [documentation](README.md) lists everything its check ve
 You talk to the agent as you already do, and the skills fold the kit into that conversation: "Where were we?" prints the session summary and the work goes on from the agent's hand; "Add this book to the library; I read chapter 2" writes a card, and a citation of that book is then checked against how far it was read.
 [How to use](how-to-use.md) has more.
 
+The records move along one pipeline.
+An idea, a question and a task are the cards a session draws into its hand, and each can produce more of its own kind.
+An idea, worked, can produce any other record: a goal, a direction, a question, a task or a finding.
+A goal and a direction lead to questions, a question to its tasks and findings, and a task's work to findings; a card may also come straight from the conversation with the person.
+
+![research-kit's pipeline](assets/diagrams/pipeline.svg)
+
 Every tool is a single Python 3.11 script with no dependencies, and all the data is plain Markdown that can be read without the kit.
 
 ## Where it runs
