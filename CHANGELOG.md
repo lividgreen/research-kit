@@ -4,6 +4,31 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A patch release that corrects three readings of v0.11.5: a done task stores the day it closed, a park's `changed` line carries its date, and every park names its revival.
+
+**Upgrading**: not a breaking release, though it asks one step of a project.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+Run `flow doctor --fix` once before `flow check`: a done task now carries `closed: {date: DAY}`, and `flow check` fails V17 on every done task until the doctor has written it, from the date of the task's first `resolution:` note; a done task with no such note is a line for the hand, which sets the day from the file's history.
+A park's `changed` line now reads `parked since DATE` where it read `parked`, and `parked since DATE, blocked` where the card is blocked too, which matters for a project's own script that matches the line; the lists and `--json` are unchanged.
+`flow park` now needs `--revival`: a park without one, or with an empty one, is refused, and a restate names both the reason and the revival.
+
+The `research` plugin:
+
+- `flow make` writes `closed: {date: DAY}` on the task it closes, the day of the command and no reason; `flow check` fails V17 on a done task without the date, its message naming `flow doctor`, and on a done task that carries a reason; an aborted or removed task keeps its date and reason, and no other good ending takes a `closed`.
+  A task's closing day is the date of its `closed` alone, so the warning on a question whose tasks are all closed and the index's section read it from there and no longer from the `resolution:` note.
+- `flow doctor` names each done task with no `closed` day, an archived one included, as a mechanical class, `done-day`, and `flow doctor --fix` writes `closed: {date: DAY}`, DAY being the date of the task's first `resolution:` note in the form `flow make` writes; a done task with no such note is a line for the hand, which says to set the day from the file's history.
+- A transition's `changed` line that gives a card's standing as parked reads `parked since DATE`, as in `changed ID (open, parked since DATE; path) — Title`, for a first park and for a restate, which shows the kept date, and `parked since DATE, blocked` where the card is blocked too.
+- `flow park` is refused without `--revival`, or with an empty one, on a first park and on a restate alike, in the words `park takes --revival: what would bring the card back; where that is the person's word, --revival "on the owner's word" --tag revival-owner`, so a restate no longer clears a revival by leaving it out.
+- `flow park` takes `--tag T`, repeatable as a mint's is, added to the card's tags in the same write; a restate that changes neither the reason, the revival nor the tags is refused as nothing to change, and one that adds or drops a tag goes through, its note naming the tags.
+- `flow unpark` removes the tag `revival-owner` where the card carries it and says so in one line of its output, `untagged ID (revival-owner removed: the tag belongs to the parking) — Title`; a restate removes it too unless `--tag revival-owner` is given again, the tag belonging to the parking and not to the card.
+  The script writes and looks for neither the tag nor the phrase `on the owner's word`: the `flow` skill names both for a revival that is the person's word, and `flow find --tag revival-owner` lists the cards that wait on it.
+  A card parked before this release with no revival stands as it is, with no check on it.
+- The `flow`, `whatsnext` and `land` skills show a park with its revival, and the `flow` skill describes the closing day, V17, the tag `revival-owner` and the doctor's new class.
+
+The documentation:
+
+- The flow's page and the cards page say the closing day of a done task, V17 and the doctor's class for it, the park's revival and its `--tag`, the tag `revival-owner` and what removes it, and the date in a park's `changed` line; the `whatsnext` page says a park carries a reason and a revival.
+
 ## v0.11.5 — 2026-11-18
 
 A patch release on a few rules left open: `flow park` on a parked card restates it, the warning on a question whose tasks are all closed and the index's section of the same meaning become one rule that a read answers, the setup proposes one commit, and the flow reads the markdownlint configuration a project keeps.
