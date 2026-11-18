@@ -101,6 +101,11 @@ These invariants keep that honest.
   A check that stops at a term the criterion leaves open makes a question of that term.
   What goes to the owner is the goal and the directions, an outward act, and options a test leaves apart that lead to different programmes, each put with what it leads to.
 - A design answer is a recommendation, its consequences and the alternatives, briefly, with the evidence after.
+- A question the owner cannot answer but may postpone, the answer being the research's and the working value the owner's, is neither closed nor answered by that value; it takes the `flow` skill's four steps, in "Questions in practice":
+  the owner's decision is written where the project keeps its own word;
+  a finding says what is true, the working value and whose decision of which day it is, with `stated:FILE#anchor` as its evidence and the question in `--ref`, no `--answers`;
+  the question is parked, its reason naming the finding and its revival what reopens the search;
+  when the answer lands, its finding answers the question and the working-value finding is removed.
 - A ruled decision is not put to the owner again: executing a ruling is the agent's.
 - Reversible options are paths, not forks: take the one of highest benefit and go; a wall is a pivot, not a question.
 - The owner's test is applied literally: a binary test as given, with the borderline cases listed, never widened into a category of the agent's own.

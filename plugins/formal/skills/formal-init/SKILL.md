@@ -57,6 +57,9 @@ A lakefile under a workspace's directory, or one it requires by path, is a packa
 8. Verify and report.
    `formal check`, and `flow check` where the research plugin is set up; a manifest not yet generated is a problem `formal check` reports and leaves the flow's formal items unchecked, named in the report as the prover's first move with the generate command; then what was written, installed and declined, and the first handoff as the next step.
    Where the plugin was installed in this session, the report says that the `formal:prover` agent type is loaded when a session starts and appears after a restart; until then a handoff takes the `handoff` skill's general-purpose fallback.
+9. Propose one commit.
+   Name the files this setup wrote or changed, by path, and ask the person once, through the agent's question tool where it has one, whether to commit them, with the message `research-kit set up`; on a yes, stage those files alone and commit.
+   The setup initialises no repository unasked: where the folder is none, say so in the report and leave the commit.
 
 ## Rules
 

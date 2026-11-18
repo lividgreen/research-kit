@@ -4,6 +4,33 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+A patch release on a few rules left open: `flow park` on a parked card restates it, the warning on a question whose tasks are all closed and the index's section of the same meaning become one rule that a read answers, the setup proposes one commit, and the flow reads the markdownlint configuration a project keeps.
+
+**Upgrading**: not a breaking release.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+The index's section is renamed, so run `flow index` before `flow check`: the old bytes fail the check.
+A question whose tasks are all closed and which was read since, or which is held, no longer prints the `needs a task` warning, so a project's check output may have fewer lines, and the lines that remain read differently.
+
+The `research` plugin:
+
+- `flow park ID --reason … --revival …` on a card that is parked already restates the parking instead of refusing it: the reason and the revival are replaced, the parking date is kept, and one dated note, `park restated; the reason read: OLD; the revival read: OLD`, is appended; a question's `checked` is set to the day as a park sets it, the transition's line is a park's, and a restate that changes neither the reason nor the revival is refused as nothing to change.
+- `flow check`'s warning and the index's section name a question by one rule: it is open, not parked, not held, has tasks (those that reference it and those it references), every one of them closed, and its `checked` is absent or earlier than the latest day a task closed, a read on that day counting as a read; a done task, which carries no `closed`, closed on the date of its `resolution:` note.
+  The warning reads `` ID: its tasks are all closed and it was not read since: answer it, mint a task (`flow task TITLE --summary S --ref ID`), park it, or `flow checked ID` ``, and the index's section is `Tasks all closed, not read since`, where both read `needs a task or an answer` before.
+  The `flow` skill states the rule once and says that a question worked as it stands, as `whatsnext` step 7 has it, is held and so not named.
+- The `flow` and `method` skills name a question the person cannot answer but may postpone, and its four steps: the person's decision written where the project keeps its own word, a finding that says what is true (the working value and whose decision of which day it is) with `stated:FILE#anchor` as its evidence and `--ref QUESTION`, the question parked with its reason naming the finding and its revival what reopens the search, and, when the answer lands, its finding answering the question and the working-value finding removed; such a question is never closed `wrong`.
+  The `research-init` skill says, where it asks for the evidence forms, that `stated` is the form that holds a person's decision, so a project that wants working values lists it.
+- The `research-init` skill ends with a step that names the files the setup wrote or changed and asks the person once whether to commit them, with the message `research-kit set up`; on a yes it stages those files alone and commits, and where the folder is no repository it says so and initialises none.
+- Where the root holds a `.markdownlint-cli2.*` file and none of the plain `.markdownlint.*` ones, and `[paths] markdownlint_config` binds none, the flow lints with `markdownlint-cli2` where it is on PATH, and otherwise lints with its built-in rules and says in one line on the standard error that the file is not read by `markdownlint`; a bare `markdownlint` had read neither.
+- The probe's item `markdownlint config` reads `[paths] markdownlint_config` of `flow.toml` first and reports the bound file as present, in place of the root's files and the proposal of `.markdownlint.jsonc`.
+
+The `formal` plugin:
+
+- The `formal-init` skill ends with the same step: the files its setup wrote or changed, one question, the message `research-kit set up`, those files alone staged, no repository initialised unasked.
+
+The documentation:
+
+- The flow's page and the cards page say the restate, the one rule of the warning and the section, the markdownlint configuration the lint reads and the postponed question; the setup's page says the commit step and the bound configuration, the formal setup's page the commit step, and Install the `markdownlint-cli2` reading.
+
 ## v0.11.4 — 2026-11-18
 
 A patch release on small details: `flow check` no longer warns that a parked question needs a task, a `formal:` path written from the project's root is answered with the workspace-relative one, a transition writes the index before it prints, and the skills and the install page say how `flow find --value none` reads and how a commit after a transition stages the move.

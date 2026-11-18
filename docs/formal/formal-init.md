@@ -32,6 +32,7 @@ Recommended: the prover's language server registered in the project's `.mcp.json
 7. Adds the hooks to the kit's block; the flow, finding `formal.toml` at the root, asks `formal resolve` for its formal evidence, with nothing to bind in `flow.toml`.
 8. Runs `formal check`, and `flow check` where the research plugin is set up, and reports what was written, installed and declined, with the first handoff as the next step; a manifest not yet generated is named as the prover's first move with its generate command, and leaves the flow's formal items unchecked.
    Where the plugin was installed in the same session, the report says the `formal:prover` agent type appears after a restart, since an agent type is loaded when a session starts.
+9. Names the files it wrote or changed and asks you once whether to commit them, with the message `research-kit set up`; on a yes it stages those files alone and commits; it initialises no repository unasked, and where the folder is none it says so and leaves the commit.
 
 A workspace never learns of the project's records through the setup: the instructions file carries the prover session's rules and nothing of the records or the documents beyond the bans `formal.toml` names.
 
