@@ -304,9 +304,14 @@ def project(root):
                       "exists without the kit's hooks; the block is added to it"})
     else:
         items.append({"item": ".pre-commit-config.yaml", "need": "absent", "ok": True, "detail": "not written yet; the init writes it with the kit's hooks"})
-    mdl = [f for f in _MDLINT_ROOT_CONFIGS if (root / f).is_file()]
+    try:  # the file flow.toml binds (`[paths] markdownlint_config`) is read first: the flow's lint reads it, wherever it lies
+        bound = tomllib.loads((root / "flow.toml").read_text(encoding="utf-8")).get("paths", {}).get("markdownlint_config")
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, AttributeError):
+        bound = None
+    bound = bound if isinstance(bound, str) and bound and (root / bound).is_file() else None
+    mdl = [bound] if bound else [f for f in _MDLINT_ROOT_CONFIGS if (root / f).is_file()]
     items.append({"item": "markdownlint config", "need": "present" if mdl else "absent", "ok": True,
-                  "detail": f"{mdl[0]}, which the flow's lint reads in place of its built-in rules; the setup leaves it as it is" if mdl else
+                  "detail": f"{mdl[0]}, which the flow's lint reads in place of its built-in rules{', bound in flow.toml' if bound else ''}; the setup leaves it as it is" if mdl else
                   f"none of {', '.join(_MDLINT_ROOT_CONFIGS)}; a bare `markdownlint` or an editor reports line length on the one-sentence lines, "
                   f"so the setup proposes {MARKDOWNLINT_PROPOSED} holding the flow's own rules"})
     mk = root / "Makefile"
@@ -1309,6 +1314,18 @@ def selftest():
             expect(f"a root holding {name} reports the item present with its name, and proposes nothing",
                    mdl_item(root)["need"] == "present" and name in mdl_item(root)["detail"] and not mdl_prop(root))
             (root / name).unlink()
+        (root / "lint").mkdir()
+        (root / "lint" / "mdl.json").write_text("{}\n", encoding="utf-8")
+        (root / "flow.toml").write_text('[paths]\nmarkdownlint_config = "lint/mdl.json"\n', encoding="utf-8")
+        expect("a file flow.toml binds as [paths] markdownlint_config is reported present, read first, and proposes nothing",
+               mdl_item(root)["need"] == "present" and mdl_item(root)["detail"].startswith("lint/mdl.json, ") and "bound in flow.toml" in mdl_item(root)["detail"]
+               and not mdl_prop(root))
+        (root / ".markdownlint.json").write_text("{}\n", encoding="utf-8")
+        expect("the bound file is named before a root file of the plain names", mdl_item(root)["detail"].startswith("lint/mdl.json, "))
+        (root / ".markdownlint.json").unlink()
+        (root / "lint" / "mdl.json").unlink()
+        expect("a bound file that is not there is no file: the item reads as the root's files say, absent here", mdl_item(root)["need"] == "absent" and mdl_prop(root))
+        (root / "flow.toml").write_text("", encoding="utf-8")
         expect("the proposed file is JSON with comment lines, and holds the flow's rules", MARKDOWNLINT_TEXT.startswith("//")
                and json.loads("".join(l for l in MARKDOWNLINT_TEXT.splitlines(True) if not l.startswith("//")))["MD013"] is False)
         bare = Path(tmp) / "bare"

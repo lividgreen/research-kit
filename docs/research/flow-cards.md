@@ -22,6 +22,7 @@ Every field of the kind's schema is present, in the order the tables below give,
 A field of an older model, such as `derived_from`, `criterion`, `blocked`, `abandoned`, a task's `kind` or a finding's `status`, fails the check, and `flow doctor` says what it reads now.
 
 The body is prose, one sentence per line, which `flow check` enforces because diffs and the index depend on it; where `markdownlint` is on PATH, a write that adds a violation is reverted.
+Where the root holds a `.markdownlint-cli2.*` file and none of the plain `.markdownlint.*` ones, and `[paths] markdownlint_config` binds none, the lint runs through `markdownlint-cli2`, which reads that file, where it is on PATH; otherwise `markdownlint` runs with the flow's built-in rules, and one line on the standard error says that the file is not read by `markdownlint` and that the built-in rules were used.
 A body points at where its subject is STATED — a document's section, a module, a round — and never restates it, because the statement moves and a copy does not.
 A question's body says what counts as an answer, or points at where that is stated; a goal's body what reached means and how far out it lies; a task's body what done means; the check reads none of these, and they are the convention a session keeps.
 A body points at a repository path by a Markdown link whose target is the path from the project root, `[the theorem](<papers/alpha.md#Theorem 2.1>)`, the angle brackets where the target holds a space; `flow artifacts` lists every such path with the records naming it, and the check holds the path before any anchor to existence and to the tree, an absolute path or one climbing above the root by `..` being outside it (V24 on a live record, a warning on a closed or removed one), while a URL, a bare `#anchor` and a path in backticks are prose.
@@ -235,6 +236,7 @@ A consumed idea is in the discard pile, a removed one in the graveyard.
 | `open`, in a hand | `open`, in its owner's deck | `return --note` | `drawn` cleared, `owner` kept, a `returned:` note |
 | `open` | `open`, in another deck | `pass --to --note`, as an idea's | `owner` the deck's, `drawn` cleared, a `passed from A to B:` note |
 | `open` | `open`, parked | `park` | `parked` with its date, reason and revival, `checked` set to today; the rank stays; a held question is returned to its owner's deck, `drawn` cleared |
+| `open`, parked | `open`, parked | `park`, restated | `parked`'s reason and revival replaced, its date kept, `checked` set to today, a `park restated; the reason read: OLD; the revival read: OLD` note; refused where both are as they were |
 | `open`, parked | `open` | `unpark` | `parked` cleared, `checked` set to today, an `unparked:` note |
 | `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason, `checked` set to today; the rank stays; a held question is returned to its owner's deck |
 | `open`, blocked | `open` | `unblock`, or `unblock --on X` for one item | `blocked_by` cleared, or the item taken out of it, `checked` set to today, an `unblocked:` note |
@@ -257,6 +259,7 @@ An answered or impossible question is in the discard pile, a wrong or removed on
 | --- | --- | --- | --- |
 | — | `open` | `task`, `--ref` for what it came from, a question, an idea, a task, or none; `--for` for the owner's deck | `title`, `summary`, `references`, `size`, `value`, `due`, `after`, `tags`, `owner`; no rank |
 | `open` | `open`, parked | `park` | `parked` with its date, reason and revival; the rank stays; a held task is returned to its owner's deck |
+| `open`, parked | `open`, parked | `park`, restated | `parked`'s reason and revival replaced, its date kept, a `park restated; the reason read: OLD; the revival read: OLD` note; refused where both are as they were |
 | `open`, parked | `open` | `unpark` | `parked` cleared, an `unparked:` note |
 | `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason; the rank stays; a held task is returned to its owner's deck |
 | `open`, blocked | `open` | `unblock`, or `unblock --on X` for one item | `blocked_by` cleared, or the item taken out of it, an `unblocked:` note |

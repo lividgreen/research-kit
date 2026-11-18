@@ -51,7 +51,7 @@ Five fields connect the records, one general and four with a rule.
 Its target is a record of any kind in any state, a closed or a removed one included, since nothing is deleted.
 It is written at any mint with `--ref ID`, repeatable, and changed afterwards with `flow ref ID +X -Y`; an entry is an id that exists, never the record's own and never one it holds already, and nothing else is refused, warned of or failed because one exists.
 Where the entry is an idea, the script writes the card into the idea's `consumed_by` in the same command, whatever the idea's state, and `flow ref ID -X` takes it out again: `consumed_by` is exactly the records that name the idea in `references`, and the command reports the idea as changed beside the record.
-A task and a question are connected when either references the other, and the kit reads the connection from either side: the task's `for` line, the check's warning on an open question whose tasks are all closed and the index's section on the questions that need a task or an answer count a task the question names as they count one that names the question; a follow-up task that is not connected to a question does not name it, and nothing is inherited from the task it follows.
+A task and a question are connected when either references the other, and the kit reads the connection from either side: the task's `for` line, the check's warning on an open question whose tasks are all closed and not read since, and the index's section on the same questions, count a task the question names as they count one that names the question; a follow-up task that is not connected to a question does not name it, and nothing is inherited from the task it follows.
 A reference says nothing of order.
 Cards may be minted ahead; where they have an obvious order, the later one is blocked on the earlier, `flow block LATER --on EARLIER --reason "…"`, and cards that can be worked in parallel carry no block.
 
@@ -254,7 +254,7 @@ It refuses nothing, fails nothing and asks for no reference to be removed: what 
 
 | Transition | What it does | Command |
 | --- | --- | --- |
-| park, unpark | an open question or an open task gains or loses a parking block: the date, the reason, and revival triggers where known (`--revival` is optional); the rank stays; on a question either sets `checked` to today; a held card is returned to its owner's deck in the same command, which says so | `flow park task-0001 --reason "…" --revival "…"`; `flow unpark task-0001 --note "…"` |
+| park, unpark | an open question or an open task gains or loses a parking block: the date, the reason, and revival triggers where known (`--revival` is optional); the rank stays; on a question either sets `checked` to today; `flow park` on a card parked already restates it: the reason and the revival are replaced, the parking date is kept and one dated note, `park restated; the reason read: OLD; the revival read: OLD`, is appended, and a restate that changes neither is refused as nothing to change; a held card is returned to its owner's deck in the same command, which says so | `flow park task-0001 --reason "…" --revival "…"`; `flow unpark task-0001 --note "…"` |
 | block, unblock | an open question or an open task gains a block, `blocked_by`, or loses it or one of its items; the rank stays; on a question either sets `checked` to today; a held card is returned to its owner's deck in the same command, and stays there once the block clears, until a draw | `flow block task-0001 --on question-0002 --on 2026-12-01 --on "the vendor's reply" --reason "…"`; `flow unblock task-0001 --on "the vendor's reply" --note "…"`, or with no `--on` the whole block |
 | rank | the ranked next list, one for the whole project across the decks: an open idea's, question's or task's rank, the whole order at once, or a rank cleared | `flow rank task-0001 1`, `--insert` to take a held rank and move the rest down; `flow rank --set ID…`; `flow rank task-0001 --clear` |
 | checked | an open question's last-checked date refreshed: a read recorded | `flow checked question-0001 …` |
@@ -311,7 +311,7 @@ A transition that closes a ranked record closes the ranks up, and prints each re
 - Every body is one sentence per line; the committed index equals a fresh render.
 - Every library key a record cites is a card the library holds, where a library is bound.
 
-The warnings, never failures: an open question whose tasks are all closed (not a parked one: parking is the decision to set it down), a due date passed, a closed record's body linking a path that is gone, evidence reported unchecked.
+The warnings, never failures: an open question whose tasks are all closed and which was not read since (below), a due date passed, a closed record's body linking a path that is gone, evidence reported unchecked.
 `flow check` prints a coverage line saying which resolvers were configured, so a green says what it did not look at; on a failure it names the command that reproduces it, for a session where no skill is loaded.
 `flow.py --selftest` plants one defect per code the check reports, fails when one is planted nowhere, and must stay green.
 
@@ -319,7 +319,7 @@ The warnings, never failures: an open question whose tasks are all closed (not a
 
 Start with `flow state`: the inbox, the due tasks, the ranked next list, the hands, the dates that have passed and the log's top entry, every line carrying its file and line.
 The log is dated entries, newest first, each a level-2 heading `## YYYY-MM-DD — headline` opening with a State paragraph; `flow state` prints the whole top entry, and its State paragraph is the one a cold session trusts.
-Then the generated index, which lists the ranked list with each question's `serves`, each record's waits and, on a held card, its holder, each owner's hand and deck, the open goals and directions with the questions serving each, the open tasks in no hand (each with its deck where it is an owner's), the open, parked and blocked questions, the questions whose tasks are all closed, and the settled ones.
+Then the generated index, which lists the ranked list with each question's `serves`, each record's waits and, on a held card, its holder, each owner's hand and deck, the open goals and directions with the questions serving each, the open tasks in no hand (each with its deck where it is an owner's), the open, parked and blocked questions, the questions whose tasks are all closed and not read since, and the settled ones.
 Locate records with `flow find` or `flow show ID`; open record files only by ID.
 Never glob the record directories, and never read a record directory whole.
 A session starts with `flow state` and then does what the person's message asks; where the message leaves open what to do, the agent recommends the next moves, the `whatsnext` skill among them.
@@ -426,8 +426,16 @@ Findings live in one directory, and the document a finding belongs to is a refer
 ## Questions in practice
 
 On the usual path a task is made first and its finding minted after it: `flow make T --resolution FILE`, then `flow finding … --evidence … --ref T --answers Q`.
-An open question whose tasks are all closed is listed as needing a task or an answer: its next tasks are minted, or it is answered.
+A question is named, by `flow check`'s warning and by the index's section `Tasks all closed, not read since` alike, where it is open, not parked, not held, has tasks (those that reference it and those it references), every one of them closed, and its `checked` is absent or earlier than the latest day a task closed; a read on the day the last task closed counts as a read, and a task's closing day is the date of its `closed`, or, for a done task, which carries none, of its `resolution:` note.
+The warning reads `` ID: its tasks are all closed and it was not read since: answer it, mint a task (`flow task TITLE --summary S --ref ID`), park it, or `flow checked ID` ``: the question is answered, a next task is minted, it is parked, or it is read and `flow checked ID` says so.
+A question worked as it stands, as `whatsnext` step 7 has it, is held and so not named.
 A question asks one thing, and its body says what answers it.
+A question whose answer is not the person's to rule, but whose search the person may postpone, using a working value meanwhile, is real and stays open; it is set down in four steps:
+the person's decision is written where the project keeps its own word, a decision file or the goal's body under a heading;
+a finding is minted that says what is true, the working value and whose decision of which day it is, never the answer itself, with `stated:FILE#anchor` as its evidence and `--ref QUESTION`, no `--answers`;
+the question is parked, its reason naming that finding and its revival what reopens the search;
+when the answer lands, its finding answers the question (`--answers`) and the working-value finding is removed.
+Such a question is never closed `wrong`, since it is not stated incorrectly, and it is never answered by the working value; `stated` is the form that holds a person's decision, so a project that wants working values lists it in `[evidence] forms`.
 A question in a hand is worked where it stands: a design round on it is a dated note (`flow note Q --body FILE`), and the tasks the work needs are minted where a piece is too big.
 An open end a round finds beyond that is a question of its own, referencing the finding that exposed it (`flow question "…" --summary "…" --ref finding-0001`) or minted from an idea captured first (`--ref IDEA`), and is never appended to the first question's body as what stays open: a question that gathers its residues has no answer anyone can reach, and the next list can no longer rank it by how near it is to done.
 A question whose parts each carry weight alone is split: at its mint, into one question per part; at answering, the part answered closes the question, and each part still open is minted on its own with a pointer to where it is stated.

@@ -876,23 +876,47 @@ _MDLINT_ROOT_CONFIGS = (".markdownlint.jsonc", ".markdownlint.json", ".markdownl
 
 
 _MDLINT_TEMP = [None]
+_MDLINT_SAID = set()  # what mdlint_cmd said on the standard error already, once to a run
+
+
+def mdlint_builtin(cfg):
+    """The flow's built-in rules as a file `markdownlint -c` reads, written once to a temporary one."""
+    if _MDLINT_TEMP[0] is None or not _MDLINT_TEMP[0].is_file():
+        fd, name = tempfile.mkstemp(prefix="flow-markdownlint-", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(MDLINT_DEFAULT)
+        _MDLINT_TEMP[0] = Path(name)
+    return _MDLINT_TEMP[0]
 
 
 def mdlint_cmd(cfg):
-    """The markdownlint command with the configuration a record's write runs under, or None where it is absent."""
+    """The markdownlint command with the configuration a record's write runs under, or None where it is absent.  A root that
+    holds a `.markdownlint-cli2.*` file and none of the plain `.markdownlint.*` ones, with no bound configuration, is linted
+    by `markdownlint-cli2` where it is installed, which reads that file; otherwise `markdownlint` runs with the flow's built-in
+    rules, and one line on the standard error says the file is not read by it."""
     exe = shutil.which("markdownlint")  # the path itself, so a Windows `markdownlint.cmd` runs too
+    bound = bool(cfg.mdlint_config and (cfg.root / cfg.mdlint_config).is_file())
+    has = lambda names: [c for c in names if (cfg.root / c).is_file()]
+    plain = has(c for c in _MDLINT_ROOT_CONFIGS if not c.startswith(".markdownlint-cli2"))
+    cli2 = has(c for c in _MDLINT_ROOT_CONFIGS if c.startswith(".markdownlint-cli2"))
+    if cli2 and not plain and not bound:
+        exe2 = shutil.which("markdownlint-cli2")
+        if exe2:
+            return [exe2]
+        if exe:
+            if cli2[0] not in _MDLINT_SAID:
+                _MDLINT_SAID.add(cli2[0])
+                print(f"flow: {cli2[0]} is not read by `markdownlint` (markdownlint-cli2 is not on PATH); "
+                      "the lint used the flow's built-in rules", file=sys.stderr)
+            return [exe, "-c", str(mdlint_builtin(cfg))]
+        return None
     if not exe:
         return None
     cmd = [exe]
-    if cfg.mdlint_config and (cfg.root / cfg.mdlint_config).is_file():
+    if bound:
         cmd += ["-c", str(cfg.root / cfg.mdlint_config)]
-    elif not any((cfg.root / c).is_file() for c in _MDLINT_ROOT_CONFIGS):
-        if _MDLINT_TEMP[0] is None or not _MDLINT_TEMP[0].is_file():
-            fd, name = tempfile.mkstemp(prefix="flow-markdownlint-", suffix=".json")
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(MDLINT_DEFAULT)
-            _MDLINT_TEMP[0] = Path(name)
-        cmd += ["-c", str(_MDLINT_TEMP[0])]
+    elif not plain and not cli2:
+        cmd += ["-c", str(mdlint_builtin(cfg))]
     return cmd
 
 
@@ -905,6 +929,14 @@ def mdlint(cfg, path):
     except OSError:  # on PATH and yet not runnable: as absent
         return None
     return Counter(re.findall(r"\b(MD\d{3})\b", r.stdout + r.stderr)), (r.stdout + r.stderr).strip()
+
+
+def mdlint_relative(cfg, path):
+    """A path as `markdownlint-cli2` prints it, from the project's root, with forward slashes; the path itself where it has none."""
+    try:
+        return Path(os.path.relpath(path, cfg.root)).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def mdlint_many(cfg, paths, chunk=20000):
@@ -928,7 +960,7 @@ def mdlint_many(cfg, paths, chunk=20000):
             return None
         for ln in (r.stdout + r.stderr).splitlines():
             for p in group:
-                if ln.startswith(f"{p}:"):
+                if ln.startswith(f"{p}:") or ln.startswith(f"{mdlint_relative(cfg, p)}:"):  # markdownlint-cli2 names a file from the root
                     codes = re.findall(r"\b(MD\d{3})\b", ln)
                     found[p][0].update(codes[:1])
                     found[p][1].append(ln)
@@ -1512,6 +1544,35 @@ def tasks_by_question(recs):
     return out
 
 
+RESOLUTION_NOTE = re.compile(r"^(\d{4}-\d{2}-\d{2}) — resolution:\n\n", re.M)  # the note's own form: `append_note` sets its text a blank line apart
+
+
+def task_closed_day(t):
+    """The day a closed task closed: `closed`'s date where it has one (an abort or a removal, which carry a reason), else the
+    date of the first `resolution:` note in its body, which `flow make` writes under the day it closes the task, since a
+    done task carries no `closed` (a heuristic: a done task is final, so it holds the one note, and a dated line the
+    resolution's own text quotes comes after it, so the first is taken); None where neither is there."""
+    c = t["closed"]
+    if isinstance(c, dict) and c.get("date"):
+        return str(c["date"])
+    days = RESOLUTION_NOTE.findall(t.body)
+    return days[0] if days else None
+
+
+def unread_after_tasks(recs, tasks_of, r):
+    """Whether an open question is one the flow names as having its tasks all closed and not read since: not parked, not held,
+    tasks (those that reference it and those it references) and every one of them closed, and `checked` absent or earlier
+    than the latest day a task closed.  A read on that day counts as a read.  The check's warning and the index's section
+    are one rule, this."""
+    if r.type != "question" or r["state"] != "open" or r["parked"] is not None or is_held(r):
+        return False
+    ts = tasks_of.get(r.id, [])
+    if not ts or not all(x["state"] in CLOSED_TASK for x in ts):
+        return False
+    last = max((d for d in map(task_closed_day, ts) if d), default=None)
+    return last is not None and (not r["checked"] or str(r["checked"]) < last)
+
+
 def questions_of_task(recs, t):
     """The questions a task is for, in the order the task names them and then the questions that name the task."""
     refs = t["references"] if isinstance(t["references"], list) else []
@@ -1607,7 +1668,7 @@ def validate(cfg, recs, today):
     cache = {}
     coverage = {"records": len(recs), "kinds": list(cfg.kinds), "forms": list(cfg.forms),
                 "probes": bool(cfg.probes and (cfg.root / cfg.probes).is_file()),
-                "reflow": cfg.reflow_source, "markdownlint": bool(shutil.which("markdownlint"))}
+                "reflow": cfg.reflow_source, "markdownlint": bool(mdlint_cmd(cfg))}
 
     def bad(code, r, msg):
         problems.append({"code": code, "id": r.id if r else None,
@@ -1757,10 +1818,9 @@ def validate(cfg, recs, today):
                                   f"(`flow finding … --ref TASK`, then `flow answer`), or the question reads as removed")
             elif by is not None:
                 bad("V18", r, f"answered_by on a question that is {r['state']}")
-            if r["state"] == "open" and r["parked"] is None:
-                ts = tasks_of.get(r.id, [])
-                if ts and all(x["state"] in CLOSED_TASK for x in ts):
-                    warnings.append(f"{r.id}: needs a task (`flow task TITLE --summary S --ref {r.id}`) or an answer (every task closed)")
+            if unread_after_tasks(recs, tasks_of, r):
+                warnings.append(f"{r.id}: its tasks are all closed and it was not read since: answer it, mint a task "
+                                f"(`flow task TITLE --summary S --ref {r.id}`), park it, or `flow checked {r.id}`")
         if t == "idea":
             into = consumed_list(r)
             if not isinstance(r["consumed_by"], list) and r["consumed_by"]:
@@ -1930,9 +1990,8 @@ def render_index(cfg, recs):
         section("Parked or blocked questions", [_line(r, "; ".join(waits(cfg, recs, r))) for r in wait])
 
         tasks_of = tasks_by_question(recs)
-        need = [r for r in R if r.type == "question" and r["state"] == "open" and tasks_of[r.id]
-                and all(x["state"] in CLOSED_TASK for x in tasks_of[r.id])]
-        section("Needs a task or an answer", [_line(r, f"{len(tasks_of[r.id])} tasks, all closed") for r in sorted(need, key=lambda r: r.id)])
+        need = [r for r in R if unread_after_tasks(recs, tasks_of, r)]
+        section("Tasks all closed, not read since", [_line(r, f"{len(tasks_of[r.id])} tasks, all closed") for r in sorted(need, key=lambda r: r.id)])
 
     if cfg.has("finding"):
         fnd = sorted((r for r in R if r.type == "finding" and r["state"] != "removed"), key=lambda r: r.id, reverse=True)[:cfg.recent_findings]
@@ -2533,11 +2592,19 @@ def wait_return(r):
 
 
 def cmd_park(cfg, recs, a, today):
+    """A park; on a card parked already, a restate: the reason and the revival replaced, the parking date kept, one dated
+    note saying what they read, and a refusal where both are as they were."""
     r = waitable(recs, a.id)
-    if r["parked"] is not None:
-        since = r["parked"].get("date") if isinstance(r["parked"], dict) else r["parked"]
-        raise Refused(f"{r.id} is parked already, since {since}: unpark it first")
-    r.fm["parked"] = {"date": today, "reason": a.reason, "revival": a.revival}
+    was = r["parked"]
+    if was is not None:
+        was = was if isinstance(was, dict) else {"date": was}
+        old_reason, old_revival = was.get("reason"), was.get("revival")
+        if (a.reason, a.revival) == (old_reason, old_revival):
+            raise Refused(f"{r.id} is parked already with that reason and that revival: nothing to change")
+        append_note(r, today, f"park restated; the reason read: {old_reason or 'none'}; the revival read: {old_revival or 'none'}")
+        r.fm["parked"] = {"date": was.get("date") or today, "reason": a.reason, "revival": a.revival}
+    else:
+        r.fm["parked"] = {"date": today, "reason": a.reason, "revival": a.revival}
     wait_return(r)
     if r.type == "question":
         r.fm["checked"] = today
@@ -5002,7 +5069,21 @@ def selftest():
         raw = load_all(cfg)[q4]
         raw.fm.update({"checked": today, "parked": {**raw["parked"], "date": today}})
         raw.path.write_text(render(raw.fm, raw.body), encoding="utf-8")
-        run(["park", q4, "--reason", "again"], ok=False)  # parked already
+        p = run(["park", q4, "--reason", "waiting"], ok=False)  # the reason as it stands, and no revival
+        expect("a restate with the reason and the revival as they stand is refused as nothing to change", "nothing to change" in p["problems"][0]["msg"])
+        rc, _ = dispatched(cfg, ["park", q4, "--reason", "waiting longer", "--revival", "when the data lands"], today="2026-09-27", as_json=True, quiet=True)
+        raw = load_all(cfg)[q4]
+        expect("park on a card parked already restates it: the reason and the revival replaced, the parking date kept, one dated note saying what they read, "
+               "and the question's checked set to the day",
+               rc == 0 and raw["parked"] == {"date": today, "reason": "waiting longer", "revival": "when the data lands"} and raw["checked"] == "2026-09-27"
+               and raw.body.rstrip().endswith("2026-09-27 — park restated; the reason read: waiting; the revival read: none"))
+        rc, _ = dispatched(cfg, ["park", q4, "--reason", "waiting longer", "--revival", "when it lands"], today=today, as_json=True, quiet=True)
+        expect("a second restate notes what the first one set, the note kept in order",
+               rc == 0 and load_all(cfg)[q4].body.rstrip().endswith(f"{today} — park restated; the reason read: waiting longer; the revival read: when the data lands")
+               and load_all(cfg)[q4].body.count("park restated") == 2)
+        txt = text_of(cfg, ["park", q4, "--reason", "waiting"])
+        expect("a restate's line is a park's: `changed ID (standing; path) — Title`, then the index",
+               txt.startswith(f"changed {q4} (open, parked; ") and txt.rstrip().endswith("index refreshed: " + rel(cfg, cfg.index)) and f" — Q to park\n" in txt)
         run(["block", q4, "--on", q3, "--reason", "needs its answer"])
         run(["block", q4, "--on", "the release", "--reason", "again"], ok=False)  # blocked already, q3 open
         run(["block", q3, "--on", f, "--reason", "r"], ok=False)  # a finding is waited on by nothing
@@ -5793,35 +5874,71 @@ def selftest():
                any(f"{wt}: due 2026-09-01 has passed" in w for w in warnings) and not any(q4 in w for w in warnings))
         was = {k: load_all(cfg)[wt][k] for k in ("state", "references")}
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="done", references=[q4]))
-        parked_q4 = load_all(cfg)[q4]["parked"]  # a parked question draws no such warning, so the tests below read it unparked
-        raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=None))
-        _, warnings, _ = validate(cfg, load_all(cfg), today)
+        parked_q4, checked_q4 = load_all(cfg)[q4]["parked"], load_all(cfg)[q4]["checked"]  # a parked question draws no such warning, so the tests below read it unparked
+        was_body = load_all(cfg)[wt].body
+
+        def closed_on(day):
+            """The task `wt` closed on `day`: the resolution note `flow make` writes under the day, a done task having no `closed`."""
+            r = load_all(cfg)[wt]
+            r.body = was_body
+            append_note(r, day, "resolution:", "It is done.")
+            r.path.write_text(render(r.fm, r.body))
+
+        WARN = (f"{q4}: its tasks are all closed and it was not read since: answer it, mint a task "
+                f"(`flow task TITLE --summary S --ref {q4}`), park it, or `flow checked {q4}`")
+        named = lambda: WARN in validate(cfg, load_all(cfg), today)[1]
+        in_section = lambda: re.search(rf"## Tasks all closed, not read since\n\n(?:- .*\n)*?- `{q4}` — .*\[1 tasks, all closed\]", cfg.index.read_text(encoding="utf-8"))
+        closed_on(today)
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=None, checked="2026-09-01"))
         run(["index"])
-        expect("an open question whose every task is closed is warned of as needing a task or an answer, and the index's section says so",
-               f"{q4}: needs a task (`flow task TITLE --summary S --ref {q4}`) or an answer (every task closed)" in warnings
-               and "## Needs a task or an answer" in cfg.index.read_text(encoding="utf-8"))
+        expect("an open question whose every task is closed and which was not read since is warned of in the words of the rule, and the index's section says so",
+               named() and in_section() and "Needs a task or an answer" not in cfg.index.read_text(encoding="utf-8"))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked=today))
+        run(["index"])
+        expect("a read on the day the last task closed counts as a read: the warning and the section both go",
+               not named() and not in_section())
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked="2026-09-24"))
+        run(["checked", q4])
+        run(["index"])
+        expect("`flow checked` clears the warning and the section", not named() and not in_section())
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked=None))
+        expect("a question with no checked date is named", named())
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked="2026-09-01"))
+        closed_on("2026-09-20")
+        expect("a read before the last task closed does not count: the question is named", named())
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked="2026-09-21"))
+        expect("a read after the last task closed counts", not named())
+        r = load_all(cfg)[wt]
+        r.body = was_body
+        append_note(r, "2026-09-20", "resolution:", "It quotes a note:\n\n2026-12-30 — resolution:\n\nElsewhere.")
+        r.path.write_text(render(r.fm, r.body))
+        expect("a dated resolution line the resolution's own text quotes does not date the closing: the note's own day does", task_closed_day(load_all(cfg)[wt]) == "2026-09-20" and not named())
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked="2026-09-01"))
+        closed_on(today)
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(owner="root", drawn=today))
+        run(["index"])
+        expect("a question held, worked as it stands, is not named by the warning and not listed by the section", not named() and not in_section())
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(owner=None, drawn=None))
+        run(["index"])
+        expect("the same question put back in its deck is named again, warning and section alike", named() and in_section())
         was_q4 = load_all(cfg)[q4]["references"]
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(references=[]))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(references=[*was_q4, wt]))
-        _, warnings, _ = validate(cfg, load_all(cfg), today)
         run(["index"])
-        idx_back = cfg.index.read_text(encoding="utf-8")
-        expect("planted: a question referencing a closed task that references nothing is warned of as needing a task, and the index's section counts the task",
-               f"{q4}: needs a task (`flow task TITLE --summary S --ref {q4}`) or an answer (every task closed)" in warnings
-               and re.search(rf"## Needs a task or an answer\n\n(?:- .*\n)*?- `{q4}` — .*\[1 tasks, all closed\]", idx_back))
+        expect("planted: a question referencing a closed task that references nothing is named, and the index's section counts the task", named() and in_section())
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="open"))
-        _, warnings, _ = validate(cfg, load_all(cfg), today)
-        expect("planted: the same task open, the question referencing it is not warned of",
-               not any(f"{q4}: needs a task" in w for w in warnings))
+        expect("planted: the same task open, the question referencing it is not warned of", not any(f"{q4}: its tasks" in w for w in validate(cfg, load_all(cfg), today)[1]))
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(state="done"))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked={"date": today, "reason": "set down", "revival": "when it matters"}))
-        _, warnings, _ = validate(cfg, load_all(cfg), today)
-        expect("a parked question whose every task is closed is not warned of as needing a task",
-               not any(f"{q4}: needs a task" in w for w in warnings))
+        run(["index"])
+        expect("a parked question whose every task is closed is not warned of, and not in the section", not named() and not in_section())
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=None))
-        _, warnings, _ = validate(cfg, load_all(cfg), today)
-        expect("the same question unparked is warned of again",
-               any(f"{q4}: needs a task" in w for w in warnings))
+        run(["index"])
+        expect("the same question unparked is named again", named() and in_section())
+        r = load_all(cfg)[wt]
+        r.body = was_body
+        r.path.write_text(render(r.fm, r.body))
+        raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked=checked_q4))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(parked=parked_q4))
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(references=was_q4))
         raw_edit(load_all(cfg), wt, lambda fm: fm.update(**was))
@@ -5872,6 +5989,59 @@ def selftest():
                 expect("markdownlint is on PATH in CI, where the built-in configuration is tested", False)
             else:
                 print("  --  the built-in markdownlint configuration not tested: no markdownlint on PATH")
+            if os.name != "nt":  # the command mdlint_cmd chooses, with stand-ins for the two linters on the PATH (nothing is run)
+                stubs = r2 / "stubs"
+                stubs.mkdir()
+                for name in ("markdownlint", "markdownlint-cli2"):
+                    (stubs / name).write_text("#!/bin/sh\nexit 0\n")
+                    (stubs / name).chmod(0o755)
+                was_path, was_cfg = os.environ["PATH"], c2.mdlint_config
+                said = io.StringIO()
+
+                def chosen(*root_files, cli2=True, bound=None):
+                    for f in root_files:
+                        (r2 / f).write_text("{}\n", encoding="utf-8")
+                    only = [str(stubs)] if cli2 else [str(stubs / "only-markdownlint")]
+                    if not cli2:
+                        (stubs / "only-markdownlint").mkdir(exist_ok=True)
+                        (stubs / "only-markdownlint" / "markdownlint").write_text("#!/bin/sh\nexit 0\n")
+                        (stubs / "only-markdownlint" / "markdownlint").chmod(0o755)
+                    os.environ["PATH"] = os.pathsep.join(only)
+                    c2.mdlint_config = bound
+                    _MDLINT_SAID.clear()
+                    said.seek(0)
+                    said.truncate()
+                    try:
+                        with contextlib.redirect_stderr(said):
+                            cmd = mdlint_cmd(c2)
+                    finally:
+                        os.environ["PATH"] = was_path
+                        c2.mdlint_config = was_cfg
+                        for f in root_files:
+                            (r2 / f).unlink()
+                    return [Path(c).name if i == 0 else c for i, c in enumerate(cmd)] if cmd else cmd
+
+                expect("a root holding a .markdownlint-cli2 file and no plain one is linted by markdownlint-cli2 where it is installed, on no -c and with nothing said",
+                       chosen(".markdownlint-cli2.jsonc") == ["markdownlint-cli2"] and said.getvalue() == "")
+                cmd = chosen(".markdownlint-cli2.yaml", cli2=False)
+                expect("without markdownlint-cli2 the flow's built-in rules lint it, and one line says the file is not read by markdownlint",
+                       cmd[:2] == ["markdownlint", "-c"] and said.getvalue().count("\n") == 1
+                       and ".markdownlint-cli2.yaml is not read by `markdownlint`" in said.getvalue() and "built-in rules" in said.getvalue())
+                expect("a plain file beside the cli2 one is read by markdownlint as before: no -c, nothing said",
+                       chosen(".markdownlint-cli2.yaml", ".markdownlint.json") == ["markdownlint"] and said.getvalue() == "")
+                cmd = chosen(".markdownlint-cli2.yaml", "bound.json", bound="bound.json")
+                expect("a configuration the project binds comes before the cli2 file: markdownlint with -c on it, nothing said",
+                       cmd[:2] == ["markdownlint", "-c"] and cmd[2].endswith("bound.json") and said.getvalue() == "")
+                (stubs / "markdownlint-cli2").write_text("#!/bin/sh\necho 'records/x.md:3 error MD012/no-multiple-blanks Multiple consecutive blank lines'\nexit 1\n")
+                (r2 / ".markdownlint-cli2.jsonc").write_text("{}\n", encoding="utf-8")
+                os.environ["PATH"] = str(stubs)
+                try:
+                    found = mdlint_many(c2, [r2 / "records" / "x.md"])
+                finally:
+                    os.environ["PATH"] = was_path
+                    (r2 / ".markdownlint-cli2.jsonc").unlink()
+                expect("a line of markdownlint-cli2, which names a file from the root, is read as the file's own",
+                       found is not None and found[r2 / "records" / "x.md"][0] == Counter({"MD012": 1}))
             expect("with no library.toml the flow asks no library and says why", c2.library_cmd == [] and "no library.toml" in c2.library_route)
             (r2 / "library.toml").write_text("", encoding="utf-8")
             c2 = Config(r2)
@@ -8440,7 +8610,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for p in problems:
                 emit(f"{p['path']}: refused, put back as it was: {p['msg']}")
             emit(f"flow reflow --write: {len(written)} file(s) rewritten, {len(same)} already one sentence per line, {len(problems)} refused; "
-                 f"reflow via {cfg.reflow_source}" + ("" if shutil.which("markdownlint") else "; markdownlint ABSENT, so the files are not linted"))
+                 f"reflow via {cfg.reflow_source}" + ("" if mdlint_cmd(cfg) else "; markdownlint ABSENT, so the files are not linted"))
             if problems:
                 out["ok"] = False
         elif a.cmd == "reflow":
