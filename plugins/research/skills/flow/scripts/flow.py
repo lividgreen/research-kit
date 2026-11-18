@@ -24,8 +24,11 @@ Ideas, questions and tasks are cards, and live in decks and hands: `owner` is th
 the common one), `drawn` the hand (the date of the present hold, or null), `started` the date of the first draw.  A card's
 standing is calculated and never stored: held (in a hand), parked, blocked, or ready (a refill may draw it now).
 An open question or an open task may be parked (by decision) and blocked (by what it waits on), both at once;
-it keeps its rank, and the lists mark the wait.  A card closed with success is in the discard pile, a removed or broken
-one in the graveyard; no file moves for a pile.
+it keeps its rank, and the lists mark the wait.  A park names its reason and its revival (what would bring the card back);
+where the revival is the person's word, the revival reads `on the owner's word` and the card carries the tag `revival-owner`,
+which an unpark or a restate removes (the script writes and reads neither phrase: the agent passes both).  A transition's
+`changed` line gives a parked card's standing as `parked since DATE`.  A card closed with success is in the discard pile,
+a removed or broken one in the graveyard; no file moves for a pile.
 
 Every record carries a `title`, a line of at most `[card] title_max` characters (100) that says what the card is, and a
 `summary`, one paragraph of at most `[card] summary_max` characters (500) that explains it, or null.  An idea, a question
@@ -44,7 +47,7 @@ no --summary, a goal and a direction may have none:
   flow draw ID --owner O         a ready idea, question or task into O's hand (hand limit from flow.toml)
   flow return ID --note N        a held card out of the hand, into its owner's deck
   flow pass ID --to O|common --note N   a card, held or not, into another deck, out of any hand
-  flow make T --resolution FILE                                active -> done, archived; its `after` printed
+  flow make T --resolution FILE                                active -> done, archived, `closed: {date}` the day; its `after` printed
   flow abort T --reason R [--resolution FILE]                  a started task -> aborted, archived
   flow answer Q --by F           question(open) -> answered by F
   flow impossible Q --by F       question(open) -> impossible, F the finding that shows it
@@ -56,7 +59,7 @@ no --summary, a goal and a direction may have none:
   flow evidence F FORM:TARGET... evidence added to a standing finding: its trust raised
   flow evidence F --replace OLD NEW  |  flow evidence F --retire OLD --reason R    an item whose file is gone, swapped
                                  or retired, the dated note in the body keeping what it was
-  flow park ID --reason R [--revival V]  |  flow unpark ID [--note N]     an open question or an open task
+  flow park ID --reason R --revival V [--tag T]  |  flow unpark ID [--note N]     an open question or an open task
   flow block ID --on X... --reason R     |  flow unblock ID [--on X] [--note N]
                                  X a task's or a question's id, a date alone (YYYY-MM-DD) or words
   flow rank ID N [--insert]  |  rank --set ID...  |  rank ID --clear     an open idea, question or task
@@ -1548,13 +1551,16 @@ RESOLUTION_NOTE = re.compile(r"^(\d{4}-\d{2}-\d{2}) — resolution:\n\n", re.M) 
 
 
 def task_closed_day(t):
-    """The day a closed task closed: `closed`'s date where it has one (an abort or a removal, which carry a reason), else the
-    date of the first `resolution:` note in its body, which `flow make` writes under the day it closes the task, since a
-    done task carries no `closed` (a heuristic: a done task is final, so it holds the one note, and a dated line the
-    resolution's own text quotes comes after it, so the first is taken); None where neither is there."""
+    """The day a closed task closed: `closed`'s date alone, which every closed task carries (a done task the date, an abort or a
+    removal the date and a reason); None where it has none."""
     c = t["closed"]
-    if isinstance(c, dict) and c.get("date"):
-        return str(c["date"])
+    return str(c["date"]) if isinstance(c, dict) and c.get("date") else None
+
+
+def resolution_day(t):
+    """The date of the first `resolution:` note in a task's body, the form `flow make` wrote under the day it closed the task
+    (a heuristic, only the doctor's: a dated line the resolution's own text quotes comes after the note, so the first is
+    taken); None where the body has no such note."""
     days = RESOLUTION_NOTE.findall(t.body)
     return days[0] if days else None
 
@@ -1760,7 +1766,12 @@ def validate(cfg, recs, today):
         closing = {"idea": ("removed",), "question": ("wrong", "removed"), "task": ("aborted", "removed"),
                    "finding": ("removed",), "goal": ("reached", "given_up"), "direction": ("closed",)}.get(t, ())
         c = r["closed"] if "closed" in SCHEMA[t] else None
-        if r["state"] in closing and not (isinstance(c, dict) and c.get("date") and c.get("reason")):
+        if t == "task" and r["state"] == "done":  # a done task stores its closing day, and no reason
+            if not (isinstance(c, dict) and c.get("date")):
+                bad("V17", r, "done without its closing day (`closed`: date; `flow doctor` names the day it can write from the resolution note, `flow doctor --fix` writes it)")
+            elif c.get("reason"):
+                bad("V17", r, "a closing reason on a task that is done: `closed` holds the date alone")
+        elif r["state"] in closing and not (isinstance(c, dict) and c.get("date") and c.get("reason")):
             bad("V17", r, f"{r['state']} without a dated reason (`closed`: date, reason)")
         elif c is not None and r["state"] not in closing:
             bad("V17", r, f"a dated closing reason on a record that is {r['state']}")
@@ -2406,10 +2417,10 @@ def cmd_pass(cfg, recs, a, today):
 
 def close_task(cfg, recs, t, state, today, reason=None):
     """A task closed, the file moved to the archive: it leaves its deck and its hand, `owner` and `drawn` cleared, and keeps
-    `started`, the day its work began."""
+    `started`, the day its work began; `closed` holds the day, and the reason of an abort or a removal."""
     had_rank = t["rank"] is not None
     t.fm.update({"state": state, "owner": None, "drawn": None, "rank": None, "parked": None, "blocked_by": None,
-                 "closed": {"date": today, "reason": reason} if reason else None})
+                 "closed": {"date": today, "reason": reason} if reason else {"date": today} if state == "done" else None})
     save(cfg, t)
     move_to_archive(cfg, t)
     if had_rank:
@@ -2571,6 +2582,8 @@ def cmd_remove(cfg, recs, a, today):
 
 # The cards a command returned to their owner's deck beside its own change, a held card made to wait: said as such.
 _RETURNED = []
+REVIVAL_OWNER = "revival-owner"  # the tag of a park whose revival is the person's word: the parking's, so an unpark or a restate removes it
+_UNTAGGED = []  # the cards an unpark or a restate took the tag `revival-owner` from, said in the command's output
 
 
 def waitable(recs, id_):
@@ -2592,19 +2605,40 @@ def wait_return(r):
 
 
 def cmd_park(cfg, recs, a, today):
-    """A park; on a card parked already, a restate: the reason and the revival replaced, the parking date kept, one dated
-    note saying what they read, and a refusal where both are as they were."""
+    """A park, which names both its reason and its revival (what would bring the card back); on a card parked already, a
+    restate: the reason and the revival replaced, the parking date kept, one dated note saying what they read, and a refusal
+    where reason, revival and tags are all as they were.  `--tag T` is added to the card's tags in the same write; the tag
+    `revival-owner` belongs to the parking, so a restate drops it unless it is given again.  The script never writes or looks
+    for the words of a revival."""
     r = waitable(recs, a.id)
+    if not (a.revival or "").strip():
+        raise Refused("park takes --revival: what would bring the card back; where that is the person's word, "
+                      "--revival \"on the owner's word\" --tag revival-owner")
     was = r["parked"]
+    tags = [str(x) for x in r["tags"] or []]
+    given = [str(x) for x in a.tag or []]
     if was is not None:
         was = was if isinstance(was, dict) else {"date": was}
         old_reason, old_revival = was.get("reason"), was.get("revival")
-        if (a.reason, a.revival) == (old_reason, old_revival):
+        kept = [x for x in tags if x != REVIVAL_OWNER or REVIVAL_OWNER in given]
+        new_tags = kept + [x for x in dict.fromkeys(given) if x not in kept]
+        if (a.reason, a.revival, new_tags) == (old_reason, old_revival, tags):
             raise Refused(f"{r.id} is parked already with that reason and that revival: nothing to change")
-        append_note(r, today, f"park restated; the reason read: {old_reason or 'none'}; the revival read: {old_revival or 'none'}")
+        said = f"park restated; the reason read: {old_reason or 'none'}; the revival read: {old_revival or 'none'}"
+        added, dropped = [x for x in new_tags if x not in tags], [x for x in tags if x not in new_tags]
+        if added:
+            said += f"; tags added: {', '.join(added)}"
+        if dropped:
+            said += f"; tags dropped: {', '.join(dropped)}"
+        append_note(r, today, said)
         r.fm["parked"] = {"date": was.get("date") or today, "reason": a.reason, "revival": a.revival}
+        if REVIVAL_OWNER in tags and REVIVAL_OWNER not in new_tags:
+            _UNTAGGED.append(r.id)
     else:
+        new_tags = tags + [x for x in dict.fromkeys(given) if x not in tags]
         r.fm["parked"] = {"date": today, "reason": a.reason, "revival": a.revival}
+    if new_tags != tags:
+        r.fm["tags"] = new_tags
     wait_return(r)
     if r.type == "question":
         r.fm["checked"] = today
@@ -2613,12 +2647,17 @@ def cmd_park(cfg, recs, a, today):
 
 
 def cmd_unpark(cfg, recs, a, today):
+    """An unpark; the tag `revival-owner`, the parking's, goes with it, and the command says so."""
     r = get(recs, a.id)
     if r.type not in ("question", "task") or r["parked"] is None:
         raise Refused(f"{r.id} is not parked")
     r.fm["parked"] = None
     if r.type == "question":
         r.fm["checked"] = today
+    tags = [str(x) for x in r["tags"] or []]
+    if REVIVAL_OWNER in tags:
+        r.fm["tags"] = [x for x in tags if x != REVIVAL_OWNER]
+        _UNTAGGED.append(r.id)
     if a.note:
         append_note(r, today, "unparked: " + a.note)
     save(cfg, r)
@@ -3074,9 +3113,15 @@ def row_state(cfg, recs, r, today):
 
 def changed_words(cfg, recs, r, today):
     """What a transition's `changed` line says of a record inside its parentheses: the state, a card's standing or pile after
-    a comma (`open, held`), a finding's forms."""
+    a comma (`open, held`), a finding's forms.  A parked standing carries its day, `parked since DATE` (the lists and
+    `--json` keep the bare word)."""
     st = row_state(cfg, recs, r, today) or ""
-    return st.replace(" (", ", ", 1)[:-1] if r.type in CARDS and st.endswith(")") else st
+    st = st.replace(" (", ", ", 1)[:-1] if r.type in CARDS and st.endswith(")") else st
+    p = r["parked"] if r.type in ("question", "task") and r["state"] == "open" else None
+    day = p.get("date") if isinstance(p, dict) else p
+    if day and ", parked" in st:
+        st = re.sub(r", parked(?=,|$)", f", parked since {day}", st, count=1)
+    return st
 
 
 def library_keys(cfg):
@@ -4034,6 +4079,7 @@ DOCTOR_CLASSES = {
     "started": "a `started` written from `drawn`: an active task's and a drawn idea's, which stay held, and a closed task's, whose `drawn` is cleared",
     "closed-owner": "an owner on a closed record cleared",
     "archive": "a closed task moved into the archive",
+    "done-day": "a done task given `closed: {date: DAY}`, the day of its first `resolution:` note",
     "inbox": "the inbox created, a `# Inbox` title and nothing else",
 }
 
@@ -4380,6 +4426,17 @@ def doctor(cfg, today):
         if t == "task" and final in CLOSED_TASK and r.path.parent.resolve() != cfg.archive.resolve():
             add(f"a {final} task under {rel(cfg, r.path.parent)}/", f"move to {rel(cfg, cfg.archive)}/: a closed task lives in the archive", "archive",
                 ("move", cfg.archive))
+        if t == "task" and final == "done" and not (isinstance(r["closed"], dict) and r["closed"].get("date")):
+            day = resolution_day(r)
+            if day:
+                def fix_done_day(fm=fm, day=day):
+                    fm["closed"] = {"date": day}
+                add("done with no `closed` day", f"closed: {{date: {day}}} (the day of its first `resolution:` note, which `flow make` wrote under the day it closed the task)",
+                    "done-day", fix_done_day)
+                writes.add("closed")
+            else:
+                add("done with no `closed` day and no `resolution:` note", "set `closed: {date: DAY}` by hand, the day the task closed, read from the file's history "
+                    "(`git log` on the file): the body holds no `resolution:` note to read it from")
         renamed = {OLD_FIELDS.get(k, k) for k in fm} | writes  # a dropped field is named above, a missing one below
         for k in SCHEMA[t]:
             if k not in renamed:
@@ -4798,11 +4855,11 @@ def selftest():
         """`dispatch` with a mint given the summary it is refused without (`minted`)."""
         return dispatch(c, minted(argv), **kw)
 
-    def text_of(c, argv):
-        """What a command prints to a person (not the JSON page), as a string."""
+    def text_of(c, argv, day=None):
+        """What a command prints to a person (not the JSON page), as a string, on `day` where one is given."""
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            dispatch(c, minted(argv), today=today, as_json=False, quiet=False)
+            dispatch(c, minted(argv), today=day or today, as_json=False, quiet=False)
         return buf.getvalue()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -5064,26 +5121,38 @@ def selftest():
         q4 = new(["question", "Q to park", "--ref", new(["idea", "an idea to park"])])
         run(["rank", q4, "2"])
         was = load_all(cfg)[q4]["checked"]
-        rc, _ = dispatched(cfg, ["park", q4, "--reason", "waiting"], today="2026-09-26", as_json=True, quiet=True)
+        p = run(["park", q4, "--reason", "waiting"], ok=False)
+        refusal = ("park takes --revival: what would bring the card back; where that is the person's word, "
+                   "--revival \"on the owner's word\" --tag revival-owner")
+        expect("a park with no --revival is refused in the script's own words, the question left as it was, not by the parser",
+               p["problems"][0]["msg"] == refusal and load_all(cfg)[q4]["parked"] is None and load_all(cfg)[q4]["checked"] == was)
+        p = run(["park", q4, "--reason", "waiting", "--revival", "   "], ok=False)
+        expect("a park with a blank --revival is refused the same way", p["problems"][0]["msg"] == refusal and load_all(cfg)[q4]["parked"] is None)
+        rc, _ = dispatched(cfg, ["park", q4, "--reason", "waiting", "--revival", "the data lands"], today="2026-09-26", as_json=True, quiet=True)
         expect("park on a question refreshes its checked date, a judgment about one record", rc == 0 and load_all(cfg)[q4]["checked"] == "2026-09-26" != was)
         raw = load_all(cfg)[q4]
         raw.fm.update({"checked": today, "parked": {**raw["parked"], "date": today}})
         raw.path.write_text(render(raw.fm, raw.body), encoding="utf-8")
-        p = run(["park", q4, "--reason", "waiting"], ok=False)  # the reason as it stands, and no revival
+        p = run(["park", q4, "--reason", "waiting", "--revival", "the data lands"], ok=False)  # the reason and the revival as they stand
         expect("a restate with the reason and the revival as they stand is refused as nothing to change", "nothing to change" in p["problems"][0]["msg"])
+        p = run(["park", q4, "--reason", "waiting longer"], ok=False)
+        expect("a restate with no --revival is refused too: none clears a revival by omission",
+               p["problems"][0]["msg"] == refusal and load_all(cfg)[q4]["parked"]["revival"] == "the data lands")
         rc, _ = dispatched(cfg, ["park", q4, "--reason", "waiting longer", "--revival", "when the data lands"], today="2026-09-27", as_json=True, quiet=True)
         raw = load_all(cfg)[q4]
         expect("park on a card parked already restates it: the reason and the revival replaced, the parking date kept, one dated note saying what they read, "
                "and the question's checked set to the day",
                rc == 0 and raw["parked"] == {"date": today, "reason": "waiting longer", "revival": "when the data lands"} and raw["checked"] == "2026-09-27"
-               and raw.body.rstrip().endswith("2026-09-27 — park restated; the reason read: waiting; the revival read: none"))
+               and raw.body.rstrip().endswith("2026-09-27 — park restated; the reason read: waiting; the revival read: the data lands"))
         rc, _ = dispatched(cfg, ["park", q4, "--reason", "waiting longer", "--revival", "when it lands"], today=today, as_json=True, quiet=True)
         expect("a second restate notes what the first one set, the note kept in order",
                rc == 0 and load_all(cfg)[q4].body.rstrip().endswith(f"{today} — park restated; the reason read: waiting longer; the revival read: when the data lands")
                and load_all(cfg)[q4].body.count("park restated") == 2)
-        txt = text_of(cfg, ["park", q4, "--reason", "waiting"])
-        expect("a restate's line is a park's: `changed ID (standing; path) — Title`, then the index",
-               txt.startswith(f"changed {q4} (open, parked; ") and txt.rstrip().endswith("index refreshed: " + rel(cfg, cfg.index)) and f" — Q to park\n" in txt)
+        txt = text_of(cfg, ["park", q4, "--reason", "waiting", "--revival", "when it lands"])
+        expect("a restate's line is a park's, with the kept date: `changed ID (open, parked since DATE; path) — Title`, then the index",
+               txt.startswith(f"changed {q4} (open, parked since {today}; ") and txt.rstrip().endswith("index refreshed: " + rel(cfg, cfg.index)) and f" — Q to park\n" in txt)
+        txt = text_of(cfg, ["find", "--parked"])
+        expect("a list keeps the bare word: `flow find` shows `parked` with no date", f"{q4} | open (parked) | Q to park" in txt and "since" not in txt)
         run(["block", q4, "--on", q3, "--reason", "needs its answer"])
         run(["block", q4, "--on", "the release", "--reason", "again"], ok=False)  # blocked already, q3 open
         run(["block", q3, "--on", f, "--reason", "r"], ok=False)  # a finding is waited on by nothing
@@ -5175,9 +5244,41 @@ def selftest():
         run(["tag", tz, "-chore", "+decision"])
         decision = lambda: [x for x in dispatched(cfg, ["doctor"], today=today, as_json=True, quiet=True)[1]["problems"] if "kind: decision" in x["msg"]]
         had = decision()
-        run(["park", tz, "--reason", "the owner's choice of route"])
+        run(["park", tz, "--reason", "the owner's choice of route", "--revival", "on the owner's word", "--tag", "revival-owner"])
         expect("the doctor's decision line fires on a ready task tagged decision, and settles once it is parked", had and not decision())
-        run(["unpark", tz])
+        tags_of = lambda i: list(load_all(cfg)[i]["tags"])
+        expect("a park with --tag adds the tag to the card in the same write; the script wrote no phrase of its own, the revival being the words given",
+               tags_of(tz) == ["decision", "revival-owner"] and load_all(cfg)[tz]["parked"]["revival"] == "on the owner's word")
+        p = run(["park", tz, "--reason", "the owner's choice of route", "--revival", "on the owner's word"])
+        expect("a restate that does not give --tag revival-owner again removes it, says so, and the other tags stay; the note names the tag dropped",
+               tags_of(tz) == ["decision"] and p["untagged"] == [{"id": tz, "tag": "revival-owner"}]
+               and load_all(cfg)[tz].body.rstrip().endswith("park restated; the reason read: the owner's choice of route; the revival read: on the owner's word; tags dropped: revival-owner"))
+        txt = text_of(cfg, ["park", tz, "--reason", "the owner's choice of route", "--revival", "on the owner's word", "--tag", "revival-owner", "--tag", "waits"])
+        expect("a restate that only adds tags changes something, so it goes through; --tag is repeatable, the tags added in order",
+               tags_of(tz) == ["decision", "revival-owner", "waits"] and "untagged" not in txt and f"changed {tz} (open, parked since {today}; " in txt)
+        p = run(["park", tz, "--reason", "the owner's choice of route", "--revival", "on the owner's word", "--tag", "revival-owner", "--tag", "waits"], ok=False)
+        expect("a restate with reason, revival and tags all as they were is refused", "nothing to change" in p["problems"][0]["msg"] and tags_of(tz) == ["decision", "revival-owner", "waits"])
+        later = (dt.date.fromisoformat(today) + dt.timedelta(days=3)).isoformat()
+        txt = text_of(cfg, ["park", tz, "--reason", "the route is still the owner's", "--revival", "on the owner's word"], day=later)
+        expect("a restate on a later day shows the kept first date, and says in one line under it that the tag revival-owner was removed",
+               txt.startswith(f"changed {tz} (open, parked since {today}; ") and "since " + later not in txt
+               and f"untagged {tz} (revival-owner removed: the tag belongs to the parking) — a task to tag and note\n" in txt and txt.count("untagged") == 1
+               and tags_of(tz) == ["decision", "waits"])
+        txt = text_of(cfg, ["park", tz, "--reason", "the route is still the owner's", "--revival", "on the owner's word", "--tag", "revival-owner"], day=later)
+        expect("a restate that gives --tag revival-owner again keeps it and says nothing of it",
+               tags_of(tz) == ["decision", "waits", "revival-owner"] and "untagged" not in txt)
+        txt = text_of(cfg, ["block", tz, "--on", "the release", "--reason", "r"])
+        expect("a card parked and blocked reads `parked since DATE, blocked` in the changed line",
+               f"changed {tz} (open, parked since {today}, blocked; " in txt)
+        run(["unblock", tz])
+        txt = text_of(cfg, ["unpark", tz])
+        expect("unpark removes the tag revival-owner and says so in one line, under the changed line; the other tags stay, the park is cleared",
+               tags_of(tz) == ["decision", "waits"] and load_all(cfg)[tz]["parked"] is None
+               and f"untagged {tz} (revival-owner removed: the tag belongs to the parking) — a task to tag and note\n" in txt and txt.count("untagged") == 1)
+        run(["park", tz, "--reason", "r", "--revival", "v"])
+        p = run(["unpark", tz])
+        expect("unpark of a card that carries no revival-owner says nothing of it, and --json has no `untagged`", "untagged" not in p and tags_of(tz) == ["decision", "waits"])
+        run(["tag", tz, "-waits"])
         run(["tag", tz, "-decision"])
         stray = load_all(cfg)[tz].path.with_name(tz + "-a-guess.md")
         stray.write_text("A body written beside the record.\n")
@@ -5200,6 +5301,8 @@ def selftest():
         t4 = new(["task", "t", "--ref", q5])
         run(["draw", t4, "--owner", "root"])
         run(["make", t4, "--resolution", res])
+        expect("flow make stores the closing day: `closed` holds the date of the command and no reason, and the resolution note is dated the same day",
+               load_all(cfg)[t4]["state"] == "done" and load_all(cfg)[t4]["closed"] == {"date": today} and f"{today} — resolution:" in load_all(cfg)[t4].body)
         for bad in ("formal:Lib/Foo.lean#nope", "formal:Lib/Bar.lean#lemma_L", "stated:Lib/Foo.lean#lemma_L", "formal:papers/alpha.md#Theorem 2.1",
                     "nonsense:papers/alpha.md#Theorem 2.1", "papers/alpha.md#Theorem 2.1", "statistical:results/nope.md",
                     "statistical:results/bench.md#BR-9", "benchmark:results/none.csv"):
@@ -5306,7 +5409,7 @@ def selftest():
         run(["remove", lt, "--reason", "it stood alone to test it"])
         run(["remove", tq0, "--reason", "it stood here to test a reference"])
         # a ready task waits too: parked and blocked at once, and drawn only once neither holds
-        run(["park", rt, "--reason", "after the release"])
+        run(["park", rt, "--reason", "after the release", "--revival", "the release is out"])
         run(["block", rt, "--on", "the next release", "--reason", "it needs the tag"])
         run(["draw", rt, "--owner", "root"], ok=False)
         run(["unpark", rt, "--note", "the release is out"])
@@ -5323,7 +5426,7 @@ def selftest():
         back = load_all(cfg)[rt]  # the draw wrote a started date of a later day than the selftest's today: set back by hand
         back.fm["started"] = None
         back.path.write_text(render(back.fm, back.body), encoding="utf-8")
-        run(["park", rt, "--reason", "r"])
+        run(["park", rt, "--reason", "r", "--revival", "v"])
         run(["unpark", rt])
         p = run(["set", rt, "question", q3], ok=False)
         expect("set names `flow ref` for a field of references", "flow ref" in p["problems"][0]["msg"])
@@ -5370,7 +5473,7 @@ def selftest():
         expect("a question closed wrong names the idea that produced it", noticed(p, qN) == [iN])
         p = run(["reopen", qN, "--reason", "after all"])
         expect("a question reopened names the idea that produced it", noticed(p, qN) == [iN])
-        p = run(["park", qN, "--reason", "r"])
+        p = run(["park", qN, "--reason", "r", "--revival", "v"])
         expect("a question parked names no idea", noticed(p, qN) == [])
         run(["unpark", qN])
         p = run(["remove", qN, "--reason", "r"])
@@ -5709,6 +5812,32 @@ def selftest():
                p["after"] == "mint the same chore for the next month" and "The chore is done." in load_all(cfg)[rt].body)
         run(["index"])
 
+        # the doctor's class for a done task with no closing day: the archived ones read too, the day that of the first resolution note
+        saved_done = {i: (load_all(cfg)[i].path, load_all(cfg)[i].path.read_text(encoding="utf-8")) for i in (t4, rt)}
+        r4, rr = load_all(cfg)[t4], load_all(cfg)[rt]
+        r4.fm["closed"], r4.body = None, r4.body.replace(f"{today} — resolution:", "2026-09-01 — resolution:", 1) + "\n2026-12-30 — resolution:\n\nA later note.\n"
+        rr.fm["closed"], rr.body = None, "A body with no resolution note.\n"
+        for x in (r4, rr):
+            x.path.write_text(render(x.fm, x.body), encoding="utf-8")
+        rc, pl = dispatched(cfg, ["doctor"], today=today, as_json=True, quiet=True)
+        expect("the doctor names a done task with no closing day, an archived one, as a mechanical line of the class `done-day`, the day that of its first "
+               "`resolution:` note, and one with no such note as a line for the hand that says to set the day from the file's history",
+               rc == 1 and pl["summary"].get("done-day") == 1 and "archive" in r4.path.parts
+               and any(x["class"] == "done-day" and x["path"] == rel(cfg, r4.path) and "closed: {date: 2026-09-01}" in x["now"] for x in pl["mechanical"])
+               and any(x["path"] == rel(cfg, rr.path) and "no `resolution:` note" in x["msg"] and "file's history" in x["msg"] for x in pl["problems"]))
+        rc, pl = dispatched(cfg, ["check"], today=today, as_json=True, quiet=True)
+        expect("the check fails V17 on both until the doctor has run, naming `flow doctor`",
+               sorted(x["id"] for x in pl["problems"] if x["code"] == "V17") == sorted([t4, rt]) and all("flow doctor" in x["msg"] for x in pl["problems"] if x["code"] == "V17"))
+        rc, pl = dispatched(cfg, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
+        expect("doctor --fix writes `closed: {date}` from the first note's day, the second note ignored, and leaves the task with no note to the hand",
+               pl["fixed"].get("done-day") == 1 and load_all(cfg)[t4]["closed"] == {"date": "2026-09-01"} and load_all(cfg)[rt]["closed"] is None
+               and any(x["path"] == rel(cfg, rr.path) for x in pl["problems"]))
+        for i, (path_, text) in saved_done.items():
+            path_.write_text(text, encoding="utf-8")
+        run(["index"])
+        p = run(["check"])
+        expect("the tasks restored, the check is green again", not p["problems"])
+
         # planted defects: each must be caught by the validator with its code
         planted = set()
 
@@ -5758,6 +5887,12 @@ def selftest():
         plant("a standing finding with a closing reason", "V17", lambda R: raw_edit(R, f, lambda fm: fm.update(closed={"date": today, "reason": "r"})))
         plant("a goal given up with no reason", "V17", lambda R: raw_edit(R, g, lambda fm: fm.update(closed=None)))
         plant("a closing dated in the future", "V20", lambda R: raw_edit(R, t3, lambda fm: fm.update(closed={"date": "2999-01-01", "reason": "r"})))
+        done_msgs = lambda name, **kv: [x["msg"] for x in plant(name, "V17", lambda R: raw_edit(R, t4, lambda fm: fm.update(kv))) if x["code"] == "V17"]
+        expect("V17 fails a done task with no closing day, its message naming `flow doctor`, and one whose `closed` has a reason or no date",
+               any("closing day" in m and "flow doctor" in m for m in done_msgs("a done task with no closing day", closed=None))
+               and any("closing reason" in m for m in done_msgs("a done task with a closing reason", closed={"date": today, "reason": "r"}))
+               and any("closing day" in m for m in done_msgs("a done task whose closed has no date", closed={"reason": "r"})))
+        plant("a question not closed wrong or removed carrying a closed date", "V17", lambda R: raw_edit(R, q, lambda fm: fm.update(closed={"date": today})))
         plant("a closing reason on an open question", "V17", lambda R: raw_edit(R, q3, lambda fm: fm.update(closed={"date": today, "reason": "r"})))
         plant("a consumed idea naming a card that does not reference it", "V17", lambda R: raw_edit(R, i2, lambda fm: fm.update(consumed_by=[q5])))
         plant("a consumed idea naming its card as one id", "V17", lambda R: raw_edit(R, i2, lambda fm: fm.update(consumed_by=q3)))
@@ -5878,10 +6013,11 @@ def selftest():
         was_body = load_all(cfg)[wt].body
 
         def closed_on(day):
-            """The task `wt` closed on `day`: the resolution note `flow make` writes under the day, a done task having no `closed`."""
+            """The task `wt` closed on `day`: the resolution note and the `closed` date `flow make` writes under the day."""
             r = load_all(cfg)[wt]
             r.body = was_body
             append_note(r, day, "resolution:", "It is done.")
+            r.fm["closed"] = {"date": day}
             r.path.write_text(render(r.fm, r.body))
 
         WARN = (f"{q4}: its tasks are all closed and it was not read since: answer it, mint a task "
@@ -5911,8 +6047,12 @@ def selftest():
         r = load_all(cfg)[wt]
         r.body = was_body
         append_note(r, "2026-09-20", "resolution:", "It quotes a note:\n\n2026-12-30 — resolution:\n\nElsewhere.")
+        r.fm["closed"] = {"date": "2026-09-20"}
         r.path.write_text(render(r.fm, r.body))
-        expect("a dated resolution line the resolution's own text quotes does not date the closing: the note's own day does", task_closed_day(load_all(cfg)[wt]) == "2026-09-20" and not named())
+        expect("a task's closing day is `closed`'s date alone, and the doctor's reading of the note takes the first `resolution:` note, not one the resolution's own text quotes",
+               task_closed_day(load_all(cfg)[wt]) == "2026-09-20" and resolution_day(load_all(cfg)[wt]) == "2026-09-20" and not named())
+        raw_edit(load_all(cfg), wt, lambda fm: fm.update(closed=None))
+        expect("a done task with no `closed` has no closing day for the rule, whatever its body says", task_closed_day(load_all(cfg)[wt]) is None and not named())
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(checked="2026-09-01"))
         closed_on(today)
         raw_edit(load_all(cfg), q4, lambda fm: fm.update(owner="root", drawn=today))
@@ -6261,9 +6401,9 @@ def selftest():
                p["returned"] == [{"id": t2, "owner": "agent"}] and card(t2)["drawn"] is None and stand(t2) == "parked")
         go(["draw", t2, "--owner", "agent"], ok=False)
         go(["block", t3, "--on", "the release", "--reason", "r"])
-        go(["park", t3, "--reason", "r"])
+        go(["park", t3, "--reason", "r", "--revival", "v"])
         expect("a card both parked and blocked reads `parked, blocked`", stand(t3) == "parked, blocked")
-        p = go(["park", i1, "--reason", "r"], ok=False)
+        p = go(["park", i1, "--reason", "r", "--revival", "v"], ok=False)
         expect("an idea is never parked or blocked", "never parked or blocked" in said(p))
         go(["unpark", t3])
         go(["unblock", t3])
@@ -6369,7 +6509,7 @@ def selftest():
         expect("find --ready lists the cards a refill may draw, of the three kinds, never a held, parked or blocked one",
                {q1, t3} <= set(ready) and i1 not in ready and ta not in ready and all(stand(i) == "ready" for i in ready)
                and {card(i).type for i in ready} >= {"question", "task"})
-        go(["park", t3, "--reason", "r"])
+        go(["park", t3, "--reason", "r", "--revival", "v"])
         expect("a parked card is out of --ready and in --parked", t3 not in [r["id"] for r in go(["find", "--ready"])["records"]]
                and t3 in [r["id"] for r in go(["find", "--parked"])["records"]])
         go(["unpark", t3])
@@ -6430,7 +6570,7 @@ def selftest():
         i1, tp, tb = mint(["idea", "an idea"]), mint(["task", "a parked task"]), mint(["task", "a blocked task"])
         qd, tr, qr = mint(["question", "in the person's deck", "--for", "owner"]), mint(["task", "a ready task"]), mint(["question", "a ready question"])
         tu, tz = mint(["task", "an unranked task"]), mint(["task", "one more ready task"])
-        go(["park", tp, "--reason", "set down"])
+        go(["park", tp, "--reason", "set down", "--revival", "when asked"])
         go(["block", tb, "--on", "2099-01-01", "--reason", "later"])
         go(["rank", "--set", i1, tp, tb, qd, tr, qr, tz])
         p = go(["draw", "--refill", "--owner", "agent"])
@@ -7197,7 +7337,8 @@ def selftest():
             }
             for rel_path, fm in v07.items():
                 (c2.research / rel_path).parent.mkdir(parents=True, exist_ok=True)
-                (c2.research / rel_path).write_text(render(fm, "Its body.\n"), encoding="utf-8")
+                body = "Its body.\n\n2026-10-02 — resolution:\n\nRead it.\n" if fm["type"] == "task" and fm["state"] == "done" else "Its body.\n"
+                (c2.research / rel_path).write_text(render(fm, body), encoding="utf-8")
             rc, pl = dispatched(c2, ["check"], today=today, as_json=True, quiet=True)
             expect("a v0.7.0 tree fails V3 on each field this release removes, with what it reads now and `flow doctor`",
                    rc == 1 and any(x["code"] == "V3" and "unknown field derived_from, of an older model: it reads `references` now" in x["msg"] for x in pl["problems"])
@@ -7247,6 +7388,7 @@ def selftest():
                    and recs["idea-0002"]["state"] == "open" and recs["idea-0001"]["consumed_by"] == ["question-0001"]
                    and f"{today} — dod (moved from the field): the lemma is proved" in t1_.body and t1_["after"] == "mint the next"
                    and recs["task-0002"]["tags"] == [] and recs["task-0002"]["references"] == ["question-0001"]
+                   and recs["task-0002"]["closed"] == {"date": "2026-10-02"}
                    and recs["finding-0002"]["references"] == ["question-0002", "finding-0001"]
                    and recs["finding-0002"]["state"] == "standing" and recs["finding-0002"]["closed"] is None
                    and g1["references"] == ["direction-0001"] and f"{today} — criterion (moved from the field): B is proved.\nOn paper first." in g1.body
@@ -7645,7 +7787,7 @@ def selftest():
         q_block = made(["question", "How many trees are missing from the inventory?", "--serves", g1, "--for", "agent"])
         say(["block", q_block, "--on", t_for, "--on", "2026-12-01", "--on", "2026-11-10", "--on", "the parks office's permit", "--reason", "Needs the street photos and the permit."], d9)
         q_park = made(["question", "Is the old street list complete?", "--for", "owner"])
-        say(["park", q_park, "--reason", "Waits on the new export."])
+        say(["park", q_park, "--reason", "Waits on the new export.", "--revival", "The export lands."])
         q_held = made(["question", "Which species lose the most canopy?", "--for", "agent"])
         say(["draw", q_held, "--owner", "agent"], d3)
         q_plain = made(["question", "A question that serves nothing"])
@@ -8032,8 +8174,12 @@ def build_parser():
     p = sp.add_parser("wrong"); p.add_argument("question"); p.add_argument("--reason", required=True)
     p = sp.add_parser("impossible"); p.add_argument("question"); p.add_argument("--by", required=True, help="the standing finding that shows it")
     p = sp.add_parser("reopen"); p.add_argument("id"); p.add_argument("--reason", required=True, help="why it is to be settled again, or worked again")
-    p = sp.add_parser("park"); p.add_argument("id"); p.add_argument("--reason", required=True); p.add_argument("--revival")
-    p = sp.add_parser("unpark"); p.add_argument("id"); p.add_argument("--note")
+    p = sp.add_parser("park", help="an open question or an open task set down by decision: its reason and its revival")
+    p.add_argument("id"); p.add_argument("--reason", required=True, help="why it waits")
+    p.add_argument("--revival", help="what would bring the card back (the script refuses a park without it, in its own words); where that is the person's word, "
+                   "--revival \"on the owner's word\" --tag revival-owner")
+    p.add_argument("--tag", action="append", help="added to the card's tags in the same write; repeatable; a restate drops the tag revival-owner unless it is given again")
+    p = sp.add_parser("unpark", help="a parked card back to waiting no more; the tag revival-owner, if it carries it, is removed"); p.add_argument("id"); p.add_argument("--note")
     p = sp.add_parser("block"); p.add_argument("id")
     p.add_argument("--on", required=True, action="append", help="a task's or a question's id, a date alone (YYYY-MM-DD) or words; repeatable")
     p.add_argument("--reason", required=True)
@@ -8429,6 +8575,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             _RERANKED.clear()
             _SET_RANKS.clear()
             _RETURNED.clear()
+            _UNTAGGED.clear()
             before = {i: json.dumps([r.fm.get(k) for k in NOTICED], sort_keys=True, default=str) for i, r in recs.items()}
             try:
                 created, changed = TRANSITIONS[a.cmd](cfg, recs, a, today)
@@ -8480,6 +8627,10 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["returned"] = [{"id": i, "owner": o} for i, o in _RETURNED]
             for i, o in _RETURNED:  # a held card made to wait goes back to its owner's deck in the same command
                 emit(f"returned {i} (to {o}'s deck; a held card that waits is not held){dash_title(recs, i)}")
+            if _UNTAGGED:  # a park's tag `revival-owner` taken off by an unpark or a restate
+                out["untagged"] = [{"id": i, "tag": REVIVAL_OWNER} for i in _UNTAGGED]
+                for i in _UNTAGGED:
+                    emit(f"untagged {i} ({REVIVAL_OWNER} removed: the tag belongs to the parking){dash_title(recs, i)}")
             out["reranked"] = [{"id": i, "from": f, "to": n} for i, f, n in _RERANKED]
             for i, f, n in _RERANKED:
                 emit(f"re-ranked {i} ({f} → {n}){dash_title(recs, i)}")

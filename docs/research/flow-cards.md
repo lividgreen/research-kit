@@ -70,7 +70,8 @@ A new card lands in the common deck unless it is minted `--for` an owner, and a 
 | `blocked` | an item of its block holds today |
 | `ready` | none of these: a refill may draw it now |
 
-A card both parked and blocked reads `parked, blocked`, and an idea is only ever `held` or `ready`, since an idea is never parked or blocked.
+A card both parked and blocked reads `parked, blocked` in the lists, and an idea is only ever `held` or `ready`, since an idea is never parked or blocked.
+A transition's `changed` line gives a parked standing with its date, `parked since DATE`, and `parked since DATE, blocked`; the lists and `--json` keep the bare word.
 A closed card is in a pile, read from its state with no file moved for it: the discard pile holds a task done, an idea consumed, a question answered and a question impossible, the graveyard any card removed, a task aborted and a question wrong.
 
 ## The fields
@@ -92,10 +93,10 @@ Every kind carries these:
 | `origin` | `current` for a record the flow minted, `legacy` for one imported from before it and written by hand, which lets an answered question name no finding | minted; hand, for a legacy record alone |
 | `source` | where it came from: a talk, a paper; a repository path of the tree, such as the document a question was minted from, is a reference `flow artifacts` and `flow find --refers` read; a source with a path's shape (no space, no URL, a `/` or an extension) is held to the tree when the record is minted, so one in words takes a space (`arXiv 2301.12345`), and one outside the tree is words | minted (`--source`) |
 | `created` | the ISO date of the minting; a direction's date | minted |
-| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `rider` marks a task riding the next hand-over, `conjecture` a question that is one, `refuted` a finding that disproves a claim, and `do-not-reopen` on a question lists it under "Settled, do not re-open" and on a question or an idea refuses `flow reopen`; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
+| `tags` | free words, no vocabulary validated; `research` and `upkeep` are the usual ones on a task, `rider` marks a task riding the next hand-over, `conjecture` a question that is one, `refuted` a finding that disproves a claim, `revival-owner` a card parked until the person's word (its park reads `--revival "on the owner's word"`; `flow unpark` and a restate remove it, and `flow find --tag revival-owner` lists the cards that wait), and `do-not-reopen` on a question lists it under "Settled, do not re-open" and on a question or an idea refuses `flow reopen`; `flow tags` reports them | minted (`--tag`); `flow tag`; hand |
 
 An idea, a question and a task carry a `value`, one of `[card] values` or `null` while nobody has judged it; a finding, a goal and a direction carry none.
-The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a removed finding, a reached or given-up goal, a closed direction, and no other.
+The closed records carry a map of `date` and `reason` in `closed`: a removed idea, a wrong or removed question, an aborted or removed task, a removed finding, a reached or given-up goal, a closed direction; a done task carries the map with its `date` alone and no reason, and no other record carries one.
 
 ### An idea
 
@@ -123,7 +124,7 @@ The closed records carry a map of `date` and `reason` in `closed`: a removed ide
 | `value` | as an idea's | as an idea's; a set leaves `checked` as it is |
 | `owner`, `drawn`, `started` | as an idea's | as an idea's; cleared by every closing and by `reopen`, `started` kept |
 | `checked` | the ISO date the question was last looked at | minted; `rank ID N`, `park`, `unpark`, `block`, `unblock`, `reopen`, `checked` |
-| `parked` | `null`, or a map of `date`, `reason` and `revival` while set aside by decision | `park`, `unpark`; cleared by every closing; `park` returns a held card to its owner's deck |
+| `parked` | `null`, or a map of `date`, `reason` and `revival` while set aside by decision; every new park names its revival, and a card parked before that rule may carry none | `park`, `unpark`; cleared by every closing; `park` returns a held card to its owner's deck |
 | `blocked_by` | `null`, or a map of `date`, `on` (a list, one item for each thing it waits on) and `reason` | `block`, `unblock`; cleared by every closing; `block` returns a held card to its owner's deck, and `draw` clears a block none of whose items holds |
 | `rank` | its place on the ranked list, a number alone, or `null` | `rank`; cleared by every closing |
 | `serves` | the open goals and directions it serves, a list; a closed question keeps its as history, and nothing clears an entry when its goal or direction closes | minted (`--serves`); `flow serves` |
@@ -148,7 +149,7 @@ A question has no kind and no criterion: a conjecture is a question tagged `conj
 | `after` | what follows its completion, in words, or `null`; `make` and `abort` print it at the close for the agent to follow | minted (`--after`); `flow set` |
 | `rank` | as a question's; no mint gives a task one | `rank`; cleared by `make`, `abort` and `remove` |
 | `parked`, `blocked_by` | as a question's, on an open task | `park`, `unpark`, `block`, `unblock`; `draw` clears a block none of whose items holds; cleared by every closing |
-| `closed` | `date` and `reason` once aborted or removed | `abort`, `remove` |
+| `closed` | `date` and `reason` once aborted or removed; `date` alone once done | `make`, `abort`, `remove` |
 
 A task has no kind and no definition-of-done field: what a kind said is a tag, `research` for work that came from the research, `upkeep` for the project's own, a project's words beside them, and what done means is in its body.
 A task and a question are connected when either references the other, so a reference between the two may stand on either record; a task not connected to a question, a follow-up unrelated to it among them, is referenced by none and references none.
@@ -235,9 +236,9 @@ A consumed idea is in the discard pile, a removed one in the graveyard.
 | `open` | `open`, in a hand | `draw --owner`, as an idea's | `owner`, `drawn` and, the first time, `started` |
 | `open`, in a hand | `open`, in its owner's deck | `return --note` | `drawn` cleared, `owner` kept, a `returned:` note |
 | `open` | `open`, in another deck | `pass --to --note`, as an idea's | `owner` the deck's, `drawn` cleared, a `passed from A to B:` note |
-| `open` | `open`, parked | `park` | `parked` with its date, reason and revival, `checked` set to today; the rank stays; a held question is returned to its owner's deck, `drawn` cleared |
-| `open`, parked | `open`, parked | `park`, restated | `parked`'s reason and revival replaced, its date kept, `checked` set to today, a `park restated; the reason read: OLD; the revival read: OLD` note; refused where both are as they were |
-| `open`, parked | `open` | `unpark` | `parked` cleared, `checked` set to today, an `unparked:` note |
+| `open` | `open`, parked | `park --reason R --revival V`, refused without a revival or with an empty one; `--tag T`, repeatable | `parked` with its date, reason and revival, the tags added, `checked` set to today; the rank stays; a held question is returned to its owner's deck, `drawn` cleared |
+| `open`, parked | `open`, parked | `park`, restated | `parked`'s reason and revival replaced, its date kept, `checked` set to today, a `park restated; the reason read: OLD; the revival read: OLD` note (with the tags it added or dropped), the tag `revival-owner` dropped unless `--tag revival-owner` is given again; refused where reason, revival and tags are all as they were |
+| `open`, parked | `open` | `unpark` | `parked` cleared, the tag `revival-owner` removed where the card carries it, `checked` set to today, an `unparked:` note |
 | `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason, `checked` set to today; the rank stays; a held question is returned to its owner's deck |
 | `open`, blocked | `open` | `unblock`, or `unblock --on X` for one item | `blocked_by` cleared, or the item taken out of it, `checked` set to today, an `unblocked:` note |
 | `open` | `answered` | `finding … --answers Q`, which mints the finding that settles it, or `answer --by F`, F a standing finding | `answered_by`, that finding |
@@ -258,15 +259,15 @@ An answered or impossible question is in the discard pile, a wrong or removed on
 | From | To | Transition | What else it writes |
 | --- | --- | --- | --- |
 | — | `open` | `task`, `--ref` for what it came from, a question, an idea, a task, or none; `--for` for the owner's deck | `title`, `summary`, `references`, `size`, `value`, `due`, `after`, `tags`, `owner`; no rank |
-| `open` | `open`, parked | `park` | `parked` with its date, reason and revival; the rank stays; a held task is returned to its owner's deck |
-| `open`, parked | `open`, parked | `park`, restated | `parked`'s reason and revival replaced, its date kept, a `park restated; the reason read: OLD; the revival read: OLD` note; refused where both are as they were |
-| `open`, parked | `open` | `unpark` | `parked` cleared, an `unparked:` note |
+| `open` | `open`, parked | `park --reason R --revival V`, refused without a revival or with an empty one; `--tag T`, repeatable | `parked` with its date, reason and revival, the tags added; the rank stays; a held task is returned to its owner's deck |
+| `open`, parked | `open`, parked | `park`, restated | `parked`'s reason and revival replaced, its date kept, a `park restated; the reason read: OLD; the revival read: OLD` note (with the tags it added or dropped), the tag `revival-owner` dropped unless `--tag revival-owner` is given again; refused where reason, revival and tags are all as they were |
+| `open`, parked | `open` | `unpark` | `parked` cleared, the tag `revival-owner` removed where the card carries it, an `unparked:` note |
 | `open` | `open`, blocked | `block --on X` | `blocked_by` with its date, what it waits on and the reason; the rank stays; a held task is returned to its owner's deck |
 | `open`, blocked | `open` | `unblock`, or `unblock --on X` for one item | `blocked_by` cleared, or the item taken out of it, an `unblocked:` note |
 | `open` | `open`, in a hand | `draw --owner`, refused while it is parked, its block holds, the owner's hand is full or it is in another owner's deck | `owner`, `drawn` and, the first time, `started`; a block none of whose items holds cleared |
 | `open`, in a hand | `open`, in its owner's deck | `return --note`, the note required | `drawn` cleared, `owner` kept, a `returned:` note |
 | `open` | `open`, in another deck | `pass --to --note`, the note required, refused where the task is in that deck already, and where it is in that owner's hand, which is a return | `owner` the deck's, `drawn` cleared, a `passed from A to B:` note |
-| `open`, held or not | `done` | `make --resolution FILE`, refused without one or on an empty one; it prints `after` and mints nothing | a `resolution:` note; `owner`, `drawn` and the rank cleared, `started` kept; the file moved to the archive |
+| `open`, held or not | `done` | `make --resolution FILE`, refused without one or on an empty one; it prints `after` and mints nothing | a `resolution:` note; `closed` with the day of the command and no reason; `owner`, `drawn` and the rank cleared, `started` kept; the file moved to the archive |
 | `open`, started | `aborted` | `abort --reason`, held or not, which prints `after`; refused on a task never started | `closed`, a `resolution:` note where `--resolution` gives one; `owner`, `drawn` and the rank cleared, `started` kept; the file moved to the archive |
 | `open`, never started | `removed` | `remove --reason`; refused on a started task, which `abort` closes | `closed`; `owner`, the rank, the parking and the block cleared; the file moved to the archive |
 
