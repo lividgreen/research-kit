@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.11.6 — 2026-11-18
 
 A patch release that corrects five readings of v0.11.5: a done task stores the day it closed, a park's `changed` line carries its date, every park names its revival, and the pipeline's diagram loses two arrows and gains one.
 

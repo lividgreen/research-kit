@@ -4,7 +4,7 @@ description: Root-cause debugging discipline — use when encountering any bug, 
 license: Apache-2.0
 compatibility: No tooling; read before fixing and before claiming a fix.
 metadata:
-  version: "0.11.5"
+  version: "0.11.6"
 ---
 
 # Debug to the root cause; claim with evidence
