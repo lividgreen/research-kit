@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.11.5 — 2026-11-18
 
 A patch release on a few rules left open: `flow park` on a parked card restates it, the warning on a question whose tasks are all closed and the index's section of the same meaning become one rule that a read answers, the setup proposes one commit, and the flow reads the markdownlint configuration a project keeps.
 
