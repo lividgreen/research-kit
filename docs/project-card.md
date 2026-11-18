@@ -40,6 +40,7 @@ You talk to the agent as you already do, and the skills fold the kit into that c
 [How to use](how-to-use.md) has more.
 
 The records move along one pipeline.
+An idea, a question and a task are the cards a session draws into its hand, and each can produce more of its own kind.
 An idea, worked, can produce any other record: a goal, a direction, a question, a task or a finding.
 A goal and a direction lead to questions, a question to its tasks and findings, and a task's work to findings; an idea, a goal and a direction also come straight from the conversation with the person.
 

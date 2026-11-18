@@ -1,99 +1,79 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 630" width="720" height="630" role="img" aria-labelledby="pipeline-title pipeline-desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 536" width="720" height="536" role="img" aria-labelledby="pipeline-title pipeline-desc">
   <title id="pipeline-title">research-kit's pipeline</title>
-  <desc id="pipeline-desc">The six kinds of record and what each can produce. An idea can produce a goal, a direction, a question, a task and a finding; a goal and a direction each lead to questions; a question produces tasks and findings; a task produces findings. An idea, a goal and a direction also come straight from the conversation with the person.</desc>
+  <desc id="pipeline-desc">The six kinds of record in two rows, and what each can produce. The cards, which are drawn into a hand, are on top: an idea, a question and a task, each of which can produce more of its own kind. An idea can also produce every other kind; a question produces tasks and findings; a task produces findings. Below are the goal and the direction, which lead to questions, and the finding. An idea, a goal and a direction also come straight from the conversation with the person.</desc>
   <style>
     text { font-family: Geist, ui-sans-serif, system-ui, sans-serif; }
     .name { font-size: 18px; font-weight: 600; fill: #191c1d; }
     .what, .label { font-size: 14px; fill: #464555; }
-    .box { stroke-width: 2; }
+    .box { stroke: #c7c4d8; stroke-width: 2; }
+    .tint { fill: #eef0fe; }
+    .plain { fill: #f3f4f5; }
+    .icon { fill: none; stroke: #464555; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
     .arrow { stroke-width: 2; fill: none; }
-    .idea { stroke: #b45309; }
-    .head-idea { fill: #b45309; }
-    .fill-idea { fill: #fef3c7; }
-    .goal { stroke: #0f766e; }
-    .head-goal { fill: #0f766e; }
-    .fill-goal { fill: #ccfbf1; }
-    .direction { stroke: #be185d; }
-    .head-direction { fill: #be185d; }
-    .fill-direction { fill: #fce7f3; }
-    .question { stroke: #0369a1; }
-    .head-question { fill: #0369a1; }
-    .fill-question { fill: #e0f2fe; }
-    .task { stroke: #15803d; }
-    .head-task { fill: #15803d; }
-    .fill-task { fill: #dcfce7; }
-    .finding { stroke: #475569; }
-    .head-finding { fill: #475569; }
-    .fill-finding { fill: #f1f5f9; }
+    .line { stroke: #464555; }
     .accent { stroke: #3525cd; }
+    .head-line { fill: #464555; }
     .head-accent { fill: #3525cd; }
     @media (prefers-color-scheme: dark) {
       .name { fill: #e8eaef; }
       .what, .label { fill: #b8bcc8; }
-      .idea { stroke: #fbbf24; }
-      .head-idea { fill: #fbbf24; }
-      .fill-idea { fill: #3a2a08; }
-      .goal { stroke: #4fd1c5; }
-      .head-goal { fill: #4fd1c5; }
-      .fill-goal { fill: #0d3330; }
-      .direction { stroke: #f58bb8; }
-      .head-direction { fill: #f58bb8; }
-      .fill-direction { fill: #3d1227; }
-      .question { stroke: #5cc3f5; }
-      .head-question { fill: #5cc3f5; }
-      .fill-question { fill: #0c2a3d; }
-      .task { stroke: #5fd38a; }
-      .head-task { fill: #5fd38a; }
-      .fill-task { fill: #10301c; }
-      .finding { stroke: #a8b3c4; }
-      .head-finding { fill: #a8b3c4; }
-      .fill-finding { fill: #232a35; }
+      .box { stroke: #434957; }
+      .tint { fill: #211f45; }
+      .plain { fill: #1c2027; }
+      .icon, .line { stroke: #b8bcc8; }
       .accent { stroke: #a9a2ff; }
+      .head-line { fill: #b8bcc8; }
       .head-accent { fill: #a9a2ff; }
     }
   </style>
   <defs>
-    <marker id="head-idea" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-idea" d="M0 0 10 5 0 10z"/></marker>
-    <marker id="head-goal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-goal" d="M0 0 10 5 0 10z"/></marker>
-    <marker id="head-direction" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-direction" d="M0 0 10 5 0 10z"/></marker>
-    <marker id="head-question" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-question" d="M0 0 10 5 0 10z"/></marker>
-    <marker id="head-task" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-task" d="M0 0 10 5 0 10z"/></marker>
-    <marker id="head-finding" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-finding" d="M0 0 10 5 0 10z"/></marker>
+    <marker id="head-line" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-line" d="M0 0 10 5 0 10z"/></marker>
     <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-accent" d="M0 0 10 5 0 10z"/></marker>
   </defs>
-  <path class="arrow accent" marker-end="url(#head-accent)" d="M360 8V48"/>
-  <path class="arrow accent" marker-end="url(#head-accent)" d="M100 138V188"/>
-  <path class="arrow accent" marker-end="url(#head-accent)" d="M620 138V188"/>
-  <path class="arrow idea" marker-end="url(#head-idea)" d="M300 126 201 188"/>
-  <path class="arrow idea" marker-end="url(#head-idea)" d="M420 126 519 188"/>
-  <path class="arrow idea" marker-end="url(#head-idea)" d="M360 126V328"/>
-  <path class="arrow idea" marker-end="url(#head-idea)" d="M260 88H32Q20 88 20 100V496Q20 508 32 508H38"/>
-  <path class="arrow idea" marker-end="url(#head-idea)" d="M460 88H688Q700 88 700 100V496Q700 508 688 508H682"/>
-  <path class="arrow goal" marker-end="url(#head-goal)" d="M200 266 299 328"/>
-  <path class="arrow direction" marker-end="url(#head-direction)" d="M520 266 421 328"/>
-  <path class="arrow question" marker-end="url(#head-question)" d="M300 406 201 468"/>
-  <path class="arrow question" marker-end="url(#head-question)" d="M420 406 519 468"/>
-  <path class="arrow task" marker-end="url(#head-task)" d="M240 508H478"/>
-  <rect class="box idea fill-idea" x="260" y="50" width="200" height="76" rx="8"/>
-  <text class="name" x="360" y="83" text-anchor="middle">Idea</text>
-  <text class="what" x="360" y="107" text-anchor="middle">a thought worth keeping</text>
-  <rect class="box goal fill-goal" x="40" y="190" width="200" height="76" rx="8"/>
-  <text class="name" x="140" y="223" text-anchor="middle">Goal</text>
-  <text class="what" x="140" y="247" text-anchor="middle">a destination to reach</text>
-  <rect class="box direction fill-direction" x="480" y="190" width="200" height="76" rx="8"/>
-  <text class="name" x="580" y="223" text-anchor="middle">Direction</text>
-  <text class="what" x="580" y="247" text-anchor="middle">where the research moves</text>
-  <rect class="box question fill-question" x="260" y="330" width="200" height="76" rx="8"/>
-  <text class="name" x="360" y="363" text-anchor="middle">Question</text>
-  <text class="what" x="360" y="387" text-anchor="middle">what must be answered</text>
-  <rect class="box task fill-task" x="40" y="470" width="200" height="76" rx="8"/>
-  <text class="name" x="140" y="503" text-anchor="middle">Task</text>
-  <text class="what" x="140" y="527" text-anchor="middle">a unit of work</text>
-  <rect class="box finding fill-finding" x="480" y="470" width="200" height="76" rx="8"/>
-  <text class="name" x="580" y="503" text-anchor="middle">Finding</text>
-  <text class="what" x="580" y="527" text-anchor="middle">a checkable claim</text>
-  <path class="arrow question" marker-end="url(#head-question)" d="M150 583H196"/>
-  <text class="label" x="208" y="588">a record can produce the one it points at</text>
-  <path class="arrow accent" marker-end="url(#head-accent)" d="M150 609H196"/>
-  <text class="label" x="208" y="614">minted from the conversation with the person</text>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M4 138H38"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M130 458V408"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M360 458V408"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M60 100C48 62 122 62 110 98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M290 100C278 62 352 62 340 98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M520 100C508 62 582 62 570 98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M220 138H268"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M450 138H498"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M160 100V56Q160 44 172 44H588Q600 44 600 56V98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M195 100V32Q195 20 207 20H692Q704 20 704 32V356Q704 368 692 368H682"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M100 176V328"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M190 176 299 328"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M190 330 299 178"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M380 330V178"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M420 176 529 328"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M620 176V328"/>
+  <rect class="box tint" x="40" y="100" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(56 122) scale(1.33)"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></g>
+  <text class="name" x="100" y="133">Idea</text>
+  <text class="what" x="100" y="157">a thought</text>
+  <rect class="box tint" x="270" y="100" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(286 122) scale(1.33)"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7M12 16.8v.4"/></g>
+  <text class="name" x="330" y="133">Question</text>
+  <text class="what" x="330" y="157">to answer</text>
+  <rect class="box tint" x="500" y="100" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(516 122) scale(1.33)"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></g>
+  <text class="name" x="560" y="133">Task</text>
+  <text class="what" x="560" y="157">to do</text>
+  <rect class="box plain" x="40" y="330" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(56 352) scale(1.33)"><path d="M6 21V4M6 5h11l-2 4 2 4H6"/></g>
+  <text class="name" x="100" y="363">Goal</text>
+  <text class="what" x="100" y="387">to reach</text>
+  <rect class="box plain" x="270" y="330" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(286 352) scale(1.33)"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></g>
+  <text class="name" x="330" y="363">Direction</text>
+  <text class="what" x="330" y="387">to follow</text>
+  <rect class="box plain" x="500" y="330" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(516 352) scale(1.33)"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></g>
+  <text class="name" x="560" y="363">Finding</text>
+  <text class="what" x="560" y="387">a checked claim</text>
+  <rect class="box tint" x="40" y="484" width="28" height="18" rx="4"/>
+  <text class="label" x="78" y="498">a card, drawn into a hand</text>
+  <rect class="box plain" x="290" y="484" width="28" height="18" rx="4"/>
+  <text class="label" x="328" y="498">a record nobody holds</text>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M40 520H68"/>
+  <text class="label" x="78" y="525">minted from the conversation with the person</text>
 </svg>

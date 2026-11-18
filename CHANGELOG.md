@@ -6,7 +6,7 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 The documentation:
 
-- The project card shows the pipeline as a diagram, `docs/assets/diagrams/pipeline.svg`: the six kinds of record, each in its own colour, and an arrow from each to what it can produce.
+- The project card shows the pipeline as a diagram, `docs/assets/diagrams/pipeline.svg`: the six kinds of record in two rows, the cards drawn into a hand above the rest, and an arrow from each to what it can produce.
 
 ## v0.11.4 — 2026-11-18
 
