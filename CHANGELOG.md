@@ -4,6 +4,10 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The documentation:
+
+- The project card shows the pipeline as a diagram, `docs/assets/diagrams/pipeline.svg`: the idea, the question, the task and the finding, and the ways one produces another.
+
 ## v0.11.4 — 2026-11-18
 
 A patch release on small details: `flow check` no longer warns that a parked question needs a task, a `formal:` path written from the project's root is answered with the workspace-relative one, a transition writes the index before it prints, and the skills and the install page say how `flow find --value none` reads and how a commit after a transition stages the move.

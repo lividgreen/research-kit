@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 430" width="720" height="430" role="img" aria-labelledby="pipeline-title pipeline-desc">
+  <title id="pipeline-title">research-kit's pipeline</title>
+  <desc id="pipeline-desc">Four kinds of record and the ways one produces another. An idea is framed as a question and may produce a task; a question needs tasks; a task yields a finding; a finding answers a question or raises a new one. Any of the four may also be minted from the conversation with the person.</desc>
+  <style>
+    text { font-family: Geist, ui-sans-serif, system-ui, sans-serif; }
+    .name { font-size: 18px; font-weight: 600; fill: #191c1d; }
+    .what { font-size: 14px; fill: #464555; }
+    .label { font-size: 14px; fill: #464555; }
+    .plain { fill: #f3f4f5; }
+    .tint { fill: #eef0fe; }
+    .frame { stroke: #c7c4d8; }
+    .muted { stroke: #464555; }
+    .accent { stroke: #3525cd; }
+    .box { stroke-width: 2; }
+    .arrow { stroke-width: 2; fill: none; }
+    .head-frame { fill: #c7c4d8; }
+    .head-muted { fill: #464555; }
+    .head-accent { fill: #3525cd; }
+    @media (prefers-color-scheme: dark) {
+      .name { fill: #e8eaef; }
+      .what, .label { fill: #b8bcc8; }
+      .plain { fill: #1c2027; }
+      .tint { fill: #211f45; }
+      .frame { stroke: #434957; }
+      .muted { stroke: #b8bcc8; }
+      .accent { stroke: #a9a2ff; }
+      .head-frame { fill: #434957; }
+      .head-muted { fill: #b8bcc8; }
+      .head-accent { fill: #a9a2ff; }
+    }
+  </style>
+  <defs>
+    <marker id="head-frame" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-frame" d="M0 0 10 5 0 10z"/></marker>
+    <marker id="head-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-muted" d="M0 0 10 5 0 10z"/></marker>
+    <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-accent" d="M0 0 10 5 0 10z"/></marker>
+  </defs>
+
+  <!-- minted from the conversation: no origin, the accent -->
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M30 108H88"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M690 108H632"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M30 308H88"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M690 308H632"/>
+
+  <!-- from an idea -->
+  <path class="arrow frame" marker-end="url(#head-frame)" d="M290 108H428"/>
+  <text class="label" x="360" y="96" text-anchor="middle">framed as</text>
+  <path class="arrow frame" marker-end="url(#head-frame)" d="M190 146V268"/>
+  <text class="label" x="178" y="213" text-anchor="end">produces</text>
+
+  <!-- from a question -->
+  <path class="arrow frame" marker-end="url(#head-frame)" d="M450 146 272 269"/>
+  <text class="label" x="352" y="236">needs</text>
+
+  <!-- from a task -->
+  <path class="arrow muted" marker-end="url(#head-muted)" d="M290 308H428"/>
+  <text class="label" x="360" y="296" text-anchor="middle">yields</text>
+
+  <!-- from a finding -->
+  <path class="arrow muted" marker-end="url(#head-muted)" d="M530 270V148"/>
+  <text class="label" x="542" y="204">answers,</text>
+  <text class="label" x="542" y="224">or raises</text>
+
+  <rect class="box plain frame" x="90" y="70" width="200" height="76" rx="8"/>
+  <text class="name" x="190" y="103" text-anchor="middle">Idea</text>
+  <text class="what" x="190" y="127" text-anchor="middle">a thought worth keeping</text>
+
+  <rect class="box tint frame" x="430" y="70" width="200" height="76" rx="8"/>
+  <text class="name" x="530" y="103" text-anchor="middle">Question</text>
+  <text class="what" x="530" y="127" text-anchor="middle">what must be answered</text>
+
+  <rect class="box plain muted" x="90" y="270" width="200" height="76" rx="8"/>
+  <text class="name" x="190" y="303" text-anchor="middle">Task</text>
+  <text class="what" x="190" y="327" text-anchor="middle">a unit of work</text>
+
+  <rect class="box tint muted" x="430" y="270" width="200" height="76" rx="8"/>
+  <text class="name" x="530" y="303" text-anchor="middle">Finding</text>
+  <text class="what" x="530" y="327" text-anchor="middle">a checkable claim</text>
+
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M176 396H222"/>
+  <text class="label" x="234" y="401">minted from the conversation with the person</text>
+</svg>
