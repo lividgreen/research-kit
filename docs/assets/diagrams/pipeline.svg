@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 536" width="720" height="536" role="img" aria-labelledby="pipeline-title pipeline-desc">
+  <title id="pipeline-title">research-kit's pipeline</title>
+  <desc id="pipeline-desc">The six kinds of card in two rows, and what each can produce. The cards drawn into a hand are on top: an idea, a question and a task, each of which can produce more of its own kind. An idea can also produce every other kind; a question produces tasks and findings; a task produces findings. Below are the cards laid on the table: the goal and the direction, which lead to questions, and the finding. An idea, a question, a goal, a direction and a finding also come straight from the conversation with the person.</desc>
+  <style>
+    text { font-family: Geist, ui-sans-serif, system-ui, sans-serif; }
+    .name { font-size: 18px; font-weight: 600; fill: #191c1d; }
+    .what, .label { font-size: 14px; fill: #464555; }
+    .box { stroke: #c7c4d8; stroke-width: 2; }
+    .tint { fill: #eef0fe; }
+    .plain { fill: #f3f4f5; }
+    .icon { fill: none; stroke: #464555; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    .arrow { stroke-width: 2; fill: none; }
+    .line { stroke: #464555; }
+    .accent { stroke: #3525cd; }
+    .head-line { fill: #464555; }
+    .head-accent { fill: #3525cd; }
+    @media (prefers-color-scheme: dark) {
+      .name { fill: #e8eaef; }
+      .what, .label { fill: #b8bcc8; }
+      .box { stroke: #434957; }
+      .tint { fill: #211f45; }
+      .plain { fill: #1c2027; }
+      .icon, .line { stroke: #b8bcc8; }
+      .accent { stroke: #a9a2ff; }
+      .head-line { fill: #b8bcc8; }
+      .head-accent { fill: #a9a2ff; }
+    }
+  </style>
+  <defs>
+    <marker id="head-line" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-line" d="M0 0 10 5 0 10z"/></marker>
+    <marker id="head-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-accent" d="M0 0 10 5 0 10z"/></marker>
+  </defs>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M4 138H38"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M400 2V98"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M130 458V408"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M360 458V408"/>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M590 458V408"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M60 100V84Q60 72 72 72H98Q110 72 110 84V98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M290 100V84Q290 72 302 72H328Q340 72 340 84V98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M520 100V84Q520 72 532 72H558Q570 72 570 84V98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M220 138H268"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M450 138H498"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M160 100V56Q160 44 172 44H588Q600 44 600 56V98"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M195 100V32Q195 20 207 20H692Q704 20 704 32V356Q704 368 692 368H682"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M100 176V328"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M190 176V218Q190 230 202 230H328Q340 230 340 242V328"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M160 330V288Q160 276 172 276H288Q300 276 300 264V178"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M380 330V178"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M420 176V241Q420 253 432 253H548Q560 253 560 265V328"/>
+  <path class="arrow line" marker-end="url(#head-line)" d="M620 176V328"/>
+  <rect class="box tint" x="40" y="100" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(56 122) scale(1.33)"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></g>
+  <text class="name" x="100" y="133">Idea</text>
+  <text class="what" x="100" y="157">a thought</text>
+  <rect class="box tint" x="270" y="100" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(286 122) scale(1.33)"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7M12 16.8v.4"/></g>
+  <text class="name" x="330" y="133">Question</text>
+  <text class="what" x="330" y="157">to answer</text>
+  <rect class="box tint" x="500" y="100" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(516 122) scale(1.33)"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></g>
+  <text class="name" x="560" y="133">Task</text>
+  <text class="what" x="560" y="157">to do</text>
+  <rect class="box plain" x="40" y="330" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(56 352) scale(1.33)"><path d="M6 21V4M6 5h11l-2 4 2 4H6"/></g>
+  <text class="name" x="100" y="363">Goal</text>
+  <text class="what" x="100" y="387">to reach</text>
+  <rect class="box plain" x="270" y="330" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(286 352) scale(1.33)"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></g>
+  <text class="name" x="330" y="363">Direction</text>
+  <text class="what" x="330" y="387">to follow</text>
+  <rect class="box plain" x="500" y="330" width="180" height="76" rx="8"/>
+  <g class="icon" transform="translate(516 352) scale(1.33)"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></g>
+  <text class="name" x="560" y="363">Finding</text>
+  <text class="what" x="560" y="387">a checked claim</text>
+  <rect class="box tint" x="40" y="484" width="28" height="18" rx="4"/>
+  <text class="label" x="78" y="498">a card drawn into a hand</text>
+  <rect class="box plain" x="290" y="484" width="28" height="18" rx="4"/>
+  <text class="label" x="328" y="498">a card laid on the table</text>
+  <path class="arrow accent" marker-end="url(#head-accent)" d="M40 520H68"/>
+  <text class="label" x="78" y="525">minted from the conversation with the person</text>
+</svg>

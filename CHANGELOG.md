@@ -30,6 +30,7 @@ The `formal` plugin:
 The documentation:
 
 - The flow's page and the cards page say the restate, the one rule of the warning and the section, the markdownlint configuration the lint reads and the postponed question; the setup's page says the commit step and the bound configuration, the formal setup's page the commit step, and Install the `markdownlint-cli2` reading.
+- The project card shows the pipeline as a diagram, `docs/assets/diagrams/pipeline.svg`: the six kinds of record in two rows, the cards drawn into a hand above the rest, and an arrow from each to what it can produce.
 
 ## v0.11.4 — 2026-11-18
 
