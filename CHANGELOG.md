@@ -4,7 +4,7 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
-A patch release that corrects three readings of v0.11.5: a done task stores the day it closed, a park's `changed` line carries its date, and every park names its revival.
+A patch release that corrects five readings of v0.11.5: a done task stores the day it closed, a park's `changed` line carries its date, every park names its revival, and the pipeline's diagram loses two arrows and gains one.
 
 **Upgrading**: not a breaking release, though it asks one step of a project.
 Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
@@ -28,6 +28,7 @@ The `research` plugin:
 The documentation:
 
 - The flow's page and the cards page say the closing day of a done task, V17 and the doctor's class for it, the park's revival and its `--tag`, the tag `revival-owner` and what removes it, and the date in a park's `changed` line; the `whatsnext` page says a park carries a reason and a revival.
+- The pipeline's diagram on the project card loses the arrows from a goal and from a direction to a question, so neither has an arrow out and no two arrows between cards cross, and gains the arrow from the conversation into a task, so every card has one; the page's sentence says a goal and a direction are what a question serves.
 
 ## v0.11.5 — 2026-11-18
 
