@@ -85,7 +85,8 @@ check; `pages` (the dashboard's page manifest); `--json` on every command.
                                  changed since the newest committed entry, every record changed since then named;
                                  the cards each hand holds printed, each with its drawn date and its age
   flow doctor [--fix] [--all]    every record and binding written in an older model's words, and what it reads
-                                 now; --fix writes every edit whose line states it, the rest left to the hand
+                                 now; --fix writes every edit whose line states it, the rest left to the hand,
+                                 and adds one log entry naming each class and the records it wrote
   flow log add FILE              one entry at the top of the log, reflowed and linted as a record is
   flow log archive --before DATE the older entries moved verbatim, one file per month, into `[paths] log_archive`
   flow reflow --check PATH...    the lines of the project's other prose that are not one sentence per line (the
@@ -1008,6 +1009,11 @@ def write_record(cfg, rec, reflow=True):
     return rec.path
 
 
+# The fix for the two rules a body fails most, one line each, added to the refusal where that rule is the one that failed.
+MDLINT_FIXES = {"MD032": "MD032: a list needs a blank line before it and after it, also under a sentence line.",
+                "MD033": "MD033: angle brackets in prose are read as HTML: put the text between backticks, as `<id>`."}
+
+
 def write_linted(cfg, texts):
     """Write each path's text, journaled, then refuse (and revert every one) when markdownlint reports more of
     a code over the files together than before: a violation moved verbatim from one to another is not new."""
@@ -1031,7 +1037,12 @@ def write_linted(cfg, texts):
                 path.unlink()
             else:
                 write_whole(path, old)
-        raise Refused(f"markdownlint reports NEW violations in {', '.join(rel(cfg, p) for p in texts)} — reverted:\n" + "\n".join(reports))
+        failed = sorted(k for k, v in after.items() if v > before.get(k, 0))
+        minted = [m.group(1) + "-" + m.group(2) for p, old in olds.items() if old is None for m in [cfg.id_re.match(p.name)] if m]
+        said = "nothing was written" + (f", and {', '.join(minted)} {'is' if len(minted) == 1 else 'are'} not taken (the next mint may get "
+                                        f"{'it' if len(minted) == 1 else 'them'})" if minted else "")
+        raise Refused(f"markdownlint reports NEW violations in {', '.join(rel(cfg, p) for p in texts)}: {said}:\n" + "\n".join(reports)
+                      + "".join(f"\n{MDLINT_FIXES[k]}" for k in failed if k in MDLINT_FIXES))
 
 
 def write_whole(path, text):
@@ -1134,12 +1145,17 @@ def read_body(path):
     """A body's text from the file named, or from the standard input for `-`, so a one-off body needs no scratch file."""
     if not path:
         return ""
-    if path == "-":
-        return sys.stdin.read()
     p = Path(path)
-    if not p.is_file():
-        raise Refused(f"body file not found: {path}")
-    return p.read_text(encoding="utf-8")
+    if path != "-" and p.is_dir():
+        raise Refused(f"body file is a directory: {path}")
+    try:  # any readable path: a pipe or a process substitution (`--body <(...)`, `/dev/fd/63`) is no regular file
+        return sys.stdin.read() if path == "-" else p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise Refused(f"body file not found: {path}") from None
+    except OSError as e:
+        raise Refused(f"body file cannot be read: {path} ({e.strerror or e})") from None
+    except UnicodeDecodeError as e:
+        raise Refused(f"{'the standard input' if path == '-' else path}: not UTF-8 ({e.reason} at byte {e.start})") from None
 
 
 def append_note(rec, today, text, block=""):
@@ -2384,7 +2400,10 @@ def cmd_return(cfg, recs, a, today):
     if r.type not in CARDS:
         raise Refused(f"{r.id} is {kind_word(r.type)}: only an idea, a question or a task is held in a hand")
     if not is_held(r):
-        raise Refused(f"{r.id} is in no hand")
+        if r["state"] != "open":
+            raise Refused(f"{r.id} is {r['state']}: a closed card is in no deck and no hand, and there is nothing to return")
+        deck = f"{r['owner']}'s deck" if r["owner"] else "the common deck"
+        raise Refused(f"{r.id} is in {deck} already, in no hand: there is nothing to return")
     if not (a.note or "").strip():
         raise Refused("return takes --note in words: what the session did on the card and why it goes back")
     r.fm["drawn"] = None
@@ -2583,6 +2602,7 @@ def cmd_remove(cfg, recs, a, today):
 
 # The cards a command returned to their owner's deck beside its own change, a held card made to wait: said as such.
 _RETURNED = []
+_RETURNED_BY = {}  # the word for what made each of them wait, `parked` or `blocked`, for the line the command prints
 REVIVAL_OWNER = "revival-owner"  # the tag of a park whose revival is the person's word: the parking's, so an unpark or a restate removes it
 _UNTAGGED = []  # the cards an unpark or a restate took the tag `revival-owner` from, said in the command's output
 
@@ -2598,10 +2618,11 @@ def waitable(recs, id_):
     raise Refused(f"{r.id} is {'a ' + r['state'] if r['state'] else 'a'} {r.type}: an open question or an open task waits")
 
 
-def wait_return(r):
+def wait_return(r, why):
     """A held card that is made to wait goes back to its owner's deck in the same command, and the command says so."""
     if is_held(r):
         _RETURNED.append((r.id, r["owner"]))
+        _RETURNED_BY[r.id] = why
         r.fm["drawn"] = None
 
 
@@ -2640,7 +2661,7 @@ def cmd_park(cfg, recs, a, today):
         r.fm["parked"] = {"date": today, "reason": a.reason, "revival": a.revival}
     if new_tags != tags:
         r.fm["tags"] = new_tags
-    wait_return(r)
+    wait_return(r, "parked")
     if r.type == "question":
         r.fm["checked"] = today
     save(cfg, r)
@@ -2693,7 +2714,7 @@ def cmd_block(cfg, recs, a, today):
     if len(set(ons)) < len(ons):
         raise Refused("block names one thing twice in --on")
     r.fm["blocked_by"] = {"date": today, "on": ons, "reason": a.reason}
-    wait_return(r)
+    wait_return(r, "blocked")
     if r.type == "question":
         r.fm["checked"] = today
     save(cfg, r)
@@ -2931,10 +2952,12 @@ def batch_set(cfg, recs, source, today):
         text = sys.stdin.read()
     else:
         p = Path(source)
-        if not p.is_file():
+        if not p.exists() or p.is_dir():  # a pipe is no regular file, and `--from <(...)` reads it
             raise Refused(f"rows file not found: {source}")
         try:
             text = p.read_text(encoding="utf-8")
+        except OSError as e:
+            raise Refused(f"rows file cannot be read: {source} ({e.strerror or e})")
         except UnicodeDecodeError as e:
             raise Refused(f"{source}: not UTF-8 ({e.reason} at byte {e.start})")
     written, unchanged, refused, applied, first = 0, 0, [], {}, {}
@@ -3413,7 +3436,9 @@ def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
     out = []
     if cfg.inbox.is_file():
         ls = cfg.inbox.read_text(encoding="utf-8").rstrip("\n").split("\n")
-        out += [f"{rel(cfg, cfg.inbox)}:{i + 1}: {ls[i]}" for i in range(len(ls))] + [""]
+        # an inbox holding only its heading (and the comment `flow init` writes under it) holds no item: nothing is printed
+        if any(l.strip() and not l.startswith("# ") for l in re.sub(r"<!--.*?-->", "", "\n".join(ls), flags=re.S).split("\n")):
+            out += [f"{rel(cfg, cfg.inbox)}:{i + 1}: {ls[i]}" for i in range(len(ls))] + [""]
     else:
         out += [f"{rel(cfg, cfg.inbox)}: missing — the person's inbox (`[paths] inbox`)", ""]
     if cfg.index.is_file():
@@ -3744,14 +3769,51 @@ def cmd_log_add(cfg, a, today):
                       "labelled `**State.**` or `**State (…).**`")
     if len(log_entries(lines)) > 1:
         raise Refused(f"{a.file} holds more than one entry; the log takes one at a time")
+    insert_entry(cfg, log, lines, m.group(1))
+    return [log], f"added {lines[0][3:]} at the top of {rel(cfg, log)}"
+
+
+def insert_entry(cfg, log, lines, day):
+    """The entry `lines` (its heading dated `day`) reflowed and written at the top of the log, below the title."""
     ls = log.read_text(encoding="utf-8").split("\n")
     entries = log_entries(ls)
-    if entries and entries[0][2] and m.group(1) < entries[0][2]:
-        raise Refused(f"the log runs newest first, and its top entry is dated {entries[0][2]}, after {m.group(1)}")
+    if entries and entries[0][2] and day < entries[0][2]:
+        raise Refused(f"the log runs newest first, and its top entry is dated {entries[0][2]}, after {day}")
     at = entries[0][0] if entries else len(ls)
     parts = ("\n".join(ls[:at]).rstrip("\n"), cfg.reflow("\n".join(lines)).rstrip("\n"), "\n".join(ls[at:]).rstrip("\n"))
     write_linted(cfg, {log: "\n\n".join(x for x in parts if x) + "\n"})
-    return [log], f"added {lines[0][3:]} at the top of {rel(cfg, log)}"
+
+
+def id_runs(ids):
+    """Ids as the log names them: a run of three or more consecutive numbers of one prefix and one digit width as
+    `PREFIX-NNNN…MMMM`, which `names_id` reads as every id within it, and the other ids one by one."""
+    groups, loose, out = defaultdict(set), [], []
+    for i in ids:
+        m = re.fullmatch(r"(.+)-(\d+)", i)
+        if m:
+            groups[(m.group(1), len(m.group(2)))].add(int(m.group(2)))
+        else:
+            loose.append(i)
+    for (prefix, width), nums in sorted(groups.items()):
+        runs = []
+        for n in sorted(nums):
+            if runs and n == runs[-1][-1] + 1:
+                runs[-1].append(n)
+            else:
+                runs.append([n])
+        for run in runs:
+            out += [f"{prefix}-{run[0]:0{width}d}…{run[-1]:0{width}d}"] if len(run) >= 3 else [f"{prefix}-{n:0{width}d}" for n in run]
+    return out + sorted(loose)
+
+
+def doctor_entry(fixed, changed, written, today):
+    """The log entry `flow doctor --fix` adds where it wrote an edit: each class with the records it was written on,
+    named in the form `flow state --check` and `flow touched --unnamed` read, the ids in ranges where they run."""
+    edits = f"{sum(fixed.values())} mechanical edit{'' if sum(fixed.values()) == 1 else 's'} in {len(changed)} record{'' if len(changed) == 1 else 's'}"
+    rows = [f"- `{cls}`, {DOCTOR_CLASSES[cls]}: {', '.join(id_runs(written[cls]))}" for cls in sorted(fixed)]
+    return [f"## {today} — flow doctor --fix wrote {edits}", "",
+            f"**State.** `flow doctor --fix` wrote {edits} and nothing else; the state of the work is as the entry below this one says.", "",
+            "The edits by class, each with the records it was written on:", ""] + rows
 
 
 def cmd_log_archive(cfg, a, today):
@@ -3931,7 +3993,7 @@ def cmd_reflow(cfg, a):
             problems += reflow_problems(cfg, text, lambda n, f=f: f"{rel(cfg, f)}:{n}")
         return problems, f"{len(files)} file(s) read; reflow via {cfg.reflow_source}" + (f"; {left}" if left else "")
     dest, draft = map(Path, a.as_)
-    if not draft.is_file():
+    if not draft.exists() or draft.is_dir():  # a pipe is no regular file, and read_body reads it
         raise NotRun(f"{draft}: no such file")
     recs = load_all(cfg, []) if not dest.is_file() else {}
     if a.as_[0] in recs:  # a record named by its id: its file, whatever its name
@@ -4072,6 +4134,7 @@ DOCTOR_CLASSES = {
     "shard": "a finding moved out of its shard into findings/",
     "answered-by": "`answered_by` as a list of one or none made one value",
     "consumed-by": "`consumed_by` as one id made a list",
+    "consumed-null": "an idea's `consumed_by: null` written as `[]`, the empty list",
     "consumed-mirror": "an idea's `consumed_by` given the records that name it in `references`, as the fix leaves them, the missing ones appended",
     "blocked-on": "a block's `on` as one value made a list",
     "direction": "a question's `direction` by name deleted, the direction record's id named in `serves`",
@@ -4278,6 +4341,11 @@ def doctor(cfg, today):
         if t == "idea" and r["consumed_by"] and not isinstance(r["consumed_by"], list):
             add(f"consumed_by: {r['consumed_by']}", f"consumed_by as a list, `- {r['consumed_by']}` (every card it was folded into)", "consumed-by",
                 setter(fm, consumed_by=[r["consumed_by"]]))
+        if t == "idea" and "consumed_by" in fm and fm["consumed_by"] is None:  # the field is a list, and null is no list
+            def fix_consumed_null(fm=fm):
+                if fm.get("consumed_by") is None:  # not where the mirror's fix wrote the cards first
+                    fm["consumed_by"] = []
+            add("consumed_by: null", "consumed_by: [] (the field is a list, empty where no card names the idea)", "consumed-null", fix_consumed_null)
         if t == "idea":  # consumed_by is exactly the records naming the idea in references, whatever its state
             held, naming = consumed_list(r), named_after.get(r.id, set()) - {r.id}
             for x in held:
@@ -4535,10 +4603,11 @@ def doctor_fix(cfg, items):
     """Apply every mechanical item: each record's edits together, its front matter re-ordered to the schema, written
     without the lint, and the reflow only where a field's words were appended to the body, then moved where an item
     says; the index refreshed.
-    Returns (the counts by class, the items left to the hand, the ids of the records changed), an item whose move finds its
-    destination taken among the items left."""
+    Returns (the counts by class, the items left to the hand, the ids of the records changed, and for each class the records
+    it was written on, a path for an edit that is no record's), an item whose move finds its destination taken among the
+    items left."""
     fixed, left = Counter(), [it for it in items if it["fix"] is None]
-    changed = set()
+    changed, written = set(), defaultdict(set)
     moves = defaultdict(list)
     for it in items:
         if it["fix"] is None:
@@ -4548,6 +4617,7 @@ def doctor_fix(cfg, items):
         elif it["rec"] is None:
             it["fix"]()
             fixed[it["cls"]] += 1
+            written[it["cls"]].add(it["path"])
     by_rec = defaultdict(list)
     for it in items:
         if it["fix"] is not None and not isinstance(it["fix"], tuple) and it["rec"] is not None:
@@ -4558,6 +4628,7 @@ def doctor_fix(cfg, items):
         for it in its:
             it["fix"]()
             fixed[it["cls"]] += 1
+            written[it["cls"]].add(r.id)
         changed.add(r.id)
         if r.body != body:  # words a field held, appended to the body: reflowed as any write of a body is
             r.body = cfg.reflow(r.body)
@@ -4576,11 +4647,12 @@ def doctor_fix(cfg, items):
             shutil.move(str(it["rec"].path), str(dest))
             it["rec"].path = dest
             fixed[it["cls"]] += 1
+            written[it["cls"]].add(rid)
             changed.add(rid)
     if fixed:
         cfg.index.parent.mkdir(parents=True, exist_ok=True)
         write_whole(cfg.index, render_index(cfg, load_all(cfg, [])))
-    return fixed, left, changed
+    return fixed, left, changed, written
 
 
 # --- init --------------------------------------------------------------------------
@@ -4962,8 +5034,8 @@ def selftest():
         run(["draw", t3, "--owner", "root"], ok=False)  # hand full
         run(["return", t2, "--note", "later"])
         p = run(["return", t3, "--note", "never held"], ok=False)
-        expect("return on a card in no hand says it is in no hand, whatever the kind",
-               "is in no hand" in p["problems"][0]["msg"] and "draw it first" not in p["problems"][0]["msg"])
+        expect("return on a card in no hand says it is in its deck already, whatever the kind, and gives no advice to draw it",
+               "is in the common deck already, in no hand: there is nothing to return" in p["problems"][0]["msg"] and "draw" not in p["problems"][0]["msg"])
         tree = lambda: {x: x.read_text(encoding="utf-8") for x in sorted((root / "research").rglob("*.md"))}
         before = tree()
         run(["make", t1, "--resolution", "missing.md"], ok=False)
@@ -6110,9 +6182,24 @@ def selftest():
                 dispatched(c2, ["goal", "A goal"], today=today, as_json=True, quiet=True)
                 dispatched(c2, ["direction", "A direction"], today=today, as_json=True, quiet=True)
                 (r2 / "body.md").write_text("A line.\n## A heading with no blank line above it\n", encoding="utf-8")
-                rc, _ = dispatched(c2, ["idea", "A violation", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
+                rc, pl = dispatched(c2, ["idea", "A violation", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
                 expect("a write adding a violation of the built-in configuration is refused and reverted",
                        rc == 1 and len(list((r2 / "records" / "ideas").glob("*.md"))) == 1)
+                msg = pl["problems"][0]["msg"]
+                expect("the refusal says that nothing was written and that the id a mint names is not taken, and adds no fix line for a rule of another kind",
+                       "nothing was written, and idea-0002 is not taken (the next mint may get it)" in msg and "MD022" in msg
+                       and "MD032:" not in msg and "MD033:" not in msg)
+                (r2 / "body.md").write_text("A line before a list.\n- one\n- two\n", encoding="utf-8")
+                rc, pl = dispatched(c2, ["idea", "A list", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
+                expect("planted: a list under a sentence line is refused, and one line gives the fix for MD032 alone",
+                       rc == 1 and "MD032: a list needs a blank line before it and after it" in pl["problems"][0]["msg"]
+                       and "MD033:" not in pl["problems"][0]["msg"])
+                (r2 / "body.md").write_text("A line naming <cell> as prose.\n", encoding="utf-8")
+                rc, pl = dispatched(c2, ["idea", "An element", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
+                expect("planted: angle brackets in prose are refused, and one line gives the fix for MD033 alone",
+                       rc == 1 and "MD033: angle brackets in prose" in pl["problems"][0]["msg"] and "MD032:" not in pl["problems"][0]["msg"]
+                       and len(list((r2 / "records" / "ideas").glob("*.md"))) == 1)
+                (r2 / "body.md").write_text("A line.\n## A heading with no blank line above it\n", encoding="utf-8")
                 (r2 / "body.md").write_text("### A body that opens below a second-level heading\n\nA line.\n", encoding="utf-8")
                 rc, _ = dispatched(c2, ["idea", "A deep opening", "--source", "t", "--body", str(r2 / "body.md")], today=today, as_json=True, quiet=True)
                 expect("planted: a body opening at `###` is written, the record's title not counted as a heading by MD001", rc == 0)
@@ -6218,6 +6305,14 @@ def selftest():
             quiet = lambda argv: dispatched(c3, argv, today=today, as_json=True, quiet=True)
             lines3 = state_lines(c3, recs=load_all(c3), today=today)[0]
             expect("state prints no goal or direction line where there are none", not any("## Goals" in l or "## Directions" in l for l in lines3))
+            (r3 / "INBOX.md").write_text("# Inbox\n\n\n", encoding="utf-8")
+            expect("state prints no inbox line where the inbox holds only its heading, with blank lines or the comment init writes under it",
+                   not any(l.startswith("INBOX.md") for l in lines3)
+                   and not any(l.startswith("INBOX.md") for l in state_lines(c3, recs=load_all(c3), today=today)[0]))
+            (r3 / "INBOX.md").write_text("# Inbox\n\n- an item\n", encoding="utf-8")
+            expect("and each line of an inbox with an item, the heading's too, with its line number",
+                   [l for l in state_lines(c3, recs=load_all(c3), today=today)[0] if l.startswith("INBOX.md")]
+                   == ["INBOX.md:1: # Inbox", "INBOX.md:2: ", "INBOX.md:3: - an item"])
             g3 = quiet(["goal", "Reach the far shore"])[1]["created"][0]
             d3 = quiet(["direction", "Along the coast"])[1]["created"][0]
             quiet(["question", "A question the goal needs", "--summary", "S.", "--serves", g3])
@@ -6357,7 +6452,37 @@ def selftest():
                card(q1)["owner"] == "agent" and card(q1)["drawn"] is None and card(q1)["started"] == yesterday and stand(q1) == "ready"
                and card(q1).body.rstrip().endswith(f"{today} — returned: nothing came of it today"))
         p = go(["return", q1, "--note", "again"], ok=False)
-        expect("return on a card in no hand says so", "is in no hand" in said(p))
+        expect("return on a card in no hand says it is in its owner's deck already and advises no draw",
+               f"{q1} is in agent's deck already, in no hand" in said(p) and "draw" not in said(p))
+        with tempfile.TemporaryDirectory() as tb:  # a body read from any readable path: a pipe, as `--body <(...)` is, no regular file
+            def refused_as(path):
+                try:
+                    read_body(path)
+                except Refused as e:
+                    return str(e)
+            expect("a missing path is refused as it was, and a directory is refused too",
+                   refused_as(str(Path(tb) / "no-such.md")) == f"body file not found: {Path(tb) / 'no-such.md'}"
+                   and refused_as(tb) == f"body file is a directory: {tb}")
+            (Path(tb) / "latin.md").write_bytes(b"\xff\xfe not utf-8\n")
+            expect("a file that is not UTF-8 is refused in words, naming the byte, and not with a traceback",
+                   "latin.md: not UTF-8 (invalid start byte at byte 0)" in (refused_as(str(Path(tb) / "latin.md")) or ""))
+            if hasattr(os, "geteuid") and os.geteuid() != 0:
+                (Path(tb) / "locked.md").write_text("x\n", encoding="utf-8")
+                (Path(tb) / "locked.md").chmod(0)
+                expect("an unreadable file is refused as one that cannot be read, not as one not found",
+                       (refused_as(str(Path(tb) / "locked.md")) or "").startswith(f"body file cannot be read: {Path(tb) / 'locked.md'} ("))
+            if os.name != "nt" and Path("/dev/fd").is_dir():
+                rfd, wfd = os.pipe()
+                os.write(wfd, "A body from a pipe.\n".encode())
+                os.close(wfd)
+                try:
+                    expect("read_body reads a pipe, as `--body <(…)` names one", read_body(f"/dev/fd/{rfd}") == "A body from a pipe.\n")
+                finally:
+                    os.close(rfd)
+        tx = go(["task", "a task removed before any return"])["created"][0]
+        go(["remove", tx, "--reason", "it stood here to test a return"])
+        p = go(["return", tx, "--note", "too late"], ok=False)
+        expect("return on a closed card says it is in no deck and no hand, with nothing to return", f"{tx} is removed: a closed card is in no deck and no hand" in said(p))
         go(["draw", q1, "--owner", "agent"])
         expect("a second draw writes the new hold and keeps the first started date", card(q1)["drawn"] == today and card(q1)["started"] == yesterday)
         # pass: one transition between decks, a note required, out of any hand
@@ -6393,13 +6518,18 @@ def selftest():
         go(["draw", t2, "--owner", "agent"])
         txt = text_of(cfg, ["block", t2, "--on", "the vendor's reply", "--reason", "needs the vendor"])
         expect("block on a held card returns it to its owner's deck in the same command and says so; its standing is blocked",
-               card(t2)["drawn"] is None and card(t2)["owner"] == "agent" and stand(t2) == "blocked" and f"returned {t2} (to agent's deck; a held card that waits is not held){dash_title(load_all(cfg), t2)}\n" in txt and f"changed {t2} (" in txt)
+               card(t2)["drawn"] is None and card(t2)["owner"] == "agent" and stand(t2) == "blocked" and f"returned {t2} (left agent's hand for agent's deck; a blocked card is not held){dash_title(load_all(cfg), t2)}\n" in txt and f"changed {t2} (" in txt)
         go(["unblock", t2])
         expect("a block cleared leaves the card in its owner's deck until a draw", stand(t2) == "ready" and card(t2)["owner"] == "agent")
         go(["draw", t2, "--owner", "agent"])
         p = go(["park", t2, "--reason", "set down", "--revival", "when asked"])
         expect("park on a held card returns it too, `returned` in the answer; the standing is parked, and a parked card is not drawn",
                p["returned"] == [{"id": t2, "owner": "agent"}] and card(t2)["drawn"] is None and stand(t2) == "parked")
+        go(["unpark", t2])
+        go(["draw", t2, "--owner", "agent"])
+        txt = text_of(cfg, ["park", t2, "--reason", "set down again", "--revival", "when asked"])
+        expect("park on a held card says a parked card is not held, as block says a blocked one is not",
+               f"returned {t2} (left agent's hand for agent's deck; a parked card is not held){dash_title(load_all(cfg), t2)}\n" in txt)
         go(["draw", t2, "--owner", "agent"], ok=False)
         go(["block", t3, "--on", "the release", "--reason", "r"])
         go(["park", t3, "--reason", "r", "--revival", "v"])
@@ -7032,6 +7162,42 @@ def selftest():
                    and names_id("finding-0007 – 2024 runs", "finding-0007") and not names_id("finding-0007 – 2024 runs", "finding-0100")
                    and not names_id("finding-0035…0015", "finding-0020") and names_id("finding-0035…0015", "finding-0035")
                    and not names_id("finding-0015…0035x", "finding-0020"))
+            # `flow doctor --fix` names what it wrote in one log entry, so the freeze check reads those records as named
+            wide = [go(["idea", f"a doctored idea {n}"])["created"][0] for n in range(4)]
+            for i in wide:
+                pth = load_all(cfg)[i].path
+                pth.write_text(pth.read_text(encoding="utf-8").replace("consumed_by: []", "consumed_by: null"), encoding="utf-8")
+            entry.write_text("## 2026-10-27 — four ideas\n\n**State.** Four ideas are minted and nothing else is in flight.\n", encoding="utf-8")
+            go(["log", "add", str(entry)])
+            for argv in (["add", "-A"], ["commit", "-q", "--no-verify", "-m", "four ideas, consumed_by null"]):
+                subprocess.run(gitc + argv, cwd=root, capture_output=True, text=True)
+            rc, pl = dispatched(cfg, ["doctor"], today=today, as_json=True, quiet=True)
+            expect("the doctor names an idea with `consumed_by: null` as a mechanical line of the class `consumed-null`",
+                   pl["summary"].get("consumed-null") == 4 and all(any(x["class"] == "consumed-null" and x["path"].endswith(f"{i}-a-doctored-idea-{n}.md")
+                                                                       for x in pl["mechanical"]) for n, i in enumerate(wide)))
+            log1 = cfg.log.read_text(encoding="utf-8")
+            rc, pl = dispatched(cfg, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
+            top = cfg.log.read_text(encoding="utf-8").split("\n## ")[1]
+            expect("doctor --fix writes `[]` for `consumed_by: null` and adds one dated entry to the log, the class named with its records as one range",
+                   pl["fixed"].get("consumed-null") == 4 and all(load_all(cfg)[i]["consumed_by"] == [] for i in wide)
+                   and pl["log"] == rel(cfg, cfg.log) and cfg.log.read_text(encoding="utf-8").count("— flow doctor --fix wrote") == 1
+                   and top.startswith("2026-10-27 — flow doctor --fix wrote ") and "\n\n**State.** " in top and "- `consumed-null`, " in top
+                   and f"{wide[0]}…{wide[-1].rsplit('-', 1)[1]}" in top)
+            p = go(["state", "--check"])
+            expect("after a commit the freeze check does not fail on the records the doctor changed, the entry naming them as a session's would",
+                   not p["problems"] and go(["touched", "--unnamed"])["touched"] == [])
+            fixed_log = cfg.log.read_text(encoding="utf-8")
+            cfg.log.write_text(log1, encoding="utf-8")
+            p = go(["state", "--check"], ok=False)
+            expect("planted: without the doctor's entry the same records fail the freeze as unnamed",
+                   sorted(x["path"].rsplit("/", 1)[1].split("-a-")[0] for x in p["problems"]) == sorted(wide))
+            cfg.log.write_text(fixed_log, encoding="utf-8")
+            rc, pl = dispatched(cfg, ["doctor", "--fix"], today=today, as_json=True, quiet=True)
+            expect("a run that writes nothing adds no entry", pl["fixed"] == {} and pl.get("log") is None and cfg.log.read_text(encoding="utf-8") == fixed_log)
+            expect("id_runs names three consecutive ids as one range and two as two ids, by prefix and digit width",
+                   id_runs(["task-0007", "task-0008", "task-0009", "task-0011", "task-0012", "idea-0001", "idea-0002", "idea-0003", "idea-0004",
+                            "task-9999", "task-10000", "INBOX.md"])
+                   == ["idea-0001…0004", "task-0007…0009", "task-0011", "task-0012", "task-9999", "task-10000", "INBOX.md"])
         elif os.environ.get("CI"):
             expect("git is on PATH in CI, where the freeze's log part is tested", False)
         else:
@@ -8769,6 +8935,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             _RERANKED.clear()
             _SET_RANKS.clear()
             _RETURNED.clear()
+            _RETURNED_BY.clear()
             _UNTAGGED.clear()
             before = {i: json.dumps([r.fm.get(k) for k in NOTICED], sort_keys=True, default=str) for i, r in recs.items()}
             try:
@@ -8820,7 +8987,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
                             emit(f"    {x['id']} ({x['state']}){dash_title(recs, x['id'])}")
             out["returned"] = [{"id": i, "owner": o} for i, o in _RETURNED]
             for i, o in _RETURNED:  # a held card made to wait goes back to its owner's deck in the same command
-                emit(f"returned {i} (to {o}'s deck; a held card that waits is not held){dash_title(recs, i)}")
+                emit(f"returned {i} (left {o}'s hand for {o}'s deck; a {_RETURNED_BY[i]} card is not held){dash_title(recs, i)}")
             if _UNTAGGED:  # a park's tag `revival-owner` taken off by an unpark or a restate
                 out["untagged"] = [{"id": i, "tag": REVIVAL_OWNER} for i in _UNTAGGED]
                 for i in _UNTAGGED:
@@ -8881,7 +9048,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             remarks = [{"path": it["path"], "text": it["remark"]} for it in items if it["remark"]]  # always printed, never a thing for the hand
             out["remarks"] = remarks
             if a.fix:
-                fixed, hand, changed = doctor_fix(cfg, items)
+                fixed, hand, changed, written = doctor_fix(cfg, items)
                 out["fixed"] = dict(fixed)
                 out["written"] = {"edits": sum(fixed.values()), "records": len(changed), "classes": dict(fixed)}
                 if a.all:
@@ -8893,6 +9060,15 @@ def _dispatch(cfg, a, today, as_json, quiet):
                     emit(f"fixed {n}: {DOCTOR_CLASSES[cls]}")
                 if fixed:
                     emit(f"index refreshed: {rel(cfg, cfg.index)}")
+                    out["log"] = None
+                    try:  # one entry a run, naming each class and its records as the freeze check reads a record named
+                        if not cfg.log:
+                            raise Refused("no log is bound (`[paths] log`)")
+                        insert_entry(cfg, bound_log(cfg), doctor_entry(fixed, changed, written, today), today)
+                        out["log"] = rel(cfg, cfg.log)
+                        emit(f"log entry added at the top of {rel(cfg, cfg.log)}: the classes written and the records, so the freeze check reads them as named")
+                    except Refused as e:  # the records are written: the session names them in its own entry
+                        emit(f"no log entry added ({e}): name the records in the session's own entry")
             else:
                 summary = Counter(it["cls"] for it in mech)
                 out["summary"] = dict(summary)

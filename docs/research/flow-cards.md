@@ -22,6 +22,7 @@ Every field of the kind's schema is present, in the order the tables below give,
 A field of an older model, such as `derived_from`, `criterion`, `blocked`, `abandoned`, a task's `kind` or a finding's `status`, fails the check, and `flow doctor` says what it reads now.
 
 The body is prose, one sentence per line, which `flow check` enforces because diffs and the index depend on it; where `markdownlint` is on PATH, a write that adds a violation is reverted.
+The refusal says that nothing was written and, on a mint, that the id it names is not taken; it adds one line with the fix where the rule that failed is MD032 (a blank line before a list and after it) or MD033 (angle brackets in prose are put in backticks).
 Where the root holds a `.markdownlint-cli2.*` file and none of the plain `.markdownlint.*` ones, and `[paths] markdownlint_config` binds none, the lint runs through `markdownlint-cli2`, which reads that file, where it is on PATH; otherwise `markdownlint` runs with the flow's built-in rules, and one line on the standard error says that the file is not read by `markdownlint` and that the built-in rules were used.
 A body points at where its subject is STATED — a document's section, a module, a round — and never restates it, because the statement moves and a copy does not.
 A question's body says what counts as an answer, or points at where that is stated; a goal's body what reached means and how far out it lies; a task's body what done means; the check reads none of these, and they are the convention a session keeps.

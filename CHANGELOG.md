@@ -4,6 +4,14 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+**Upgrading**: a release that can fail a commit that passed before, in two places.
+Move the plugins as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, set the hooks' `rev` to the release with them, and restart.
+The `flow-check` and `library-check` hooks now check what is being committed, the git index, and no longer the working tree: a commit that stages part of a transition's records fails, and so does every commit of a project whose `flow.toml` or `library.toml` is not in the index, until it is added.
+Run `formal cite` once: it now reads a dotted name scoped by a namespace below the library root or by a module's last component, and a new drift line is a typo to correct, an upstream name for `[documents] upstream`, or, where an upstream library shares the namespace or the module's name, a word for `[documents] ambiguous_namespaces`.
+Run `flow doctor --fix` once where a record carries `consumed_by: null`; the entry it adds to the log is the doctor's own and names the records it wrote.
+Under Claude Code the first flow command of a session is refused once where the `flow` skill is not loaded, and passes when run again.
+Two output lines change, which matters for a project's own script that matches them: the `returned` line of `flow block` and `flow park`, and the first line of a markdownlint refusal; `--json` keeps its fields, the doctor's page gaining `log`.
+
 The `research` plugin:
 
 - `flow check --staged` and `library check --staged` run the same check on a temporary checkout of the git index (`git checkout-index -a`, from the repository's top level), print the paths as the project's own, exit with the check's code and remove the checkout however they end; without the flag both read the working tree as before, and outside a git repository `--staged` is refused with exit 2.
@@ -15,6 +23,16 @@ The `research` plugin:
 - The plugin ships a Claude Code hook, `hooks/hooks.json` over `hooks/flow_skill.py`: a Skill call that loads `research:flow` and a typed `/research:flow` write a marker under `${CLAUDE_PLUGIN_DATA}`, and a Bash call that runs the flow script in a project with a `flow.toml`, with no marker, is denied once with "load the `flow` skill (research:flow), then run this again".
   The session's next flow command passes, loaded or not, a subagent counts apart from its session, anything the hook cannot read passes it, and under another agent than Claude Code nothing runs.
   To move a project: restart the session after the plugin update; the first flow command of a session is refused once where the skill is not loaded, and the command is run again after loading it.
+- A write that markdownlint reverts is refused in clearer words: `markdownlint reports NEW violations in PATH: nothing was written, and ID is not taken (the next mint may get it):` on a mint, `nothing was written:` otherwise, the linter's lines after it, and one line with the fix where the rule that failed is MD032 (a blank line before a list and after it) or MD033 (angle brackets in prose put in backticks), none for another rule.
+- `flow doctor --fix` adds one dated entry at the top of the log where it wrote at least one edit, headed `## DAY — flow doctor --fix wrote N mechanical edits in M records`, with a State paragraph and a list of each class with the records it was written on, the ids in ranges (`task-0041…0055`) where three or more run; `flow state --check` and `flow touched --unnamed` read those records as named, so the freeze check no longer fails on what the doctor wrote.
+  A run that writes nothing adds no entry, and a log that is not bound or refuses the entry leaves the records written and says so in one line; under `--json` the page carries `log`, the log's path or `null`.
+- `flow doctor` names an idea with `consumed_by: null` as a mechanical line of the new class `consumed-null`, and `--fix` writes `[]`.
+- `flow block` and `flow park` on a held card print `returned ID (left OWNER's hand for OWNER's deck; a blocked card is not held)` or `(…; a parked card is not held)`, where they printed `to OWNER's deck; a held card that waits is not held`.
+  `flow return` on a card in no hand is refused with `ID is in OWNER's deck already, in no hand: there is nothing to return` (`the common deck` for a card of no owner) and on a closed card with `ID is STATE: a closed card is in no deck and no hand, and there is nothing to return`; neither advises drawing it.
+- `--body`, `--resolution` and every other flag that reads a body's file take any readable path, a process substitution (`--body <(…)`, `/dev/fd/63`) among them; a missing path is refused as before, `body file not found: PATH`, a directory as `body file is a directory: PATH`, an unreadable file as `body file cannot be read: PATH (REASON)` and a file that is not UTF-8 as `PATH: not UTF-8 (…)`, none with a traceback; `flow set --from` takes a pipe the same way.
+- `flow state` prints nothing of the inbox where it holds no item, only its heading and blank lines or the comment `flow init` writes under it, where it printed `INBOX.md:1: # Inbox`.
+- The `flow` skill says one transition a shell call, or `&&` between them, so a refused mint is not read past, and its sentence on the session holds for the held cards that are the session's own work, a card handed to another session staying held and not worked here.
+- The `flow` and `whatsnext` skills say, beside the rule that a card waiting on the person's decision is blocked on a task and never parked for it, that a decision the work needs is asked of the person and the card blocked on the task in their deck, and that a card parked with the revival `on the owner's word` and the tag `revival-owner` asks nothing and sleeps until the person brings it up.
 
 The `formal` plugin:
 
@@ -30,6 +48,7 @@ The `formal` plugin:
 The documentation:
 
 - The `land` page says the same, and that `[documents] ambiguous_namespaces` also holds a module's last component an upstream library shares.
+- The flow's page says the same of the doctor's class and its log entry, the `returned` line and the session, and the cards page of the markdownlint refusal; the library's page says its generated index is left out of a project's line-length checks, as the flow's index is.
 
 ## v0.11.6 — 2026-11-18
 
