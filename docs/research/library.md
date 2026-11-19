@@ -40,6 +40,7 @@ The [skill](../../plugins/research/skills/library/SKILL.md) names every flag, an
 
 - The cards, `cards/<key>.md` under the library's directory, one per work; [Library cards](library-cards.md) specifies them.
 - The index, `INDEX.md` beside them, written by `library index` and never by hand, one line per card.
+  It is generated, not prose, and a card's line may run past a hundred characters: a project's line-length checks leave it out, as the flow's index is left out of the reflow.
 - The store, ignored by version control, holding the copies that can be fetched again with the address each came from and the derived full-text index; and the kept directory, tracked, holding the copies nothing can fetch again, which `library keep` writes only with `--redistributable`, since a copy there is redistributed with the repository.
 - The watches file and the candidates file, written by `library watch` and `library candidates`: what each watch has already seen, and the works surfaced that nobody has registered.
 - The documents the project binds are read and never written: each entry of their `## References` section is tied to exactly one card at every check.
