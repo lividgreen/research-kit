@@ -76,8 +76,8 @@ generate = "lake env lean --run DeclManifest.lean --roots <Root> --out ../script
 scan = ["papers/*.md"]
 # What `formal cite` accepts beside the manifests: names of an upstream library shaped like a
 # declaration, the documents' notation shaped like a name, declarations retired on purpose (which
-# must be absent from the manifests), named targets not yet in the tree, and namespaces shared
-# with an upstream library (a qualified name under one is not checked).
+# must be absent from the manifests), named targets not yet in the tree, and namespaces or module
+# names shared with an upstream library (a qualified name under one is not checked).
 upstream = []
 notation = []
 retired = []

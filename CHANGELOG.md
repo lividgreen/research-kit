@@ -4,6 +4,21 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The `formal` plugin:
+
+- `formal cite` reads a citation scoped by a namespace below the library root: a backticked dotted name whose first component is a namespace segment at any depth of a manifest declaration's name, or a module's last component, resolves to every declaration it ends on a component boundary (`Host.lemma` for `Root.Host.lemma`), and is drift where none does; it used to read only a first component that was the declaration's own first one, so a typo scoped lower passed the gate.
+  A dotted name whose first component is no namespace segment, no module's last component and no base name of the manifests stays unread, being an upstream name, and the allowlists and `[documents] ambiguous_namespaces` are read first, as before.
+  After the move, run `formal cite` once; a new drift line is a typo to correct, an upstream name for `[documents] upstream`, or, where an upstream library shares a namespace or a module's last component with the project, a word for `[documents] ambiguous_namespaces`.
+- `formal cite` and `formal resolve` read the module-qualified form by one rule: `Module.name`, a declaration with the base `name` in a module whose path `Module` ends on a component boundary, resolves, and in `formal cite` is drift where the module has no such name.
+  A module path written from below a root (`Code.BitGates` for `Root.Code.BitGates`) is a module citation by suffix.
+- `formal cite --json` lists each such citation in `resolved` with its `declarations`, the kinds being `namespaced` and `module-qualified`, and the text's coverage line counts them.
+- `formal resolve --json` prints one JSON document in the lines' place, an object for each target with its `readings`, every declaration its name could mean, public and private, in no module's scope, and `ok`, with `why` where it does not resolve; the text mode and the exit codes are as they were, and `--protocol` takes no `--json`.
+- The `land` skill says what `formal cite` reads below the root, the module-qualified form and `formal resolve --json`.
+
+The documentation:
+
+- The `land` page says the same, and that `[documents] ambiguous_namespaces` also holds a module's last component an upstream library shares.
+
 ## v0.11.6 — 2026-11-18
 
 A patch release that corrects five readings of v0.11.5: a done task stores the day it closed, a park's `changed` line carries its date, every park names its revival, and the pipeline's diagram loses two arrows and gains one.
