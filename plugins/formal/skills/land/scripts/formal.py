@@ -1431,12 +1431,13 @@ def expand_globs(cfg, globs):
 
 def do_cite(cfg, as_json=False):
     """The citations of the documents against the manifests; `as_json` prints one JSON document in the text's place (what
-    resolved and to which declarations, what the allowlists took, the drift, `ok`), with the text mode's exit code."""
+    resolved and to which declarations, what the allowlists took, the dotted tokens left unread because their namespace is in
+    `[documents] ambiguous_namespaces`, the drift, `ok`), with the text mode's exit code."""
     try:
         all_rows = list(rows(cfg))
     except ManifestError as e:
         if as_json:
-            print(json.dumps({"resolved": [], "allowed": {}, "drift": [{"where": "manifests", "msg": f"COULD NOT CHECK: {e}"}], "ok": False}, indent=2))
+            print(json.dumps({"resolved": [], "allowed": {}, "unread": [], "drift": [{"where": "manifests", "msg": f"COULD NOT CHECK: {e}"}], "ok": False}, indent=2))
         else:
             print(f"COULD NOT CHECK: {e}")
         return 2
@@ -1454,7 +1455,8 @@ def do_cite(cfg, as_json=False):
     private -= public  # a name public somewhere has a public reading
     modules = set(mod_pool)
     namespaces = {n.split(".")[0] for n in decls if "." in n} - cfg.ambiguous
-    segments = {c for n in decls for c in n.split(".")[:-1]} - cfg.ambiguous  # a namespace segment at any depth of a name
+    all_segments = {c for n in decls for c in n.split(".")[:-1]}  # a namespace segment at any depth of a name
+    segments = all_segments - cfg.ambiguous
     bases = {n.split(".")[-1] for n in decls | fields}
     suffixes = defaultdict(set)
     for n in decls | fields:
@@ -1469,7 +1471,7 @@ def do_cite(cfg, as_json=False):
         except ValueError:  # a package outside the project root
             pass
     docs_rx = re.compile(cfg.docs_url) if cfg.docs_url else None
-    ok, seen, drift, resolved = defaultdict(int), defaultdict(set), [], []
+    ok, seen, drift, resolved, unread = defaultdict(int), defaultdict(set), [], [], []
     for name in sorted(cfg.retired):
         if matches_in(name, decls):
             drift.append(("formal.toml", f"`{name}` is bound as retired but is in the manifests — drop it from [documents] retired"))
@@ -1477,7 +1479,7 @@ def do_cite(cfg, as_json=False):
     if not files:
         msg = f"no document matches [documents] scan ({', '.join(cfg.scan)}), so the inventory the bindings name has rotted"
         if as_json:
-            print(json.dumps({"resolved": [], "allowed": {}, "drift": [{"where": "formal.toml", "msg": msg}], "ok": False}, indent=2))
+            print(json.dumps({"resolved": [], "allowed": {}, "unread": [], "drift": [{"where": "formal.toml", "msg": msg}], "ok": False}, indent=2))
         else:
             print(f"formal cite: FAIL — {msg}")
         return 1
@@ -1563,6 +1565,10 @@ def do_cite(cfg, as_json=False):
                         drift.append((where, f"`{tok}` is scoped under `{qm.group(1)}`, a declaration of the manifests, but no name ends in it "
                                              "(an upstream name goes in [documents] upstream)"))
                     continue
+                if qm and first in cfg.ambiguous and (first in all_segments or first in module_bases):
+                    # scoped by a namespace or a module name the library shares with upstream: not read, and listed for `--json`
+                    unread.append({"doc": rel, "line": lineno, "token": tok, "namespace": first})
+                    continue
                 if not cite_candidate(tok):
                     continue
                 if pool and (hit := matches_in(tok, pool)):
@@ -1591,7 +1597,7 @@ def do_cite(cfg, as_json=False):
                     drift.append((where, f"`{tok}` is shaped like a declaration but resolves nowhere (the manifests, the modules, the allowlists of [documents])"))
     if as_json:
         print(json.dumps({"resolved": resolved, "allowed": {k: sorted(v) for k, v in sorted(seen.items())},
-                          "drift": [{"where": w, "msg": m} for w, m in drift], "ok": not drift}, indent=2))
+                          "unread": unread, "drift": [{"where": w, "msg": m} for w, m in drift], "ok": not drift}, indent=2))
         return 1 if drift else 0
     print(f"formal cite: {len(files)} document(s) from {', '.join(cfg.scan)}; manifests: {len(decls)} declarations, {len(fields)} fields, "
           f"{len(modules)} modules, {len(private)} private only, namespaces {len(namespaces)}"
@@ -2520,6 +2526,25 @@ def cite_scenarios(root, expect):
     toml.write_text(saved_toml.replace("ambiguous_namespaces = []", 'ambiguous_namespaces = ["Host"]'), encoding="utf-8")
     code, res = cite_doc("\nShared `Host.NoSuchThingAtAll`.\n")
     expect("cite: a namespace the library shares with upstream ([documents] ambiguous) is not read", code == 0 and not res.get("drift"), str(res)[-300:])
+    expect("cite --json: that token is listed as unread, with its document, line, token and the namespace that caused it",
+           res.get("unread") == [{"doc": "papers/a.md", "line": 13, "token": "Host.NoSuchThingAtAll", "namespace": "Host"}], str(res)[-300:])
+
+    def unread_of(res):
+        return [(u["token"], u["namespace"]) for u in res.get("unread", [])]
+
+    code, res = cite_doc("\nShared `Host.lemma`, upstream `Nat.noSuchNatLemma_xyz` and `Mathlib.Order.Basic.lt`.\n")
+    expect("cite --json: a token of an ambiguous namespace is unread though the library holds it; a first component that is simply unknown is not listed",
+           code == 0 and unread_of(res) == [("Host.lemma", "Host")] and reads(res, "Host.lemma") is None, str(res)[-300:])
+    toml.write_text(saved_toml.replace("ambiguous_namespaces = []", 'ambiguous_namespaces = ["Code"]'), encoding="utf-8")
+    code, res = cite_doc("\nA module's last component `Code.nothing_here` and a module path `Deep.Inner`.\n")
+    expect("cite --json: a module's last component in ambiguous_namespaces is unread, and a module path read by suffix still resolves",
+           code == 0 and unread_of(res) == [("Code.nothing_here", "Code")] and reads(res, "Deep.Inner") == ("module-ref", ["Lib.Deep.Inner"]), str(res)[-300:])
+    toml.write_text(saved_toml.replace("ambiguous_namespaces = []", 'ambiguous_namespaces = ["Lib"]'), encoding="utf-8")
+    code, res = cite_doc("\nThe first namespace `Lib.Host.lemma`.\n")
+    expect("cite --json: the library's first namespace in ambiguous_namespaces leaves its tokens unread", code == 0 and unread_of(res) == [("Lib.B.Cond", "Lib"), ("Lib.Host.lemma", "Lib")], str(res)[-300:])
+    toml.write_text(saved_toml, encoding="utf-8")
+    code, res = cite_doc("\nPlain `Host.lemma` and `Nat.noSuchNatLemma_xyz`.\n")
+    expect("cite --json: with no ambiguous namespace the key is an empty list", code == 0 and res.get("unread") == [], str(res)[-300:])
     toml.write_text(saved_toml, encoding="utf-8")
     manifest.write_text(saved_manifest, encoding="utf-8")
     doc.write_text(clean + "\nThe [docs](https://x/docs/Lib/Q.html), `s_work` and `s_tar`.\n", encoding="utf-8")

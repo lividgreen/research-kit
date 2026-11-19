@@ -44,12 +44,12 @@ Where the `flow` skill is not loaded, load it before the steps: no record is min
    Where there are some, commit from a `git worktree` of the freeze's own, as Install's "Several sessions in one tree" says, so that the commit holds the session's paths alone; the hooks are no reason for it, since they check the index and not the working tree.
    Or say in the turn that the runner is about to stash them.
    The flow wrote the session's own edits into the tree, uncommitted, so `git merge --ff-only` from the worktree is refused over them, and the edits travel by copy:
-   - `OLD=$(git rev-parse HEAD)`, then `git worktree add -q --detach ../freeze-wt "$OLD"`, detached since the tree holds the branch;
-   - each path the session changed is copied there with `cp -p`, the folder made first where it is new, and each path it deleted or moved, what a transition archived among them, is deleted there with `rm -f`; `git -C ../freeze-wt add -A -- PATHS` stages them, and `git -C ../freeze-wt status --short` shows what the commit holds, a move as a rename;
-   - the commit is made there, `git -C ../freeze-wt commit`, so it holds the session's paths alone;
-   - in the tree, `NEW=$(git -C ../freeze-wt rev-parse HEAD)`, `git update-ref refs/heads/BRANCH "$NEW" "$OLD"` and `git reset -q -- PATHS`: the update is refused if another commit moved the branch since `OLD`, and the reset brings the index to the new commit, the files already holding its content;
+   - `OLD=$(git rev-parse HEAD)` and `WT=../freeze-wt`, then `git worktree add -q --detach "$WT" "$OLD"`, detached since the tree holds the branch;
+   - `PATHS` is the list of paths copied and deleted in the worktree, a move's old path among them: each path the session changed is copied there with `cp -p`, the folder made first where it is new, and each path it deleted or moved, what a transition archived among them, is deleted there as `rm -f "${WT:?}/${p:?}"`, the guarded form, where `:?` stops an empty variable from reaching `rm` and which an agent's shell safety check accepts where a plain `rm -f "$WT/$p"` in a loop is refused; `git -C "$WT" add -A -- PATHS` stages them, and `git -C "$WT" status --short` shows what the commit holds, a move as a rename;
+   - the commit is made there, `git -C "$WT" commit`, so it holds the session's paths alone;
+   - in the tree, `NEW=$(git -C "$WT" rev-parse HEAD)`, `git update-ref refs/heads/BRANCH "$NEW" "$OLD"` and `git reset -q -- PATHS`, the paths listed from the new commit by `git show --name-only --no-renames --format= NEW` (one path to a line, a move's old path and its new path both; without `--no-renames` a move is listed by its new path only, and the old path then stays in the index): the update is refused if another commit moved the branch since `OLD`, and the reset brings the index to the new commit, the files already holding its content;
    - `git status --short -- PATHS` prints nothing, which is the check; another session's changes still show as they did;
-   - `git worktree remove ../freeze-wt`.
+   - `git worktree remove "$WT"`.
    Steps 2 to 5 run even on a clean tree: a clean tree says nothing about what the conversation still holds.
    A push stops on a non-fast-forward rather than forcing.
 6. **Report, as the turn's final output.**
