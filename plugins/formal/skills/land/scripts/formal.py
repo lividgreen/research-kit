@@ -15,7 +15,9 @@ must not carry, and the words a handoff must not carry.
                                            write formal.toml with every binding explained
     formal check                           the manifests parse and are the tree's, the bindings resolve
     formal rows [--json]                   every row of the manifests with its kind and fields; the one read of them outside the plugin
-    formal resolve [--public] TARGET...    each target (Path.lean#name, Path.lean, or a name) is a declaration or module of the manifests
+    formal resolve [--public] [--json] TARGET...
+                                           each target (Path.lean#name, Path.lean, or a name) is a declaration or module of the manifests;
+                                           --json: each target with every declaration its name could mean
     formal resolve --protocol              the research flow's call: a JSON request on the standard input, a JSON answer on the standard output
     formal handoffcheck DRAFT              the decidable invariants of a handoff prompt
     formal handback [--base REV] [--handoff DRAFT]
@@ -101,8 +103,8 @@ generate = {generate}
 scan = ["papers/*.md"]
 # What `formal cite` accepts beside the manifests: names of an upstream library shaped like a
 # declaration, the documents' notation shaped like a name, declarations retired on purpose (which
-# must be absent from the manifests), named targets not yet in the tree, and namespaces shared
-# with an upstream library (a qualified name under one is not checked).
+# must be absent from the manifests), named targets not yet in the tree, and namespaces or module
+# names shared with an upstream library (a qualified name under one is not checked).
 upstream = []
 notation = []
 retired = []
@@ -332,6 +334,16 @@ def matches_in(tok, pool):
     return {n for n in pool if n == tok or n.endswith("." + tok) or n.split(".")[-1] == tok}
 
 
+def module_qualified(tok, by_module):
+    """The declarations a module-qualified `Module.base` names: those with the base `base` in a module of `by_module`
+    ({module: names}) that `Module` is a suffix of on a component boundary, so `Code.BitGates.f` reaches `f` of
+    `Root.Code.BitGates` too.  The one rule `formal cite`, `formal resolve` and the read-back share."""
+    if "." not in tok:
+        return set()
+    mod, base = tok.rsplit(".", 1)
+    return {n for m, names in by_module.items() if m == mod or m.endswith("." + mod) for n in names if n.split(".")[-1] == base}
+
+
 def private_only(tok, pool, private):
     """True when every name `tok` could denote is private — a citation with no public reading."""
     hits = matches_in(tok, pool)
@@ -347,6 +359,7 @@ RESOLVER_PROTOCOL = 1
 ROW_FIELDS = {"module": ("count",), "decl": ("name",), "private": ("name",), "field": ("name",),
               "hypothesis": ("theorem", "condition"), "instance": ("theorem", "class"), "uses": ("decl", "const")}
 ROWS_SCHEMA = 1
+RESOLVE_SCHEMA = 1
 NAME_RX = r"(?:«[^»]*»|[^\s«»#/])+"
 TARGET_DECL = re.compile(r"^([A-Za-z0-9_/]+\.lean)#(%s)$" % NAME_RX)
 TARGET_MODULE = re.compile(r"^([A-Za-z0-9_/]+)\.lean$")
@@ -398,29 +411,48 @@ def do_rows(cfg, as_json=False):
 
 def name_index(all_rows):
     """The names a target can denote, as (the modules a `module` row names, the declarations each dotted suffix of a
-    name reaches, the names that are public, the names that are private), the last three in each module and overall
-    (under the key None).  A `decl` or `field` row is public, a `private` row private; a `hypothesis`, `instance`
-    or `uses` row is no declaration."""
+    name reaches, the names that are public, the names that are private, the names of each module), the reaches and
+    the two kinds in each module and overall (under the key None).  A `decl` or `field` row is public, a `private`
+    row private; a `hypothesis`, `instance` or `uses` row is no declaration."""
     modules, reach, public, private = set(), defaultdict(lambda: defaultdict(set)), defaultdict(set), defaultdict(set)
+    by_module = defaultdict(set)
     for r in all_rows:
         if r.kind == "module":
             modules.add(r.module)
         elif r.kind in ("decl", "field", "private"):
             parts = r.name.split(".")
+            by_module[r.module].add(r.name)
             for scope in (r.module, None):
                 (private if r.kind == "private" else public)[scope].add(r.name)
                 for k in range(len(parts)):  # every dotted suffix of a name resolves
                     reach[scope][".".join(parts[k:])].add(r.name)
-    return modules, reach, public, private
+    return modules, reach, public, private, by_module
+
+
+def target_name(target, bare=True):
+    """The name a target carries: the part after `#` of `Path.lean#name`, a name alone where `bare`; None for a module or
+    for what is no target."""
+    d = TARGET_DECL.match(target)
+    if d:
+        return d.group(2)
+    return target if bare and not TARGET_MODULE.match(target) and TARGET_NAME.match(target) else None
+
+
+def target_readings(index, target, bare=True):
+    """Every declaration a target's name could mean, public and private, in no module's scope: the names it is a suffix of
+    on a component boundary and the module-qualified ones (`module_qualified`); empty for a module."""
+    modules, reach, pub, priv, by_module = index
+    name = target_name(target, bare)
+    return sorted(reach[None].get(name, set()) | module_qualified(name, by_module)) if name else []
 
 
 def resolve_target(cfg, index, target, public=False, bare=True):
     """None where `target` resolves, else why not.  `Path.lean#name` is a name of the module the path names, `Path.lean`
     that module, and (where `bare`) a name alone any declaration of the manifests; the module is the path without
     `.lean`, `/` read as `.`, and its file must be there (`module_path`).  A name resolves where it is a declaration's
-    name or ends in `.` and it, among the module's rows where a `module` row names the module; `public` also fails
-    one whose every reading is a private declaration."""
-    modules, reach, pub, priv = index
+    name or ends in `.` and it, among the module's rows where a `module` row names the module, or is `Module.base`
+    (`module_qualified`); `public` also fails one whose every reading is a private declaration."""
+    modules, reach, pub, priv, by_module = index
     d, mod = TARGET_DECL.match(target), TARGET_MODULE.match(target)
     if d or mod:
         path = target.split("#", 1)[0]
@@ -442,12 +474,13 @@ def resolve_target(cfg, index, target, public=False, bare=True):
         name, module, scope, path = target, None, None, None
     else:
         return "formal takes a declaration (Path.lean#name)" + (", a whole module (Path.lean) or a name" if bare else " or a whole module (Path.lean)")
-    if name not in reach[None]:
+    anywhere = reach[None].get(name, set()) | module_qualified(name, by_module)
+    if not anywhere:
         return f"`{name}` is not in the manifest"
-    hits = reach[scope].get(name)
-    if not hits:
+    in_scope = anywhere if scope is None else reach[scope].get(name, set()) | module_qualified(name, {scope: by_module[scope]})
+    if not in_scope:
         return f"`{name}` is not declared in {module}, the module of {path}"
-    if public and all(h in priv[scope] and h not in pub[scope] for h in hits):
+    if public and all(h in priv[scope] and h not in pub[scope] for h in in_scope):
         return f"`{name}` resolves only to a private declaration"
     return None
 
@@ -466,15 +499,17 @@ def missing_manifest(cfg):
 def do_resolve(root, a):
     """`formal resolve TARGET…` for the hand, `formal resolve --protocol` for the research flow.  The hand: a line for
     each target that does not resolve, then the count; exit 0 where all resolve, 1 where one does not, 2 where it
-    could not run.  The flow: one JSON request on the standard input, one JSON answer on the standard output, exit 0
-    whenever it answered, 2 where it could not run (the reason on the standard error)."""
+    could not run; `--json` prints one JSON document in the lines' place, an object for each target with every
+    reading of its name and `ok`, and the same exit code.  The flow: one JSON request on the standard input, one JSON
+    answer on the standard output, exit 0 whenever it answered, 2 where it could not run (the reason on the standard
+    error)."""
     protocol = a.protocol
     err = (lambda m: print(m, file=sys.stderr)) if protocol else print
     try:
         cfg = Config(root)
         if protocol:
-            if a.targets or a.public:
-                raise Refused("--protocol takes its request on the standard input, and no target or --public")
+            if a.targets or a.public or a.json:
+                raise Refused("--protocol takes its request on the standard input, and no target, --public or --json")
             try:
                 req = json.loads(sys.stdin.read())
                 targets = [str(t) for t in req["items"]]
@@ -508,8 +543,12 @@ def do_resolve(root, a):
             items[t] = {"ok": True} if why is None else {"ok": False, "why": why}
         print(json.dumps({"protocol": RESOLVER_PROTOCOL, "items": items}, ensure_ascii=False))
         return 0
-    failed = [(t, resolve_target(cfg, index, t, a.public)) for t in targets]
-    failed = [(t, why) for t, why in failed if why]
+    answers = [(t, resolve_target(cfg, index, t, a.public)) for t in targets]
+    failed = [(t, why) for t, why in answers if why]
+    if a.json:
+        listed = [{"target": t, "readings": target_readings(index, t), "ok": why is None, **({"why": why} if why else {})} for t, why in answers]
+        print(json.dumps({"schema": RESOLVE_SCHEMA, "targets": listed, "ok": not failed}, ensure_ascii=False, indent=1))
+        return 1 if failed else 0
     for t, why in failed:
         print(f"{t}: {why}")
     print(f"formal resolve: {len(failed)} of {len(targets)} target(s) do not resolve" if failed else f"formal resolve: {len(targets)} target(s) resolve")
@@ -1063,14 +1102,15 @@ class Reader:
         return hits
 
     def resolve_target(self, tok):
-        """A named declaration: exact, module-qualified, or a bare name resolving in ONE module;
+        """A named declaration: exact, module-qualified (`module_qualified`), or a bare name resolving in ONE module;
         a bare name in several modules is refused as ambiguous."""
         if tok in self.names:
             return {tok}, None
         if "." in tok:
-            mod, bare = tok.rsplit(".", 1)
-            hits = {n for n in self.names if n.split(".")[-1] == bare
-                    and (self.names[n] == mod or self.names[n].endswith("." + mod))}
+            by_module = defaultdict(set)
+            for n, m in self.names.items():
+                by_module[m].add(n)
+            hits = module_qualified(tok, by_module)
             if hits:
                 return hits, None
         hits = self.resolve(tok)
@@ -1414,6 +1454,7 @@ def do_cite(cfg, as_json=False):
     private -= public  # a name public somewhere has a public reading
     modules = set(mod_pool)
     namespaces = {n.split(".")[0] for n in decls if "." in n} - cfg.ambiguous
+    segments = {c for n in decls for c in n.split(".")[:-1]} - cfg.ambiguous  # a namespace segment at any depth of a name
     bases = {n.split(".")[-1] for n in decls | fields}
     suffixes = defaultdict(set)
     for n in decls | fields:
@@ -1450,6 +1491,10 @@ def do_cite(cfg, as_json=False):
         if private_only(tok, pool, private):
             drift.append((where, f"`{tok}` resolves only to a private declaration, which a document cannot cite; cite a public one, or make it public"))
 
+    def visible_hits(tok, hits, where):
+        if hits <= private:
+            drift.append((where, f"`{tok}` resolves only to a private declaration, which a document cannot cite; cite a public one, or make it public"))
+
     for f in files:
         rel = f.relative_to(cfg.root).as_posix()
         for lineno, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
@@ -1482,7 +1527,11 @@ def do_cite(cfg, as_json=False):
                 if qm and tok in allowed and tok not in decls | fields:
                     seen[allowed[tok]].add(tok)
                     continue
-                if qm and qm.group(1) in namespaces:
+                # a dotted token scoped by a namespace segment of any depth, by a module's last component (`Module.name`), or a
+                # module path written from below the root; a first component that is none of these is an upstream name, unread
+                mods = {m for m in modules if m == tok or m.endswith("." + tok)} if qm else set()
+                first = qm.group(1) if qm else None
+                if qm and ((first in segments or first in module_bases) and first not in cfg.ambiguous or mods):
                     if tok in decls:
                         ok["qualified"] += 1
                         got("qualified", tok, [tok])
@@ -1493,8 +1542,17 @@ def do_cite(cfg, as_json=False):
                     elif tok in modules:
                         ok["module-ref"] += 1
                         got("module-ref", tok, [tok])
+                    elif mods:
+                        ok["module-ref"] += 1
+                        got("module-ref", tok, mods)
+                    elif hits := suffixes.get(tok, set()) | module_qualified(tok, mod_pool):
+                        kind = "module-qualified" if tok not in suffixes else "decl-scoped" if first in bases else "namespaced"
+                        ok[kind] += 1
+                        got(kind, tok, hits)
+                        visible_hits(tok, hits, where)
                     else:
-                        drift.append((where, f"`{tok}` is qualified under the namespace `{qm.group(1)}` of the manifests, but no declaration has that name"))
+                        drift.append((where, f"`{tok}` is scoped under `{first}`, a namespace or module of the manifests, but no declaration's name ends in it "
+                                             "and no module of that name has such a declaration (an upstream name goes in [documents] upstream)"))
                     continue
                 if qm and qm.group(1) in bases and tok not in cfg.upstream:
                     if tok in suffixes:
@@ -1538,7 +1596,7 @@ def do_cite(cfg, as_json=False):
     print(f"formal cite: {len(files)} document(s) from {', '.join(cfg.scan)}; manifests: {len(decls)} declarations, {len(fields)} fields, "
           f"{len(modules)} modules, {len(private)} private only, namespaces {len(namespaces)}"
           + (f" (shared with upstream, not checked: {', '.join(sorted(cfg.ambiguous))})" if cfg.ambiguous else ""))
-    kinds = ("module-scoped", "global", "qualified", "decl-scoped", "field", "module-ref", "file", "docs-link")
+    kinds = ("module-scoped", "global", "qualified", "decl-scoped", "namespaced", "module-qualified", "field", "module-ref", "file", "docs-link")
     print(f"resolved ({sum(ok.values())}): " + ", ".join(f"{k} {ok[k]}" for k in kinds))
     for k, toks in sorted(seen.items()):
         print(f"allowlisted, {k} ({len(toks)}): {', '.join(sorted(toks))}")
@@ -2422,6 +2480,48 @@ def cite_scenarios(root, expect):
            code == 1 and doc_json.get("ok") is False
            and any(r["token"] == "kb_le" and r["doc"] == "papers/a.md" and r["declarations"] == ["Lib.A.kb_le"] for r in doc_json.get("resolved", []))
            and [d["where"] for d in doc_json.get("drift", [])] == ["papers/a.md:13"], out[-500:])
+    # a token scoped by a namespace below the library root, the module-qualified form, a module path from below the root
+    manifest = root / "scripts" / "decls.txt"
+    saved_manifest = manifest.read_text(encoding="utf-8")
+    manifest.write_text(FIXTURE_MANIFEST + "module Lib.Code 1\nmodule Lib.Deep.Inner 0\nLib.B Lib.Host.lemma\nLib.Code Lib.Host.thing\n"
+                        "private Lib.Code Lib.Host.hidden\n", encoding="utf-8")
+
+    def cite_doc(text):
+        doc.write_text(clean + text, encoding="utf-8")
+        code, out = quiet(do_cite, Config(root), True)
+        try:
+            return code, json.loads(out)
+        except ValueError:
+            return code, {}
+
+    def reads(res, tok):
+        return next(((r["kind"], r["declarations"]) for r in res.get("resolved", []) if r["token"] == tok), None)
+
+    code, res = cite_doc("\nScoped: `Host.lemma`, `Host.thing`, `Code.thing` and `Deep.Inner`.\n")
+    expect("cite: a name scoped by a namespace below the library root resolves to every name it is a suffix of",
+           code == 0 and reads(res, "Host.lemma") == ("namespaced", ["Lib.Host.lemma"]) and reads(res, "Host.thing") == ("namespaced", ["Lib.Host.thing"]), str(res)[-500:])
+    expect("cite: Module.name, a declaration of the module whatever namespace it sits in, resolves with its declarations",
+           reads(res, "Code.thing") == ("module-qualified", ["Lib.Host.thing"]), str(res)[-500:])
+    expect("cite: a module path written from below the root is a module-ref by suffix, scoped or not by a namespace",
+           reads(res, "Deep.Inner") == ("module-ref", ["Lib.Deep.Inner"]), str(res)[-500:])
+    for plant, why in (("`Host.NoSuchThingAtAll`", "a name scoped by a namespace below the root that names no declaration"),
+                       ("`Code.nothing_here`", "a Module.name where the module has no such name"),
+                       ("`Host.hidden`", "a scoped name that is private only")):
+        code, res = cite_doc(f"\nPlanted: {plant}.\n")
+        expect(f"cite: {why} drifts", code == 1 and [d["where"] for d in res.get("drift", [])] == ["papers/a.md:13"], str(res)[-300:])
+    code, res = cite_doc("\nUpstream `Nat.noSuchNatLemma_xyz`, `Mathlib.Order.Basic.lt` and `Std.HashMap.insert`.\n")
+    expect("cite: a dotted name whose first component is no namespace segment, module or declaration stays unread, an upstream name",
+           code == 0 and reads(res, "Nat.noSuchNatLemma_xyz") is None and not res.get("drift"), str(res)[-300:])
+    toml = root / "formal.toml"
+    saved_toml = toml.read_text(encoding="utf-8")
+    toml.write_text(saved_toml.replace("upstream = []", 'upstream = ["Host.fromMathlib"]'), encoding="utf-8")
+    code, res = cite_doc("\nAllowlisted `Host.fromMathlib`.\n")
+    expect("cite: the allowlists are read first for a scoped name", code == 0 and res.get("allowed") == {"upstream": ["Host.fromMathlib"]}, str(res)[-300:])
+    toml.write_text(saved_toml.replace("ambiguous_namespaces = []", 'ambiguous_namespaces = ["Host"]'), encoding="utf-8")
+    code, res = cite_doc("\nShared `Host.NoSuchThingAtAll`.\n")
+    expect("cite: a namespace the library shares with upstream ([documents] ambiguous) is not read", code == 0 and not res.get("drift"), str(res)[-300:])
+    toml.write_text(saved_toml, encoding="utf-8")
+    manifest.write_text(saved_manifest, encoding="utf-8")
     doc.write_text(clean + "\nThe [docs](https://x/docs/Lib/Q.html), `s_work` and `s_tar`.\n", encoding="utf-8")
     toml.write_text(saved.replace("notation = []", 'notation = ["s_work", "s_tar"]').replace("retired = []", 'retired = ["kb_le"]')
                     .replace('docs_url = ""', "docs_url = '/docs/([\\w/]+)\\.html'"), encoding="utf-8")
@@ -2858,6 +2958,37 @@ def resolve_scenarios(root, expect):
     expect("resolve -: the targets from the standard input, one a line", out.returncode == 0 and "2 target(s) resolve" in out.stdout, out.stdout + out.stderr)
     out = run("resolve", "--public", "-", stdin="helper_lemma\nKB\n")
     expect("resolve --public: a private declaration is exit 1", out.returncode == 1 and "helper_lemma: `helper_lemma` resolves only to a private declaration" in out.stdout, out.stdout)
+    kept = manifest.read_text(encoding="utf-8")
+    manifest.write_text(kept + "module Lib.Code 1\nLib.Code Lib.Host.thing\n", encoding="utf-8")
+    out = run("resolve", "Code.thing", "Lib/A.lean#A.kb_le")
+    expect("resolve: Module.name, the module's last component and a declaration of it whatever namespace, resolves, bare or by a path",
+           out.returncode == 0 and out.stdout.strip() == "formal resolve: 2 target(s) resolve", out.stdout + out.stderr)
+    out = run("resolve", "Code.nothing", "Lib/A.lean#Code.thing")
+    expect("resolve: Module.name where the module has no such name, or in the wrong module's scope, fails",
+           out.returncode == 1 and out.stdout.splitlines() == ["Code.nothing: `Code.nothing` is not in the manifest",
+                                                               "Lib/A.lean#Code.thing: `Code.thing` is not declared in Lib.A, the module of Lib/A.lean",
+                                                               "formal resolve: 2 of 2 target(s) do not resolve"], out.stdout + out.stderr)
+    out = run("resolve", "--json", "KB", "Code.thing", "helper_lemma", "Lib/B.lean", "nope", "Lib/A.lean#kb_le")
+    try:
+        doc_json = json.loads(out.stdout)
+    except ValueError:
+        doc_json = {"targets": []}
+    by = {t["target"]: t for t in doc_json["targets"]}
+    expect("resolve --json: an object for each target in order, with its readings in no module's scope, public and private, and ok; exit 1 where one fails",
+           out.returncode == 1 and doc_json.get("ok") is False and list(by) == ["KB", "Code.thing", "helper_lemma", "Lib/B.lean", "nope", "Lib/A.lean#kb_le"]
+           and by["KB"] == {"target": "KB", "readings": ["Lib.A.KB", "Lib.C.KB"], "ok": True}
+           and by["Code.thing"]["readings"] == ["Lib.Host.thing"] and by["helper_lemma"]["readings"] == ["Lib.B.helper_lemma"] and by["helper_lemma"]["ok"]
+           and by["Lib/B.lean"] == {"target": "Lib/B.lean", "readings": [], "ok": True}
+           and by["nope"] == {"target": "nope", "readings": [], "ok": False, "why": "`nope` is not in the manifest"}
+           and by["Lib/A.lean#kb_le"]["readings"] == ["Lib.A.kb_le"], out.stdout + out.stderr)
+    out = run("resolve", "--json", "--public", "helper_lemma", "KB")
+    expect("resolve --json --public: a private-only name is not ok, its readings still given, exit 1",
+           out.returncode == 1 and [(t["ok"], t["readings"]) for t in json.loads(out.stdout)["targets"]] == [(False, ["Lib.B.helper_lemma"]), (True, ["Lib.A.KB", "Lib.C.KB"])], out.stdout)
+    out = run("resolve", "--json", "kb_le")
+    expect("resolve --json: every target resolving is exit 0", out.returncode == 0 and json.loads(out.stdout)["ok"] is True, out.stdout)
+    out = run("resolve", "--protocol", "--json", stdin="{}")
+    expect("resolve --protocol --json: refused, exit 2", out.returncode == 2 and "COULD NOT CHECK" in out.stderr, out.stdout + out.stderr)
+    manifest.write_text(kept, encoding="utf-8")
     out = run("resolve")
     expect("resolve: no target is exit 2, could not run", out.returncode == 2 and "COULD NOT CHECK" in out.stdout, out.stdout)
     with tempfile.TemporaryDirectory() as t2:
@@ -3984,6 +4115,7 @@ def _main(argv=None):
     p = sub("resolve", help="each target is a declaration or a module of the manifests; exit 1 where one is not")
     p.add_argument("targets", nargs="*", help="Path.lean#name, Path.lean (a module), or a name with no path; `-` reads them from the standard input, one a line")
     p.add_argument("--public", action="store_true", help="also fail a target whose every reading is a private declaration")
+    p.add_argument("--json", action="store_true", help="one JSON document: for each target its readings (every declaration its name could mean, public and private, in no module's scope), ok and why")
     p.add_argument("--protocol", action="store_true", help="the research flow's call: a JSON request on the standard input, a JSON answer on the standard output")
     p = sub("handoffcheck"); p.add_argument("draft", nargs="?")
     p = sub("handback"); p.add_argument("--base", default="HEAD"); p.add_argument("--handoff")
