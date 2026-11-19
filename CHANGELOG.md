@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.12.1 — 2026-11-20
 
 **Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
 `flow rank ID N --insert` prints one more line, `ranked ID (rank N) — Title`, which matters for a project's own script that matches its output, and `formal cite --json` gains the key `unread`, which a tool that reads the keys it knows does not meet.
