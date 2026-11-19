@@ -4,6 +4,10 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The documentation:
+
+- The documentation's index names the site's `llms-full.txt`, every page as one Markdown file for an agent to read, rebuilt at each release.
+
 ## v0.12.0 — 2026-11-19
 
 **Upgrading**: a release that can fail a commit that passed before, in two places.
