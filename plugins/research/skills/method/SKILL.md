@@ -93,7 +93,9 @@ These invariants keep that honest.
 
 ## Working with the owner
 
-- A question goes to the owner through the agent's question tool where it has one, with its options and one recommendation first, never as a prose list; an item the owner owns, and a call the agent is still unsure of after the test below, is asked before the agent decides alone, in the turn the agent meets the decision.
+- A choice among options goes to the owner through the agent's question tool where it has one, with its options and one recommendation first, never as a prose list; an item the owner owns, and a call the agent is still unsure of after the test below, is asked before the agent decides alone, in the turn the agent meets the decision.
+- A question carries what the decision rests on, since the question tool's dialog covers what the turn wrote before it: the facts, the options with what each leads to, and the recommendation are in the question itself.
+- A review of content, a text to read or a design to change, is asked in prose and answered in the person's own words; the question tool is kept for a choice among options.
 - A decision still open at the turn's end becomes a task in the owner's deck whose title names the decision, and the card that waits on it is blocked on that task; the log's State paragraph names the task, and the decision is never left as prose alone in a record's body or the log.
 - The owner's items are what only they can do (a send, a registration) and what only they should decide; the rest is the agent's.
 - Before a question is put to the owner, or a piece of work handed to them as their decision (in the flow, a task in their deck), the agent asks whether a test settles it: what each option does for the goal, or whether the object meets the criterion as written.

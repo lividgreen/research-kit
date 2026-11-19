@@ -4,9 +4,30 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+**Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
+`flow rank ID N --insert` prints one more line, `ranked ID (rank N) — Title`, which matters for a project's own script that matches its output, and `formal cite --json` gains the key `unread`, which a tool that reads the keys it knows does not meet.
+
+The `research` plugin:
+
+- `flow rank ID N --insert` prints `ranked ID (rank N) — Title` for the record it placed, as `--set` does, after the `changed` line and before the `re-ranked` lines, every line it printed before kept; under `--json` the list `ranked` is added beside `reranked`.
+- The help of every mint names the limits: the title is at most 100 characters and the summary at most 500, unless `flow.toml`'s `[card] title_max` or `summary_max` says another.
+- The `method` skill's "Working with the owner" says how a decision is asked: a question carries what the decision rests on, since the question tool's dialog covers what the turn wrote before it, and a review of content, a text to read or a design to change, is asked in prose and answered in the person's own words, the tool kept for a choice among options.
+- The `research-init` skill's setup puts what the reviews hold the documents to as a text to correct, in prose after its question call and answered in the person's own words, where it was one of that call's questions; the choices among options stay with the tool.
+- The `whatsnext` skill's step 8 says how the person's question is put where the deck holds more cards than the tool takes options (at most four): as the fewest multi-select questions the tool allows, their sizes as even as the count allows, so that none has one option and no card is left out.
+- The `freeze` skill's worktree recipe removes a deleted or moved path as `rm -f "${WT:?}/${p:?}"`, the guarded form, and says that `PATHS` is the list of paths copied and deleted in the worktree, a move's old path among them, listed from the new commit by `git show --name-only --no-renames --format= NEW`.
+
+The `formal` plugin:
+
+- `formal cite --json` lists under `unread` each dotted token the gate left unread because its first component is in `[documents] ambiguous_namespaces` and would otherwise have been read, as a namespace segment at any depth or a module's last component: its `doc`, `line`, `token` and `namespace`.
+  A token whose first component is simply unknown is not listed; the other keys, the text output and the exit code are as they were.
+  The `land` skill and its page describe the key.
+
 The documentation:
 
 - The documentation's index names the site's `llms-full.txt`, every page as one Markdown file for an agent to read, rebuilt at each release.
+- Install's "Following the releases" says that a project whose hooks are `repo: local` entries has no `rev` to set: it reads the release's changelog for a changed hook entry and edits its own entries to match.
+- The `flow`, `whatsnext` and `land` pages say what their skills now say.
+- Install's "Several sessions in one tree" gives the worktree recipe's removal in the guarded form and says what `PATHS` is and how to list it from the new commit.
 
 ## v0.12.0 — 2026-11-19
 

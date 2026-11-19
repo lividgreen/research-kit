@@ -229,6 +229,7 @@ The kit keeps a branch `latest` that the release workflow moves to each release 
 A release then reaches the project by updating the marketplace and the plugins: in Claude Code `claude plugin marketplace update research-kit` (or auto-update turned on for the marketplace), then `claude plugin update research@research-kit --scope project` and the same for `formal@research-kit`, then a restart.
 The restart is literal: until it, the session runs the old skills' text against the new scripts; a session that must mint a record before its restart runs the new version's script by its cache path, as the skills say to anyway, and the records it writes pass the new check.
 Local hooks running the installed plugin's scripts follow the plugins with nothing to move; remote hooks pin a tag by `rev`, since pre-commit takes no branch as a pin, and `prek autoupdate` or `pre-commit autoupdate` moves it to the latest release in the project's next commit.
+A project whose hooks are `repo: local` entries has no `rev` to set, but a release may change an entry itself: it reads the release's changelog for one and edits its own entries to match, as with `--staged` in v0.12.0.
 Where the release changes the records' model, `flow-check` at the new version fails every commit that touches a record until the records are in the new form, so the project's next commit carries the migration; a project that must commit before it runs that commit with `SKIP=flow-check` (prek and pre-commit read it) and says so in the log entry.
 `flow task`, `flow state` and `flow show` run on an unmigrated tree at the new version, so the migration task is minted first; `flow doctor --fix` then writes the mechanical part of the migration and lists the rest ([The flow](research/flow.md#flow-doctor)).
 Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move by hand.
@@ -262,23 +263,26 @@ Claude Code 2.1.318 behaves so.
 Where several agent sessions work in one tree, a commit takes what the index holds, another session's staged files among them, and pre-commit and prek stash the unstaged changes while the hooks run and restore them after, so one session's commit briefly reverts the files another is editing or reading; there, each session commits from a `git worktree` of its own, which takes the session's paths alone.
 The hooks no longer need it to pass: they check the index, not the working tree the stash leaves.
 The flow writes a session's edits into the tree it runs in, uncommitted, so the worktree's commit cannot be taken in with `git merge --ff-only`, which git refuses over those edits; the edits are copied into the worktree, committed there, and the tree's branch is moved to the commit.
-`OLD` is the commit the tree stands at, `PATHS` the paths the session changed, what a transition archived among them, both the old path and the new:
+`OLD` is the commit the tree stands at, `WT` the worktree's path, `PATHS` the list of paths copied and deleted in the worktree, what a transition archived among them, a move's old path and its new path both:
 
 ```sh
 OLD=$(git rev-parse HEAD)
-git worktree add -q --detach ../freeze-wt "$OLD"
-cp -p PATH ../freeze-wt/PATH      # each changed path; mkdir -p its folder first where it is new
-rm -f ../freeze-wt/PATH           # each deleted or moved path
-git -C ../freeze-wt add -A -- PATHS
-git -C ../freeze-wt commit -m "…"
-NEW=$(git -C ../freeze-wt rev-parse HEAD)
+WT=../freeze-wt
+git worktree add -q --detach "$WT" "$OLD"
+cp -p PATH "$WT/PATH"             # each changed path; mkdir -p its folder first where it is new
+rm -f "${WT:?}/${p:?}"            # each deleted or moved path, as p
+git -C "$WT" add -A -- PATHS
+git -C "$WT" commit -m "…"
+NEW=$(git -C "$WT" rev-parse HEAD)
 git update-ref refs/heads/BRANCH "$NEW" "$OLD"
 git reset -q -- PATHS
 git status --short -- PATHS       # prints nothing
-git worktree remove ../freeze-wt
+git worktree remove "$WT"
 ```
 
 The worktree is detached because the tree holds the branch.
+The removal is written with `:?`, which stops an empty `WT` or `p` from reaching `rm`, and which an agent's shell safety check accepts where a plain `rm -f "$WT/$p"` in a loop is refused.
+The list `PATHS` stands for is read from the new commit by `git show --name-only --no-renames --format= NEW`, one path to a line, a move's old path and its new path both: without `--no-renames` a move is listed by its new path only, and the old path then stays in the index.
 The commit and the hooks see the session's paths alone.
 `git update-ref` is refused where another commit moved the branch since `OLD`, and then nothing has changed in the tree.
 The reset brings the index to the new commit, the files already holding its content, and the empty `git status --short -- PATHS` is the check; another session's changes still show as they did.

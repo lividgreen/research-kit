@@ -2753,6 +2753,7 @@ def insert_rank(cfg, recs, r, n):
     others = sorted((o for o in recs.values() if o is not r and o.type in CARDS and o["rank"] is not None), key=lambda o: o["rank"])
     r.fm["rank"] = n
     save(cfg, r)
+    _SET_RANKS.append(("ranked", r.id, n))
     for i, o in enumerate(others[:n - 1] + [None] + others[n - 1:], 1):
         if o is not None and o["rank"] != i:
             _RERANKED.append((o.id, o["rank"], i))
@@ -5268,6 +5269,13 @@ def selftest():
         expect("every --body that reads a file says FILE in its help, and `-`",
                all(act.metavar == "FILE" and "-" in (act.help or "") for sub in build_parser()._subparsers._group_actions[0].choices.values()
                    for act in sub._actions if "--body" in act.option_strings or "--resolution" in act.option_strings))
+        mints = [sub for name, sub in build_parser()._subparsers._group_actions[0].choices.items()
+                 if name in ("idea", "question", "task", "finding", "goal", "direction")]
+        expect("every mint's help names the title's and the summary's limits, the defaults and where flow.toml sets another",
+               len(mints) == 6 and all(f"{TITLE_MAX} characters" in act.help and "title_max" in act.help
+                                       for sub in mints for act in sub._actions if act.dest == "title")
+               and all(f"{SUMMARY_MAX} characters" in act.help and "summary_max" in act.help
+                       for sub in mints for act in sub._actions if "--summary" in act.option_strings))
         # the references after a mint: added and removed, any record in any state, with tag's refusals
         run(["ref", tz, "+" + q])
         for bad in ([], ["+" + q], ["-" + q3], ["+" + tz], ["+idea-0999"], ["+" + q3, "-" + q3], [q3]):
@@ -5789,6 +5797,12 @@ def selftest():
         expect("a transition's text lines name each record as `VERB ID (details) — Title`, the title last on its line: the changed line and each re-ranked one",
                f"changed {q3} (open, ready; " in txt and f"re-ranked {q7} (1 → 2){dash_title(load_all(cfg), q7)}\n" in txt
                and f"re-ranked {q4} (2 → 3){dash_title(load_all(cfg), q4)}\n" in txt)
+        expect("rank --insert also says the record it placed, as `--set` does, after the changed line and before the re-ranked ones",
+               f"ranked {q3} (rank 1){dash_title(load_all(cfg), q3)}\n" in txt
+               and txt.index("changed ") < txt.index(f"ranked {q3} (rank 1)") < txt.index("re-ranked "))
+        p = run(["rank", q3, "1", "--insert"])
+        expect("rank --insert at the rank the record holds moves no one, prints no re-ranked line, and --json lists the placement",
+               p["reranked"] == [] and p["ranked"] == [{"id": q3, "rank": 1}])
         run(["rank", q7, "4", "--insert"], ok=False)  # past the end of the ranks
         # --set writes an order and asserts no read: no question's checked date moves; a rank given to one record refreshes it
         later = "2026-09-20"  # another day than the one the questions were checked on (a later one would be in the future)
@@ -8297,8 +8311,11 @@ def build_parser():
 
     def mint(kind, help_):
         p = sp.add_parser(kind, help=help_)
-        p.add_argument("title", help="what the card is, in one line" if kind != "direction" else "its name")
-        p.add_argument("--summary", help="a brief explanation of what it is: one paragraph" + (", required" if kind in NEEDS_SUMMARY else ""))
+        # the parser is built before flow.toml is read, so the help names the defaults and where another limit is set
+        p.add_argument("title", help=("what the card is, in one line" if kind != "direction" else "its name")
+                       + f", at most {TITLE_MAX} characters unless flow.toml's [card] title_max says another")
+        p.add_argument("--summary", help="a brief explanation of what it is: one paragraph" + (", required" if kind in NEEDS_SUMMARY else "")
+                       + f", at most {SUMMARY_MAX} characters unless flow.toml's [card] summary_max says another")
         p.add_argument("--ref", action="append", metavar="ID", help="a record it references, in any state; repeatable")
         p.add_argument("--tag", action="append", help="repeatable")
         p.add_argument("--source", help="where it came from, in words, a URL or a repository path of the tree")
@@ -8985,6 +9002,10 @@ def _dispatch(cfg, a, today, as_json, quiet):
                         emit("  refers to it, may need a follow-up:")
                         for x in said[r.id]:  # one to a line, the title ending it
                             emit(f"    {x['id']} ({x['state']}){dash_title(recs, x['id'])}")
+            if a.cmd == "rank" and a.insert:  # the record placed, said as `--set` says one, after the changed line the insert has always printed
+                out["ranked"] = [{"id": i, "rank": n} for w, i, n in _SET_RANKS]
+                for w, i, n in _SET_RANKS:
+                    emit(f"ranked {i} (rank {n}){dash_title(recs, i)}")
             out["returned"] = [{"id": i, "owner": o} for i, o in _RETURNED]
             for i, o in _RETURNED:  # a held card made to wait goes back to its owner's deck in the same command
                 emit(f"returned {i} (left {o}'s hand for {o}'s deck; a {_RETURNED_BY[i]} card is not held){dash_title(recs, i)}")
