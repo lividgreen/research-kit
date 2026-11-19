@@ -4,6 +4,18 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+The `research` plugin:
+
+- `flow check --staged` and `library check --staged` run the same check on a temporary checkout of the git index (`git checkout-index -a`, from the repository's top level), print the paths as the project's own, exit with the check's code and remove the checkout however they end; without the flag both read the working tree as before, and outside a git repository `--staged` is refused with exit 2.
+  A tracked path is read from the index only, and a path git ignores (a kept copy, a build's output an evidence line names) is read from the working tree, since the index holds none.
+- The `flow-check` and `library-check` hooks of `.pre-commit-hooks.yaml` run `flow check --staged` and `library check --staged`, since the runner stashes the unstaged changes of tracked files and leaves the untracked ones, a tree that never existed: a card minted and ranked first and not yet added, or a closed task's file moved to the archive and not staged, no longer fails a commit of something else, and a staged record that breaks a rule fails whatever the working tree holds.
+  The four `formal` hooks still read the working tree.
+  To move a project: set the hooks' `rev` to the release along with the plugins; the entries need no other edit, and a project's `repo: local` hooks add `--staged` to their two entries.
+- The `freeze` skill and Install keep the recipe of a commit from a detached `git worktree`, with a new reason: it commits the session's paths alone, past another session's staged files, and the hooks are no reason for it.
+- The plugin ships a Claude Code hook, `hooks/hooks.json` over `hooks/flow_skill.py`: a Skill call that loads `research:flow` and a typed `/research:flow` write a marker under `${CLAUDE_PLUGIN_DATA}`, and a Bash call that runs the flow script in a project with a `flow.toml`, with no marker, is denied once with "load the `flow` skill (research:flow), then run this again".
+  The session's next flow command passes, loaded or not, a subagent counts apart from its session, anything the hook cannot read passes it, and under another agent than Claude Code nothing runs.
+  To move a project: restart the session after the plugin update; the first flow command of a session is refused once where the skill is not loaded, and the command is run again after loading it.
+
 The `formal` plugin:
 
 - `formal cite` reads a citation scoped by a namespace below the library root: a backticked dotted name whose first component is a namespace segment at any depth of a manifest declaration's name, or a module's last component, resolves to every declaration it ends on a component boundary (`Host.lemma` for `Root.Host.lemma`), and is drift where none does; it used to read only a first component that was the declaration's own first one, so a typo scoped lower passed the gate.

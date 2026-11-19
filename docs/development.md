@@ -12,6 +12,8 @@ plugins/<plugin>/                 one plugin each: research and formal
   skills/<name>/SKILL.md          one skill each; scripts/ and references/ beside it; component.toml where the
                                   skill adds pages to the dashboard
   skills/*-init/                  each plugin's setup skill: research's over scripts/setup.py, formal's over `formal probe`
+  hooks/hooks.json, hooks/flow_skill.py
+                                  the research plugin's Claude Code hook: the `flow` skill's check, one Python file
   agents/<name>.md                the plugin's agents (formal: the prover session), on the session's own model
   claude-agents/<name>.md         Claude Code's copy, which its manifest names: the same text, on a model it picks
   com.github.copilot/, dev.openhands/, com.google.antigravity/
@@ -48,6 +50,8 @@ runs each script's `--selftest` (one planted defect per rule; `formal`'s over a 
 - the three marketplaces list the two plugins, and each plugin's manifests agree on name, version and description;
 - every `SKILL.md` has the frontmatter the standard asks for and names a script that exists;
 - every subcommand of each CLI and every flag it takes is named in its skill, and every skill's `metadata.version` is its plugin's;
+- the research plugin's hook script, fed the JSON Claude Code gives it for each case: the skill loaded, the first flow command refused once, a command that is no flow command, no `flow.toml`, a subagent keyed apart, input it cannot read;
+- the hooks' entries, `flow check --staged` and `library check --staged`, and the two scripts' `--staged`, each selftest running it against a scratch git repository (skipped where `git` is not on PATH, run in CI);
 - the shell blocks of [Getting started](research/getting-started.md) run in order in one fresh directory;
 - the README's *How to use* table is the [site home page](index.md)'s *Try it* table row for row;
 - every relative link of the README, `CONTRIBUTING.md`, `SECURITY.md`, this documentation and the plugins' READMEs resolves, and every repository path their prose names in backticks exists;

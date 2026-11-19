@@ -40,12 +40,13 @@ Where the `flow` skill is not loaded, load it before the steps: no record is min
    It also prints the steps that are the session's own as a checklist — the conversation's inventory item by item, the sweep by meaning, the agent's memory checked, the gates by exit code — which the report answers.
 5. **A commit with named paths, then the push as the backup.**
    The session commits at its freeze, or when the person asks before it; no transition and no ranking commits by itself.
-   Before the commit, `git status --porcelain` shows whether the tree holds unstaged changes outside the paths committed, another session's edits in a shared tree among them: the hook runner stashes them while the hooks run, and an edit written in that window can keep the stash from applying.
-   Where there are some, commit from a `git worktree` of the freeze's own, as Install's "Several sessions in one tree" says, or say in the turn that the runner is about to stash them.
+   Before the commit, `git status --porcelain` shows whether the tree holds staged or unstaged changes outside the paths committed, another session's files in a shared tree among them: a plain commit takes what the index holds, another session's staged files among them, and the hook runner stashes the unstaged changes while the hooks run, so an edit written in that window can keep the stash from applying.
+   Where there are some, commit from a `git worktree` of the freeze's own, as Install's "Several sessions in one tree" says, so that the commit holds the session's paths alone; the hooks are no reason for it, since they check the index and not the working tree.
+   Or say in the turn that the runner is about to stash them.
    The flow wrote the session's own edits into the tree, uncommitted, so `git merge --ff-only` from the worktree is refused over them, and the edits travel by copy:
    - `OLD=$(git rev-parse HEAD)`, then `git worktree add -q --detach ../freeze-wt "$OLD"`, detached since the tree holds the branch;
    - each path the session changed is copied there with `cp -p`, the folder made first where it is new, and each path it deleted or moved, what a transition archived among them, is deleted there with `rm -f`; `git -C ../freeze-wt add -A -- PATHS` stages them, and `git -C ../freeze-wt status --short` shows what the commit holds, a move as a rename;
-   - the commit is made there, `git -C ../freeze-wt commit`, so the hooks run on the session's paths alone;
+   - the commit is made there, `git -C ../freeze-wt commit`, so it holds the session's paths alone;
    - in the tree, `NEW=$(git -C ../freeze-wt rev-parse HEAD)`, `git update-ref refs/heads/BRANCH "$NEW" "$OLD"` and `git reset -q -- PATHS`: the update is refused if another commit moved the branch since `OLD`, and the reset brings the index to the new commit, the files already holding its content;
    - `git status --short -- PATHS` prints nothing, which is the check; another session's changes still show as they did;
    - `git worktree remove ../freeze-wt`.

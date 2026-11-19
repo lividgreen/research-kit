@@ -104,6 +104,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -4115,6 +4116,7 @@ def selftest():
     reportable = set(re.findall(r'bad\("(L\d+)"', SOURCE)) | set(re.findall(r'"code": "(L\d+)"', SOURCE))
     expect(f"every code the check can report is planted ({', '.join(sorted(reportable - planted)) or 'none missing'})",
            reportable <= planted)
+    staged_selftest(expect)
     print(f"library selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
 
@@ -4179,7 +4181,8 @@ def build_parser():
     p = sp.add_parser("citecheck"); p.add_argument("docs", nargs="*", metavar="DOC", help="the bound documents where none is given")
     sp.add_parser("keys")
     p = sp.add_parser("index"); p.add_argument("--check", action="store_true")
-    sp.add_parser("check")
+    p = sp.add_parser("check")
+    p.add_argument("--staged", action="store_true", help="check what a commit will hold, the git index, not the working tree (the commit hook's entry)")
     sp.add_parser("pages")
     p = sp.add_parser("init"); p.add_argument("--dir", default="library"); p.add_argument("--kept", action="store_true")
     p.add_argument("--scan", action="append", help="repeatable"); p.add_argument("--documents", action="append", help="repeatable"); p.add_argument("--internal", action="append", help="repeatable")
@@ -4203,6 +4206,137 @@ def card_lines(fm):
 
 def summary_of(cfg, c):
     return dict(c.fm, path=rel(cfg, c.path), label=label(c.fm), lines=card_lines(c.fm))
+
+
+@contextlib.contextmanager
+def staged_tree(root):
+    """The git index as a directory, for `check --staged`: `git checkout-index -a --prefix=TMP/` from the repository's top
+    level; yields the project's counterpart in it and a function that puts the real paths back into a text, and removes
+    TMP however the block ends.  A tracked path is read from the index only; a path git ignores (a kept copy, a build's
+    output an evidence line names) is in no index, so it is linked in from the working tree where TMP has none."""
+    exe = shutil.which("git")
+    if not exe:
+        raise Refused("--staged reads the git index, and git is not on PATH")
+    env = dict(os.environ)
+    if env.get("GIT_INDEX_FILE"):  # the index of a commit by paths is a temporary one, named from the hook's directory
+        env["GIT_INDEX_FILE"] = os.path.abspath(env["GIT_INDEX_FILE"])
+
+    def git(*args, cwd):
+        try:
+            return subprocess.run([exe, *args], capture_output=True, env=env, cwd=cwd, timeout=300)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise Refused(f"--staged: git {args[0]} did not run: {e}")
+    root = Path(root).resolve()
+    top = git("rev-parse", "--show-toplevel", cwd=root)
+    if top.returncode != 0 or not top.stdout.strip():
+        raise Refused(f"--staged reads the git index, and {root} is in no git repository")
+    top = Path(top.stdout.decode(errors="replace").strip()).resolve()
+    tmp, saved = None, []
+    try:
+        for name in ("SIGTERM", "SIGHUP"):  # a kill ends the run through the `finally` below, the checkout removed
+            try:
+                saved.append((getattr(signal, name), signal.signal(getattr(signal, name), lambda num, frame: sys.exit(128 + num))))
+            except (AttributeError, ValueError, OSError):  # no such signal here, or not the main thread
+                pass
+        tmp = Path(tempfile.mkdtemp(prefix="staged-")).resolve()
+        made = git("checkout-index", "-a", f"--prefix={tmp}/", cwd=top)
+        if made.returncode != 0:
+            raise Refused(f"--staged: git checkout-index of the index failed: {made.stderr.decode(errors='replace').strip()}")
+        ignored = git("ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z", cwd=top)
+        for name in ignored.stdout.decode(errors="replace").split("\0") if ignored.returncode == 0 else []:
+            src, dst = top / name.rstrip("/"), tmp / name.rstrip("/")
+            if not name or dst.exists() or dst.is_symlink():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dst.symlink_to(src)
+            except OSError:  # where a link cannot be made, a copy
+                shutil.copytree(src, dst, symlinks=True) if src.is_dir() else shutil.copy2(src, dst)
+        here = tmp / root.relative_to(top)
+        pairs = [(str(p), str(real)) for tmpd, real in ((here, root), (tmp, top)) for p in (tmpd, tmpd.resolve())]
+
+        def shown(text):
+            for a, b in pairs:
+                text = text.replace(a, b)
+            return text
+        yield here, shown
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)  # a link is unlinked, never followed
+        for num, handler in saved:
+            signal.signal(num, handler)
+
+
+def check_staged(root, argv, as_json, bindings):
+    """`check --staged`: the same check run on the project's counterpart in a checkout of the index, its output and exit code
+    as they are, its paths shown as the project's own: what a commit will hold, not the working tree a hook runner has
+    stashed half of."""
+    out, err, shown = io.StringIO(), io.StringIO(), str
+    try:
+        with staged_tree(root) as (here, shown):
+            if not (here / bindings).is_file():
+                raise Refused(f"{bindings} is not in the git index, so there is nothing staged to check: `git add` it, or leave `--staged` out")
+            cfg = Config(here)
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc, _ = dispatch(cfg, argv)
+    except Refused as e:
+        refused("check", shown(str(e)), as_json)
+        return 2
+    sys.stdout.write(shown(out.getvalue()))
+    sys.stderr.write(shown(err.getvalue()))
+    return rc
+
+
+def staged_selftest(expect):
+    """`check --staged` against a scratch git repository: what a hook runner leaves (the unstaged changes of tracked files
+    stashed, the untracked files left) is a tree that never existed, and the index is the commit's own."""
+    if not shutil.which("git"):
+        print("  --  `check --staged` not tested: git is not on PATH")
+        return
+
+    def ok(name, cond, detail=""):
+        expect(name, cond)
+        if not cond:
+            print(f"      {str(detail).strip()[-600:]}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, scratch = Path(tmp).resolve() / "repo", Path(tmp).resolve() / "scratch"  # `check --staged` makes its checkout in TMPDIR
+        repo.mkdir()
+        scratch.mkdir()
+        gitc = ["git", "-c", "user.name=library", "-c", "user.email=library@selftest", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+        g = lambda *argv: subprocess.run(gitc + list(argv), cwd=repo, capture_output=True, text=True)
+        lib = lambda *argv: subprocess.run([sys.executable, __file__, *argv], cwd=repo, capture_output=True, text=True, env=dict(os.environ, TMPDIR=str(scratch)))
+        g("init", "-q")
+        lib("init")
+        lib("register", "Aperiodicity", "--kind", "article", "--author", "Jen, E.", "--year", "1990")
+        g("add", "-A")
+        g("commit", "-q", "-m", "the library")
+        ok("--staged passes a clean tree as the check does, its output the check's own",
+           lib("check", "--staged").stdout == lib("check").stdout and lib("check", "--staged").returncode == 0)
+        # a card registered and not added: the card untracked, the index file changed and unstaged
+        lib("register", "A second paper", "--kind", "article", "--author", "Lee, A.", "--year", "1991")
+        g("stash", "push", "-q")  # what the hook runner does
+        plain, staged = lib("check"), lib("check", "--staged")
+        g("stash", "pop", "-q")
+        ok("planted: the tree a hook runner leaves, an untracked card beside the old index, fails the plain check",
+           plain.returncode == 1 and "L11" in plain.stdout, plain.stdout)
+        ok("the index passes `check --staged` there: the untracked card is no part of the commit, 1 card",
+           staged.returncode == 0 and "library check: 1 card(s); 0 problem(s)" in staged.stdout, staged.stdout + staged.stderr)
+        # a staged card that breaks a rule fails, whatever the working tree holds
+        card = repo / "library" / "cards" / "jen1990.md"
+        good = card.read_text(encoding="utf-8")
+        card.write_text(good.replace("state: registered", "state: bogus"), encoding="utf-8")
+        g("add", "library/cards/jen1990.md")
+        card.write_text(good, encoding="utf-8")
+        staged = lib("check", "--staged")
+        ok("a staged card that breaks a rule fails `check --staged`, the paths the project's, no checkout behind",
+           staged.returncode == 1 and "library/cards/jen1990.md" in staged.stdout and str(scratch) not in staged.stdout
+           and not list(scratch.glob("staged-*")), staged.stdout + staged.stderr)
+        ok("a failure says to reproduce it with `library check --staged`", "to reproduce: `library check --staged` at the project root" in staged.stdout, staged.stdout)
+        with tempfile.TemporaryDirectory() as bare:
+            (Path(bare) / "library.toml").write_text("", encoding="utf-8")
+            r = subprocess.run([sys.executable, __file__, "--root", bare, "check", "--staged"], capture_output=True, text=True)
+            ok("outside a git repository `--staged` is refused, said clearly, exit 2", r.returncode == 2 and "in no git repository" in r.stderr, r.stdout + r.stderr)
 
 
 def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
@@ -4419,7 +4553,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
                  + f"; {cov['untied_cards']} registered card(s) no entry cites; a work a document names outside its entries is not read")
             if problems:
                 out["ok"] = False
-                emit("to reproduce: `library check` at the project root, the library skill's scripts/library.py; "
+                emit(f"to reproduce: `library check{' --staged' if a.staged else ''}` at the project root, the library skill's scripts/library.py; "
                      "where no skill is loaded, `pre-commit run library-check --all-files`")
         else:
             raise Refused("no command (see --help)")
@@ -4519,6 +4653,13 @@ def _main():
             print()
             print(INSTRUCTIONS.format(dir=a.dir))
         return 0
+    if rest[0] == "check" and build_parser().parse_args(rest).staged:
+        try:
+            root = Path(known.root).resolve() if known.root else find_root(os.getcwd())
+        except Refused as e:
+            refused(rest[0], str(e), known.json)
+            return 2
+        return check_staged(root, argv, known.json, "library.toml")
     try:
         root = Path(known.root).resolve() if known.root else find_root(os.getcwd())
         cfg = Config(root)

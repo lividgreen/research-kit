@@ -55,6 +55,8 @@ From Claude Code 2.1.275, `/plugin install research --marketplace lividgreen/res
 A marketplace added so follows the default branch; the setup probe names the move to `latest`.
 [Getting started](research/getting-started.md#a-fresh-project-in-claude-code) runs the same commands from the shell before Claude Code starts, so that no restart is needed, and goes on to the first setup and the first day.
 The skills are then `/research:flow`, `/research:library`, `/research:dashboard`, `/research:method`, `/formal:handoff`, `/formal:land` and so on, the prover agent `formal:prover`, and a skill runs its script by the path its text gives.
+The `research` plugin also brings one Claude Code hook: in a project with a `flow.toml`, a session's first flow command is refused once, with the way out, where the `flow` skill is not loaded in that session ([The flow](research/flow.md#the-hook-that-asks-for-the-skill) says how it recognises one).
+It is Claude Code's alone; under another agent nothing of it runs.
 A plugin's skills and agents load when a session starts, so restart the session after an install or an update, before the next handoff or transition; in the session that installed `formal`, the `formal:prover` agent type is not loaded yet and the `handoff` skill takes its general-purpose fallback.
 The repository has no `bin/` directory on purpose: claude.ai and Cowork refuse a plugin that has one.
 A plugin is updated only when its `version` changes, so every release bumps every plugin's version (see [Development](development.md#releases)), and a user runs `/plugin marketplace update research-kit` or turns auto-update on.
@@ -189,7 +191,9 @@ With a Lean workspace, `/formal:formal-init` follows for the prover side ([The f
 ```
 
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the setup proposes one where none is on PATH.
-A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, so a transition's move that is not staged, the file at its old path restored and its new path untracked, fails `flow-check` on a commit of anything else.
+A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, a tree that never existed, so `flow-check` and `library-check` run as `flow check --staged` and `library check --staged`: the same checks on a temporary checkout of the git index, which is what the commit holds, with a path git ignores read from the working tree ([The flow](research/flow.md#flow-check) and [The library](research/library.md#library-check) say how).
+A transition's move that is not staged, or a card minted and ranked first and not yet added, is no part of the commit and fails nothing; the four `formal` hooks read the working tree, where the workspace's build is.
+A project that writes these hooks as `repo: local` ones gives the entries the flag the same way, and a project that pins the kit by `rev` moves the `rev` with the plugins.
 A commit made after a transition stages the records directory whole (`git add -A` on it), and a batch of transitions is committed at once.
 A session that shares a working tree with another and commits only its own paths commits from a work tree of its own, as [Several sessions in one tree](#several-sessions-in-one-tree) says.
 Each check reads its bindings file at the project root; a project with no `flow.toml`, `library.toml` or `formal.toml` leaves that hook out.
@@ -255,7 +259,8 @@ Claude Code 2.1.318 behaves so.
 
 ### Several sessions in one tree
 
-pre-commit and prek stash the unstaged changes while the hooks run and restore them after, so where several agent sessions work in one tree, one session's commit briefly reverts the files another is editing or reading; there, each session commits from a `git worktree` of its own.
+Where several agent sessions work in one tree, a commit takes what the index holds, another session's staged files among them, and pre-commit and prek stash the unstaged changes while the hooks run and restore them after, so one session's commit briefly reverts the files another is editing or reading; there, each session commits from a `git worktree` of its own, which takes the session's paths alone.
+The hooks no longer need it to pass: they check the index, not the working tree the stash leaves.
 The flow writes a session's edits into the tree it runs in, uncommitted, so the worktree's commit cannot be taken in with `git merge --ff-only`, which git refuses over those edits; the edits are copied into the worktree, committed there, and the tree's branch is moved to the commit.
 `OLD` is the commit the tree stands at, `PATHS` the paths the session changed, what a transition archived among them, both the old path and the new:
 
@@ -274,7 +279,7 @@ git worktree remove ../freeze-wt
 ```
 
 The worktree is detached because the tree holds the branch.
-The hooks run in the worktree, on the session's paths alone.
+The commit and the hooks see the session's paths alone.
 `git update-ref` is refused where another commit moved the branch since `OLD`, and then nothing has changed in the tree.
 The reset brings the index to the new commit, the files already holding its content, and the empty `git status --short -- PATHS` is the check; another session's changes still show as they did.
 A session opened in a subdirectory of the repository, in its own directory with its own `.claude` settings, is gated by the same hooks at its commits, while the plugins the root's settings enable are disabled for it, since Claude Code reads a project's settings from the directory the session opened in; `claude plugin list` there shows them so.
