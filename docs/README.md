@@ -2,6 +2,7 @@
 
 The kit's pages first: what it is, how it is used and installed, what it assumes.
 Then one section per plugin, one page per tool: each page has, where the tool has them, its commands, the files it keeps, its bindings file as `init` writes it, its check and its words, and the records and the cards each have a specification page beside their tool's.
+An agent can read the whole documentation as one file at <https://research-kit.livid.work/llms-full.txt>, rebuilt at each release.
 
 ## The kit
 
