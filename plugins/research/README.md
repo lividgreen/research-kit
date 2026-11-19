@@ -23,6 +23,7 @@ A finding names its evidence, such as a proved declaration or a script that asse
 A generated index keeps a ranked list of open work, and `flow state` prints the summary a new session reads first, so the agent goes on from its hand and the list instead of asking where things stand.
 
 The [`flow`](skills/flow/SKILL.md) skill, `/research:flow` in Claude Code; [The flow](../../docs/research/flow.md) is its page, and [Flow cards](../../docs/research/flow-cards.md) the specification of the records.
+In Claude Code the plugin also ships a hook that refuses a session's first flow command once, with the way out, where the skill is not loaded in that session; under another agent nothing of it runs ([The flow](../../docs/research/flow.md#the-hook-that-asks-for-the-skill)).
 
 ## A session's start and its freeze
 

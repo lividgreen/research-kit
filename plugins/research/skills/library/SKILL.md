@@ -192,7 +192,8 @@ Whatever a resolver, a search engine or a subagent's report says about a work is
 A work's own fields are corrected with `library type`, which marks them; a note, an extract and a tag are added with `library note`, which dates the note and reflows the body; an identifier, `tags` and the body may also be edited by hand, where the project's commit gates re-check the file.
 The front matter is the subset the tool writes: a field name in lowercase letters and underscores, a value that is a plain word, an integer, `null`, `true`/`false` or a double-quoted string (a single-quoted one is read too), a block list or a one-level map; the library runs no markdownlint of its own.
 Notes say what we think and extracts say what the work says at a place, with the rule on what may be claimed of it; a quotation is never written as a note, and the history of a verdict — what a document said and how it was corrected — is a note.
-Run `library check` before committing; the project's hook runs it as well.
+Run `library check` before committing; the project's hook runs `library check --staged` as well, the same check on a temporary checkout of the git index, which is what the commit holds, not the working tree a hook runner has stashed half of.
+A path git ignores, a kept copy among them, is read from the working tree, since the index holds none, and `--staged` is refused outside a git repository.
 
 ## What the project binds
 

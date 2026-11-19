@@ -220,9 +220,11 @@ The check fails a value outside `[card] values`, and nothing warns on a card not
 Every closing clears the card's `owner` and `drawn` and keeps its `started`, and `flow reopen` brings the card back into the common deck.
 A task closes one of three ways: made (state `done`), held or not, aborted when started and failed, held or not, or removed with a reason while never started.
 A closed task moves to the archive at its closing transition, so the record directories show the live front of work.
-A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, so a transition's move that is not staged, the file at its old path restored and its new path untracked, fails `flow-check` on a commit of anything else.
+A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, a tree that never existed, so the project's hook is `flow check --staged`: the same check on a temporary checkout of the git index, which is what the commit holds, with the paths shown as the project's own and the temporary directory removed at the end.
+A transition's move that is not staged, or a card minted and ranked first and not yet added, is no part of that commit and fails nothing; a path git ignores (a kept copy, a build's output an evidence line names) is read from the working tree, since the index holds none, and a tracked path from the index only.
+`--staged` is refused outside a git repository, and a plain `flow check` reads the working tree.
 A commit made after a transition stages the records directory whole (`git add -A` on it), and a batch of transitions is committed at once.
-A session that shares a working tree with another and commits only its own paths commits from a work tree of its own.
+A session that shares a working tree with another and commits only its own paths commits from a work tree of its own, since a commit there takes the records alone and none of the files the other session has staged.
 A done task with no resolution is never legitimate: the resolution says what was done, and the archived task keeps what was asked and its notes.
 A residue sharp enough to name becomes a task, a question or an idea of its own, minted after the make with `--ref T`, rather than prose in the resolution or a line appended to a question's body.
 A design round on no question is a task tagged `design`: drawn before the round, closed by make or abort with the round record as its resolution and its discarded options one line each inside that record; a round on a question is the held question, its record a dated note (the session, above).
@@ -341,7 +343,7 @@ A body refers to a repository path, a document, a probe, a dataset, by a Markdow
 The front matter is the subset of YAML the script writes: plain scalars, single-quoted strings (a quote doubled inside), double-quoted strings with escapes, `null`, `true`/`false`, integers, block lists (`- item`) and one-level maps; a hand edit stays inside that subset, and `flow check` reads every record back.
 A record points at where its subject is STATED and never restates it, because the statement moves and a copy does not.
 A design record is never authority: a record points at a round for its reasoning or its history, never cites it for a rule, a criterion or a method, since the criteria a round fixed bound that round alone.
-Run `flow check` before committing; the project's hook runs it as well.
+Run `flow check` before committing; the project's hook runs `flow check --staged`, the same check on the index, as well.
 
 ## An older model's records
 

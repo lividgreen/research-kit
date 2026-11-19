@@ -14,6 +14,7 @@ import subprocess
 import os
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -24,7 +25,7 @@ SKILL_DIRS = [d for pl in PLUGINS.values() if (pl / "skills").is_dir() for d in 
 SCRIPTS = {"flow": SKILLS / "flow/scripts/flow.py", "library": SKILLS / "library/scripts/library.py",
            "dashboard": SKILLS / "dashboard/scripts/dashboard.py", "formal": PLUGINS["formal"] / "skills/land/scripts/formal.py",
            "setup": SKILLS / "research-init/scripts/setup.py"}
-SHARED = ("_SENT", "BUILTIN_ABBREVIATIONS", "FENCE_RUN", "fence_after", "in_code_span", "_builtin_reflow", "project_lock", "unknown_command")  # the helpers duplicated into each single-file script
+SHARED = ("_SENT", "BUILTIN_ABBREVIATIONS", "FENCE_RUN", "fence_after", "in_code_span", "_builtin_reflow", "project_lock", "unknown_command", "staged_tree", "check_staged")  # the helpers duplicated into each single-file script
 # the pins' helpers, duplicated into the two setup probes (research's setup.py, formal's `formal probe`)
 PINS = ("KIT_REPO", "KIT_LATEST", "KIT_FOLLOW", "skill_version", "hooks_pin", "install_record", "kit_installed", "kit_tag", "kit_changelog",
         "kit_latest", "kit_dirty", "kit_main_tree", "kit_pins")
@@ -120,6 +121,85 @@ def main():
             check(f"a resolver bound in [evidence.resolvers] that gives {name} leaves the items {'unchecked' if want[1] == 0 else 'with one V6 problem, no record named'}", ok, r.stdout + r.stderr)
         (proj / "flow.toml").write_text(toml, encoding="utf-8")
 
+    print("the research plugin's hook, which refuses a session's first flow command once where the `flow` skill is not loaded")
+    hook_json = json.loads((PLUGINS["research"] / "hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
+    hook_script = PLUGINS["research"] / "hooks/flow_skill.py"
+    check("hooks.json runs the script on PostToolUse (Skill), UserPromptExpansion and PreToolUse (Bash), each by ${CLAUDE_PLUGIN_ROOT} and a file that exists",
+          set(hook_json) == {"PostToolUse", "UserPromptExpansion", "PreToolUse"}
+          and [m.get("matcher") for m in hook_json["PostToolUse"]] == ["Skill"] and [m.get("matcher") for m in hook_json["PreToolUse"]] == ["Bash"]
+          and all(h["type"] == "command" and "${CLAUDE_PLUGIN_ROOT}/hooks/flow_skill.py" in h["command"] for ms in hook_json.values() for m in ms for h in m["hooks"])
+          and hook_script.is_file())
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir, proj, bare, sub = Path(tmp) / "data", Path(tmp) / "proj", Path(tmp) / "bare", Path(tmp) / "proj" / "deep" / "er"
+        sub.mkdir(parents=True)
+        bare.mkdir()
+        (proj / "flow.toml").write_text("", encoding="utf-8")
+
+        def hook(event, env=True, raw=None, **fields):
+            payload = {"hook_event_name": event, "cwd": str(proj), **fields} if raw is None else raw
+            r = subprocess.run([sys.executable, str(hook_script)], input=payload if raw is not None else json.dumps(payload), capture_output=True, text=True,
+                               env={**os.environ, **({"CLAUDE_PLUGIN_DATA": str(data_dir)} if env else {})}, timeout=30)
+            return r.returncode, r.stdout
+
+        def bash(session, command, **kw):
+            return hook("PreToolUse", session_id=session, tool_name="Bash", tool_input={"command": command}, **kw)
+
+        def denied(out):
+            try:
+                o = json.loads(out)["hookSpecificOutput"]
+            except (ValueError, KeyError):
+                return False
+            return o == {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                         "permissionDecisionReason": "load the `flow` skill (research:flow), then run this again"}
+        flow_cmd = 'python3 "${CLAUDE_PLUGIN_ROOT}/skills/flow/scripts/flow.py" state'
+        check("a flow command with the skill not loaded is denied, once, with the way out",
+              denied(bash("s1", flow_cmd)[1]) and bash("s1", flow_cmd) == (0, "") and bash("s1", "flow check") == (0, ""))
+        check("another session is refused once on its own", denied(bash("s2", "flow check")[1]) and bash("s2", "flow check") == (0, ""))
+        hook("PostToolUse", session_id="s3", tool_name="Skill", tool_input={"skill": "research:flow"})
+        check("the Skill call that loads `research:flow` lets the session's flow commands pass, silently", bash("s3", flow_cmd) == (0, ""))
+        hook("PostToolUse", session_id="s4", tool_name="Skill", tool_input={"skill": "flow"})
+        check("a bare `flow` loads it as well", bash("s4", flow_cmd) == (0, ""))
+        hook("PostToolUse", session_id="s5", tool_name="Skill", tool_input={"skill": "research:whatsnext"})
+        hook("PostToolUse", session_id="s5", tool_name="Read", tool_input={"skill": "research:flow"})
+        check("another skill, or another tool naming it, loads nothing", denied(bash("s5", flow_cmd)[1]))
+        hook("UserPromptExpansion", session_id="s6", command_name="research:flow")
+        check("a typed /research:flow loads it", bash("s6", "flow check") == (0, ""))
+        hook("UserPromptExpansion", session_id="s7", command_name="research:whatsnext")
+        check("a typed /research:whatsnext does not", denied(bash("s7", "flow check")[1]))
+        not_flow = ["git status", "git commit -m 'run `flow check`; python3 flow.py'", "cat plugins/research/skills/flow/scripts/flow.py", "ls flow",
+                    "echo flow check", "grep -n flow flow.toml", "python3 other.py flow.py", "cat <<'EOF'\nflow check\nEOF", "",
+                    'git commit -m "Fix the hook\n\nflow check\npython3 flow.py state"', "echo done # flow check", "python3 -m py_compile flow.py"]
+        check("a command that is not a flow command passes, and spends no refusal",
+              all(bash("s8", c) == (0, "") for c in not_flow) and denied(bash("s8", "flow check")[1]))
+        forms = [flow_cmd, "python3 ${CLAUDE_PLUGIN_ROOT}/skills/flow/scripts/flow.py check", "python3.12 -u .agents/skills/flow/scripts/flow.py show task-0001",
+                 "cd sub && FOO=1 python3 /a/b/flow.py make task-0001 --resolution r.md", "flow check --staged", "git add -A; flow state | head",
+                 "uv run python3 plugins/research/skills/flow/scripts/flow.py check", "echo go\npython3 flow.py state",
+                 'git commit -m "two\nlines" && flow check', "bash -c 'python3 flow.py state'", "timeout 30 python3 flow.py state", "./flow.py state", "uv run flow.py state"]
+        check("each form the skill and the package give for a flow command is one", all(denied(bash(f"form{i}", c)[1]) for i, c in enumerate(forms)))
+        check("with no flow.toml from the working directory up, a flow command passes, and spends no refusal",
+              bash("s9", "flow check", cwd=str(bare)) == (0, "") and denied(bash("s9", "flow check")[1]))
+        check("a flow.toml above the working directory counts", denied(bash("s10", "flow check", cwd=str(sub))[1]))
+        hook("PostToolUse", session_id="s11", tool_name="Skill", tool_input={"skill": "research:flow"})
+        check("a subagent is keyed apart: the session's load does not cover it, it is refused once, and its own load covers it",
+              denied(bash("s11", "flow check", agent_id="a1")[1]) and bash("s11", "flow check", agent_id="a1") == (0, "") and bash("s11", "flow check") == (0, "")
+              and denied(bash("s11", "flow check", agent_id="a2")[1])
+              and hook("PostToolUse", session_id="s11", agent_id="a3", tool_name="Skill", tool_input={"skill": "research:flow"}) == (0, "")
+              and bash("s11", "flow check", agent_id="a3") == (0, ""))
+        check("malformed input, a missing data directory or session id, and other events pass with exit 0 and no output",
+              all(hook("PreToolUse", raw=raw) == (0, "") for raw in ("", "not json", "[]", "null", '{"hook_event_name": "PreToolUse"}', '{"tool_input": 3}'))
+              and bash("s12", "flow check", env=False) == (0, "")
+              and hook("PreToolUse", tool_name="Bash", tool_input={"command": "flow check"}) == (0, "")
+              and hook("PreToolUse", session_id="s12", tool_name="Bash", tool_input="flow check") == (0, "")
+              and hook("PreToolUse", session_id="s12", tool_name="Bash", tool_input={"command": ["flow", "check"]}) == (0, "")
+              and hook("PreToolUse", session_id="s12", tool_name="Read", tool_input={"command": "flow check"}) == (0, "")
+              and hook("SessionStart", session_id="s12") == (0, ""))
+        old = data_dir / "loaded--ancient"
+        old.write_text("", encoding="utf-8")
+        os.utime(old, (time.time() - 5 * 86400, time.time() - 5 * 86400))
+        hook("UserPromptExpansion", session_id="s13", command_name="research:flow")
+        check("a marker older than a few days is removed when a new one is written, a recent one is kept",
+              not old.exists() and (data_dir / "loaded--s13").is_file() and (data_dir / "loaded--s3").is_file())
+
     print("manifests")
     market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
     codex = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
@@ -161,6 +241,11 @@ def main():
     hooks = (ROOT / ".pre-commit-hooks.yaml").read_text()
     check("the pre-commit hooks call the console scripts pyproject declares",
           all(f"entry: {n} check" in hooks for n in ("flow", "library", "formal")) and set(project["scripts"]) == {"flow", "library", "dashboard", "formal"})
+    entries = dict(re.findall(r"^- id: (\S+)\n(?:  .*\n)*?  entry: (.*)$", hooks, re.M))
+    check("flow-check and library-check read the git index (`--staged`), the four formal hooks the working tree",
+          entries.get("flow-check") == "flow check --staged" and entries.get("library-check") == "library check --staged"
+          and {k: v for k, v in entries.items() if k.startswith("formal-")} == {"formal-check": "formal check", "formal-cite": "formal cite",
+                                                                              "formal-anchors": "formal anchors", "formal-register": "formal register"})
     forced = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     check("every console script's file is carried into the package (the setup probe is the skill's alone)",
           {ROOT / k for k in forced} == {SCRIPTS[n] for n in project["scripts"]})

@@ -283,11 +283,18 @@ A `flow.toml` without the line, written before v0.7.0, is a thing for `flow doct
 
 Every check exits 0 when clean, 1 when it found problems, each printed with its place, and 2 when it could not run: no bindings file at the root, or one that does not parse.
 The 2 is its own code so that a hook or a CI job never reads "did not run" as "clean".
-`flow reflow --check` given a path that is not there exits 2 as well; `flow state --check` exits 1 when a part fails, else 2 when a part could not be decided, else 0; `flow doctor` exits 1 when it names anything.
+`flow check --staged` outside a git repository is refused with exit 2 as well, and `flow reflow --check` given a path that is not there; `flow state --check` exits 1 when a part fails, else 2 when a part could not be decided, else 0; `flow doctor` exits 1 when it names anything.
 Each check ends with coverage lines saying what it looked at and what it did not — which route answered for each form asked of a resolver, whether the library answered — so a green says what it did not look at; on a failure, `flow check` adds a line naming the command that reproduces it, for a session where no skill is loaded.
 `flow.py --selftest` plants one defect per code and fails when a code it can report is planted nowhere, and the kit's tests hold the table below to the script.
 
 ### `flow check`
+
+`flow check --staged` is the same check on what a commit will hold, the git index.
+It makes a temporary checkout of the index (`git checkout-index -a` into a directory of its own, from the repository's top level), runs the check with the project's counterpart in it as the root, prints what the check prints with the paths shown as the project's own, exits with the check's code, and removes the directory however it ends; without the flag the check reads the working tree exactly as before.
+A tracked path is read from the index only, and a path git ignores, a kept copy or a build's output an evidence line names, is read from the working tree, since the index holds none; a file that is neither tracked nor ignored is no part of the commit and is not found.
+The hooks' entry is `flow check --staged`, because the runner sets aside the unstaged changes to tracked files and leaves the untracked ones, so a plain check in a hook reads a tree that never existed: a card minted and ranked first but not yet added, or a closed task's file moved to the archive and not staged, failed a commit of something else.
+A commit that stages some of a transition's files and not the rest fails, as the commit would be inconsistent.
+`library check --staged` is the library's, on [The library](library.md#the-check).
 
 | Code | What it says |
 | --- | --- |
@@ -360,6 +367,21 @@ DEST is a file or a record's id of the project: one outside the project, or in a
 A DEST that names a minted record is linted as appended to that record, and one named for a record not minted yet as a body under its front matter; any other file that is not there stands for the draft alone, linted with MD041 off, since a record's `title:` front matter, which serves as its heading, is not in the draft.
 Under `--json` they are problems of code `REFLOW` and `MARKDOWNLINT`; the last line says which reflow ran and whether markdownlint did.
 The built-in reflow leaves a sentence unsplit after the common scholarly abbreviations (`cf.`, `e.g.`, `i.e.`, `et al.`, `Prop.`, `Thm.`, `Fig.` and their like) but splits after a single capital, as in `Theorem A. Then it holds.`, and a project whose prose carries others, such as a journal's `Amer.` and `Math.`, binds its own reflow module, which is the escape.
+
+## The hook that asks for the skill
+
+The skill's text is where the closing forms, the order of a transition and the commands' flags are in one place, and a session that never loads it learns them by being refused.
+Claude Code has no way for a skill to name a skill it needs, so the `research` plugin ships a hook, `hooks/hooks.json` over `hooks/flow_skill.py`, one Python file on the standard library, that asks for it:
+
+- A Skill call that loads `research:flow` (or `flow`), and a typed `/research:flow`, write a marker file under the plugin's data directory, `${CLAUDE_PLUGIN_DATA}`, named from the session's id and, in a subagent, the agent's id as well.
+- A Bash call that runs the flow script (`python3 PATH/flow.py …`, with an environment assignment, `uv run`, `timeout` or an interpreter's option before it, the script run by its own name, a `bash -c` over one, or the `flow` console script) in a project whose `flow.toml` stands at or above the working directory, and that finds no marker, is denied once, with the reason "load the `flow` skill (research:flow), then run this again", and the refusal is recorded.
+- The session's, or the subagent's, next flow command passes, loaded or not, so one refusal at most and a command taken for a flow command by mistake locks nobody out.
+A reading is refused as a transition is, the hook not telling one from the other.
+A command that only names the script, in quotes (a commit message of several lines among them), in a comment or in a here-document, is not a flow command.
+Anything the hook cannot read, a missing data directory included, passes it with no output, and a pass prints nothing; markers older than a few days are removed when a new one is written.
+
+It is Claude Code's alone: another agent that installs the plugin runs no hook, and loses nothing but the reminder.
+The `whatsnext` and `freeze` skills still open by loading `flow` where it is not loaded.
 
 ## Words
 

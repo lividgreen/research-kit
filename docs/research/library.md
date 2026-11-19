@@ -102,10 +102,14 @@ limit = 10
 
 Every check exits 0 when clean, 1 when it found problems, each printed with its place, and 2 when it could not run: no bindings file at the root, or one that does not parse.
 The 2 is its own code so that a hook or a CI job never reads "did not run" as "clean".
-`library citecheck` given a file that is not there, or with no document given and none bound, exits 2 as well.
+`library citecheck` given a file that is not there, or with no document given and none bound, exits 2 as well, and so does `library check --staged` outside a git repository.
 `library check` ends with six coverage lines — the cards by grade and the copies by state, the cards a resolver wrote and the verify stamps, the internal documents, the extracts and how many a kept copy bears out, the watches, the reference entries read — so a green says what it did not look at, and that it asked no resolver; `library.py --selftest` plants one defect per code and fails when a code it can report is planted nowhere, and the kit's tests hold the table below to the script.
 
 ### `library check`
+
+`library check --staged` is the same check on what a commit will hold, the git index: a temporary checkout of it (`git checkout-index -a`, from the repository's top level) with the project's counterpart as the root, the output printed with the paths shown as the project's own, the exit code the check's, the directory removed however it ends.
+A tracked path is read from the index only, and a path git ignores, a kept copy among them, is read from the working tree, since the index holds none.
+The hooks' entry is `library check --staged`, because the runner sets aside the unstaged changes to tracked files and leaves the untracked ones; without the flag the check reads the working tree as before.
 
 | Code | What it says |
 | --- | --- |
