@@ -43,6 +43,7 @@ no --summary, a goal and a direction may have none:
   flow task TITLE [--size s] [--value V] [--due YYYY-MM-DD] [--after A] [--for O]  an open task, placed below the
                                  ranked question it references
   flow finding TITLE --evidence FORM:TARGET... [--answers Q]   a standing finding; --answers Q closes Q answered by it
+  flow finding TITLE --compose ID ID... [--evidence ...]       a composite: the parts in references, their evidence its own
   flow goal TITLE  |  flow direction TITLE                     the owner's, minted and closed on the owner's word
   flow draw ID --owner O         a ready idea, question or task into O's hand (hand limit from flow.toml)
   flow return ID --note N        a held card out of the hand, into its owner's deck
@@ -2264,13 +2265,31 @@ def finding_notes(recs, f, answers=None):
     return notes
 
 
+def compose_parts(recs, ids):
+    """The standing findings a composite is made of: two or more, each named once; anything else refused, naming it."""
+    if len(ids) < 2:
+        raise Refused("--compose takes two findings or more: a composite combines findings, and one finding is not restated under another title")
+    for i in ids:
+        if ids.count(i) > 1:
+            raise Refused(f"{i} is named twice")
+        standing(recs, i)
+    return [recs[i] for i in ids]
+
+
 def cmd_finding(cfg, recs, a, today):
-    """The one mint of a finding, whatever produced it; --answers names the question it settles, which closes answered."""
+    """The one mint of a finding, whatever produced it; --answers names the question it settles, which closes answered.
+    --compose makes it a composite: the parts are added to its references and their evidence, each item once, to its own."""
     common = mint_common(cfg, recs, a)
     q = answerable(recs, a.answers) if a.answers else None
-    items = list(a.evidence or [])
-    if not items:
-        raise Refused("a finding takes --evidence FORM:TARGET, one item or more")
+    parts = compose_parts(recs, a.compose) if a.compose else []
+    if not a.evidence and not parts:
+        raise Refused("a finding takes --evidence FORM:TARGET, one item or more, or --compose ID ID…, the findings it is made of")
+    items = []
+    for p in parts:
+        items += [e for e in p["evidence"] or [] if e not in items]
+    taken = set(items)  # an --evidence item a part holds is not repeated and not refused; one given twice is, by resolve_items
+    items += [e for e in a.evidence or [] if e not in taken]
+    common["references"] += [p.id for p in parts if p.id not in common["references"]]
     resolve_items(cfg, items)
     f = new_record(cfg, "finding", {"title": a.title, "summary": a.summary, "evidence": items, **common}, read_body(a.body), today)
     ideas = mirror_add(cfg, recs, f, f["references"])
@@ -5761,6 +5780,30 @@ def selftest():
         fb = p["created"][0]
         expect("a finding carries a result's row, a form of the project's and a link, its forms the words it carries; --evidence repeats",
                p["records"][0]["forms"] == "benchmark, reference, stated, statistical" and len(load_all(cfg)[fb]["evidence"]) == 5)
+        # a composite finding: the parts in references, their evidence its own in the parts' order, each item once
+        fshare = new(["finding", "a part sharing an item", "--evidence", "stated:papers/alpha.md#FV-1", "--ref", t4])
+        p = run(["finding", "the whole", "--compose", f, fb])
+        fw = p["created"][0]
+        expect("a composite of two findings names both in references and carries their evidence items in the parts' order",
+               load_all(cfg)[fw]["references"] == [f, fb] and load_all(cfg)[fw]["evidence"] == load_all(cfg)[f]["evidence"] + load_all(cfg)[fb]["evidence"]
+               and load_all(cfg)[fw]["state"] == "standing")
+        p = run(["finding", "the whole, overlapping", "--compose", f, fshare, "--evidence", "stated:papers/alpha.md#FV-1", "reference:https://example.org/y", "--ref", t4])
+        fo = p["created"][0]
+        expect("a part's item shared by two parts is taken once, --evidence items follow, one a part holds is neither repeated nor refused, --ref comes first",
+               load_all(cfg)[fo]["evidence"] == load_all(cfg)[f]["evidence"] + ["reference:https://example.org/y"]
+               and load_all(cfg)[fo]["references"] == [t4, f, fshare])
+        run(["finding", "the whole, twice", "--compose", f, fshare, "--evidence", "reference:https://example.org/y", "reference:https://example.org/y"], ok=False)  # an item twice is refused as before
+        p = run(["finding", "one part", "--compose", f], ok=False)
+        expect("--compose with one id is refused", "two findings or more" in p["problems"][0]["msg"])
+        run(["finding", "the same part twice", "--compose", f, f], ok=False)
+        fgone = new(["finding", "a claim to remove", "--evidence", "stated:papers/alpha.md#FV-1"])
+        run(["remove", fgone, "--reason", "found false"])
+        p = run(["finding", "with a removed part", "--compose", f, fgone], ok=False)
+        expect("a part that is no standing finding is refused, named", fgone in p["problems"][0]["msg"])
+        p = run(["finding", "with a task part", "--compose", f, t4], ok=False)
+        expect("a part that is no finding is refused, named", t4 in p["problems"][0]["msg"])
+        p = run(["finding", "no evidence"], ok=False)
+        expect("a finding with neither --evidence nor --compose is refused", "--compose" in p["problems"][0]["msg"] and "--evidence" in p["problems"][0]["msg"])
         (root / "results" / "rates.md").write_text("# Rates\n\n## Measured rates (2026)\n\n```text\n## not a heading\n```\n\n"
                                                    "## Measured rates (2026)\n\n### `R4` and *friends* ##\n")
         run(["evidence", fb, "statistical:results/rates.md#measured-rates-2026", "statistical:results/rates.md#measured-rates-2026-1",
@@ -8996,7 +9039,9 @@ def build_parser():
     p.add_argument("--due", metavar="YYYY-MM-DD", help="its due date: surfaced as it nears, never a rank")
     p.add_argument("--after", help="what follows its completion, in words; printed at the close")
     p = mint("finding", "a standing finding, with its evidence")
-    p.add_argument("--evidence", action="extend", nargs="+", required=True, metavar="FORM:TARGET", help="one item or more; repeatable")
+    p.add_argument("--evidence", action="extend", nargs="+", metavar="FORM:TARGET", help="one item or more; repeatable; required unless --compose is given")
+    p.add_argument("--compose", action="extend", nargs="+", metavar="ID", help="a composite of two standing findings or more: each is added to its references, "
+                   "their evidence items, once each, in their order, to its own, and --evidence items follow")
     p.add_argument("--answers", metavar="Q", help="the open question it settles, which closes answered")
     mint("goal", "the owner's goal: the title names the outcome, the body what reached means and how far out it lies")
     mint("direction", "the owner's direction, its words the body")
