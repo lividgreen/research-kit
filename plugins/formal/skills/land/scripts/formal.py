@@ -951,7 +951,7 @@ def do_handback(cfg, base, handoff):
     lost = set(to_private) | set(removed) | set(fld_rm)
     touched_names = {n for n in h_all | b_all | h_fld | b_fld if (h_module_of.get(n) or b_module_of.get(n)) in touched}
     print(f"\nTOUCHED MODULES ({len(touched)}): {', '.join(sorted(touched)) or '-'}")
-    sites, private_hits = [], []
+    sites, private_hits, moved = [], [], []
     for path in expand_globs(cfg, cfg.scan):
         rel = path.relative_to(cfg.root)
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -969,7 +969,10 @@ def do_handback(cfg, base, handoff):
                 # last component does not cover a cited declaration that went private or was removed
                 gone = not (hits & (h_all | h_fld))
                 if private_only(tok, h_all, h_priv) or (hits & lost and not hits & citable):
-                    private_hits.append((str(rel), lineno, tok + (" (REMOVED)" if gone else "")))
+                    if gone and tok in cfg.upstream:  # left the manifests and is on `formal cite`'s allowlist: moved upstream
+                        moved.append((str(rel), lineno, tok))
+                    else:
+                        private_hits.append((str(rel), lineno, tok + (" (REMOVED)" if gone else "")))
             st = STATEMENT.match(line)
             if cited and st:
                 for k in range(lineno, min(lineno + BOUNDARY_REACH, len(lines))):
@@ -999,6 +1002,11 @@ def do_handback(cfg, base, handoff):
               f"whatever the report says: {', '.join(absent) or '-'}")
     else:
         print("\nCOMMISSION not compared: pass --handoff <the emitted prompt's draft>.")
+    if moved:
+        print(f"\nMOVED UPSTREAM ({len(moved)}) — removed from the manifests and listed in [documents] upstream, "
+              "so not a failure:")
+        for rel, ln, tok in moved:
+            print(f"  {rel}:{ln}: `{tok}`")
     if private_hits:
         print("\nFAIL: a document cites a name that is now private only, or removed:")
         for rel, ln, tok in private_hits:
@@ -1167,15 +1175,31 @@ class Reader:
 
     @staticmethod
     def cut_at_top_level_assign(text):
-        depth, i = 0, 0
+        # the proof starts at the first depth-0 `:=` that no `let` or `have` of the statement, at depth 0, still waits for
+        def ident(ch):
+            return ch.isalnum() or ch in "_'.!?" or "\u2080" <= ch <= "\u209f"
+
+        depth, pending, i = 0, 0, 0
         while i < len(text) - 1:
             c = text[i]
+            if c in '"«' and (lit := LITERAL.match(text, i)):  # a string or a quoted name is no keyword and no bracket
+                i = lit.end()
+                continue
             if c in OPEN_BRACKETS:
                 depth += 1
             elif c in CLOSE_BRACKETS:
                 depth = max(0, depth - 1)
             elif depth == 0 and text[i] == ":" and text[i + 1] == "=":
-                return text[:i].rstrip()
+                if not pending:
+                    return text[:i].rstrip()
+                pending -= 1
+            elif depth == 0 and c in "lh" and (i == 0 or not ident(text[i - 1])):
+                for kw in ("let", "have"):
+                    j = i + len(kw)
+                    if text.startswith(kw, i) and (j >= len(text) or not ident(text[j])):
+                        pending += 1
+                        i = j - 1
+                        break
             i += 1
         return text
 
@@ -2422,9 +2446,20 @@ def handback_scenarios(root, expect):
     regenerate(base_manifest.replace("Lib.A Lib.A.foo", "private Lib.A Lib.A.foo"))
     code, out = run()
     case("a cited name gone private fails though an unrelated public one shares its last component", code == 1 and "`foo`" in out, out[-300:])
+    cfg.upstream.add("foo")
+    code, out = run()
+    case("a cited name gone private still fails when it is in [documents] upstream", code == 1 and "`foo`" in out and "MOVED UPSTREAM" not in out, out[-300:])
+    cfg.upstream.discard("foo")
     regenerate(base_manifest.replace("field Lib.A Lib.A.S.fld\n", ""))
     code, out = run()
-    case("a cited field removed fails", code == 1 and "S.fld (REMOVED)" in out, out[-300:])
+    case("a cited field removed fails",code == 1 and "S.fld (REMOVED)" in out, out[-300:])
+    cfg.upstream.add("S.fld")
+    code, out = run()
+    case("a cited name removed and in [documents] upstream passes and is listed",
+         code == 0 and "MOVED UPSTREAM (1)" in out and "papers/a.md:2: `S.fld`" in out and "FAIL" not in out, out[-500:])
+    cfg.upstream.discard("S.fld")
+    code, out = run()
+    case("the same name off the allowlist fails again", code == 1 and "S.fld (REMOVED)" in out and "MOVED UPSTREAM" not in out, out[-300:])
     draft = root / "h.md"
     draft.write_text("Commissioned: `Lib.A.bar`.\n", encoding="utf-8")
     regenerate(base_manifest + "private Lib.A Lib.A.bar\n")
@@ -3304,6 +3339,17 @@ def selftest_cases():
         expect("a «quoted» name keeps its `--`", strip_comments("theorem «a--b» : True -- c") == "theorem «a--b» : True")
         cut = Reader.cut_at_top_level_assign("theorem t ⦃f : Nat → Nat := id⦄ : True := trivial")
         expect("a `:=` inside ⦃ ⦄ is not the statement's end", "⦄ : True" in cut and "trivial" not in cut, cut)
+        cut = Reader.cut_at_top_level_assign("theorem t : ∃ n, let f : Nat → Nat := fun _ => 0; P f := by\n  exact ⟨0, h⟩")
+        expect("a `let … :=` inside the statement is kept, the cut is at the proof's `:=`",
+               cut == "theorem t : ∃ n, let f : Nat → Nat := fun _ => 0; P f", cut)
+        cut = Reader.cut_at_top_level_assign("theorem t : have h : A := a; let g : B := b; Q := by simp")
+        expect("a `have` and a `let` in turn are each closed by their own `:=`", cut == "theorem t : have h : A := a; let g : B := b; Q", cut)
+        cut = Reader.cut_at_top_level_assign("theorem t : ∃ n, (let f : Nat := 0; P f) := by simp [let_x, have_y]")
+        expect("a `let` inside brackets is unchanged: the cut is at the first depth-0 `:=`", cut == "theorem t : ∃ n, (let f : Nat := 0; P f)", cut)
+        cut = Reader.cut_at_top_level_assign("theorem t (h : P) : Q := by\n  let x := 1\n  simp")
+        expect("a plain theorem is cut at its `:=` as before, a `let` of the proof is not reached", cut == "theorem t (h : P) : Q", cut)
+        cut = Reader.cut_at_top_level_assign('theorem t : s = "let (" := by\n  simp')
+        expect("a `let` or a bracket inside a string literal opens nothing", cut == 'theorem t : s = "let ("', cut)
         expect("a nested block comment is stripped whole, and a `--` in a string literal is kept",
                strip_comments('a /- x /- y -/ z -/ b "c -- d" -- e\nf \'-\' g\' -- h') == 'a  b "c -- d"\nf \'-\' g\'')
         expect("the theorem's proof is cut at :=", "omega" not in text)

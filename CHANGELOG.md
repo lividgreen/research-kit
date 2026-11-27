@@ -4,6 +4,18 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+**Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
+
+The `formal` plugin:
+
+- `formal handback` reads `[documents] upstream`: a cited name that left the manifests and is on that allowlist is printed in a block of its own, `MOVED UPSTREAM`, one line a site (document, line, token), and is no failure; a removed name not on the allowlist still fails, and the exit code does not count the block.
+  The `land` skill and its page say so.
+- `formal readback` cuts a theorem at the first `:=` outside brackets that no `let` or `have` of its statement is still waiting for, so a statement that binds a local definition (`∃ n, let f : A → B := fun _ => 0; P f`) is read back whole; a declaration with no such binding reads back as before.
+
+The documentation:
+
+- The `land` page says that a name under a namespace in `[documents] ambiguous_namespaces` that is also a declaration's base name is still read as a declaration-scoped name.
+
 ## v0.12.1 — 2026-11-20
 
 **Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
