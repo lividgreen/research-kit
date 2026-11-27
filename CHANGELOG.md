@@ -2,7 +2,7 @@
 
 Each release is a tag; the version is read from the tag and the version fields `docs/development.md` names, and each release's section is headed by its tag and date; a change not yet released goes under an `## Unreleased` heading above them, which becomes the tag and the date at the release.
 
-## Unreleased
+## v0.13.0 — 2026-11-28
 
 **Upgrading**: a release that asks a step of a project that ran the kit's scripts through a wrapper, and one of a project whose documents are compiled from its findings.
 Move the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
