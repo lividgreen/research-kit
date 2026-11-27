@@ -3111,8 +3111,9 @@ limit = 10
 
 INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:
 
-- `library …` here is the library skill's script run by its installed path from the project root, no
-  command on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/research/<version>/skills/library/scripts/library.py …`.
+- `library …` here is the library skill's script; a session loads the `library` skill before its first
+  library command, and the skill gives the script's path, which changes with each release, so no file of
+  the project names it and the project keeps no wrapper or make target over it.
 - The reference library is `{dir}/`: one card per work, found with `library find WORDS` or
   `library show KEY`, never by a glob over the cards; `library.toml` binds the names.
 - A work is cited as `lib:<key>`; a sentence that cites a work is written after `library show`
@@ -4096,6 +4097,9 @@ def selftest():
         r = subprocess.run([sys.executable, __file__, "init", "--print-instructions"], cwd=root / "library", capture_output=True, text=True)
         expect("init --print-instructions prints the paragraphs for library.toml as it stands, found from a subdirectory, and writes nothing",
                r.returncode == 0 and "The reference library is `refs/`" in r.stdout and snap(root) == before)
+        expect("the paragraphs name no plugin-cache path and no wrapper: the script's path is the skill's to give, and the project keeps none",
+               "plugins/cache" not in r.stdout and "<version>" not in r.stdout and "the skill gives the script's path" in r.stdout
+               and "keeps no wrapper or make target over it" in r.stdout)
         with tempfile.TemporaryDirectory() as t2:
             r = subprocess.run([sys.executable, __file__, "init", "--print-instructions"], cwd=t2, capture_output=True, text=True)
             expect("init --print-instructions with no library.toml prints the default and writes nothing",

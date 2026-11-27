@@ -4,10 +4,14 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
-**Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says, and, in a project whose documents are compiled from its findings, the step below.
-`flow graph --from ID` now prints the records within two links, and `--depth 0` gives what it printed before; `flow state` opens with one more line, the project's parameters, which matters for a project's own script that reads its output.
+**Upgrading**: a release that asks a step of a project that ran the kit's scripts through a wrapper, and one of a project whose documents are compiled from its findings.
+Move the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says, `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+A project that ran the kit's scripts through a wrapper of its own or through `repo: local` hooks replaces the local hooks with the kit's, pinned by `rev`, makes its instructions file name the skills and not the wrapper, and drops the make targets over the kit's scripts; `/research:research-init` proposes the hooks and lists what is left under `wrappers over the kit's scripts`.
+`flow graph --from ID` now prints the records within two links, and `--depth 0` gives what it printed before.
+`flow state` opens with one more line, the project's parameters, which matters for a project's own script that reads its output.
 A project whose documents are compiled from its findings writes `[documents] globs` and `must` in `flow.toml` (the setup asks), labels the parts and runs `flow parts`.
 One that kept labels of its own with a part id (`<!-- part-NNNN: finding-NNNN -->`) rewrites each to `<!-- finding-NNNN -->` and retires the evidence items of its own form that cited the part ids, since the kit stores nothing in the finding.
+Nothing else is to be done: every other change adds a command, a flag or a line.
 
 The `research` plugin:
 
@@ -43,18 +47,26 @@ The `research` plugin:
 - The `research-init` setup asks whether the project has documents compiled from its findings and which files and heads, and on yes writes `[documents] globs` and `must`; its probe reports `[documents]` unset as information, a project item `documents compiled from findings`, where the tree holds Markdown files with numbered statements, and never as a required item.
 - The `freeze` skill's next action names the card to take, and not the route to take it by nor what to read first.
 - The `flow` skill says what the commands above now do, its "Writing a title and a summary" says that the limits are the project's and that `flow state` prints them in its first line, and the instructions paragraph `flow init` prints says the same of that line.
+- The paragraphs `flow init` and `library init` print for the project's instructions name no path under the plugin cache: `flow …` and `library …` there are the skill's script, a session loads the skill before its first command and the skill gives the path, which changes with each release, so no file of the project names it and the project keeps no wrapper or make target over it.
+- The `research-init` probe proposes, where the hooks are `repo: local` entries running the kit's scripts, to replace them with the kit's hooks pinned by `rev` at the installed release, naming the entries, as a step of `pins` and no failure.
+  A project item `wrappers over the kit's scripts` lists, by file and line, each code span or fenced line of the instructions files and each recipe line of the root `Makefile` that runs the kit's scripts through something other than the skill's own path (a plugin-cache path included); it is information and never a failure.
+  The `research-init` skill says the same in its steps for the instructions and the hooks, and where the person asks how to run a script outside the agent.
 
 The `formal` plugin:
 
 - `formal handback` reads `[documents] upstream`: a cited name that left the manifests and is on that allowlist is printed in a block of its own, `MOVED UPSTREAM`, one line a site (document, line, token), and is no failure; a removed name not on the allowlist still fails, and the exit code does not count the block.
   The `land` skill and its page say so.
 - `formal readback` cuts a theorem at the first `:=` outside brackets that no `let` or `have` of its statement is still waiting for, so a statement that binds a local definition (`∃ n, let f : A → B := fun _ => 0; P f`) is read back whole; a declaration with no such binding reads back as before.
+- The paragraph `formal init` prints for the project's instructions names no path under the plugin cache, and says what the research paragraphs say of the script's path; `formal probe` proposes, as a step of `pins` and no failure, to replace `repo: local` hooks running the kit's scripts with the kit's hooks pinned by `rev`, naming the entries.
+  The `formal-init` skill says so.
 
 The documentation:
 
 - The flow page describes `flow about` and `flow artifacts --uncited`, and the flow, working-rules and freeze pages carry the sentences the skills above gained.
 - The flow page's bindings file holds `[documents]`, its table of codes D1 to D5, and a section on documents compiled from findings: the label, the binding, `flow parts` and the places a record's statement is read back; the `research-init` page describes the setup's question and the probe's item.
 - The `land` page says that a name under a namespace in `[documents] ambiguous_namespaces` that is also a declaration's base name is still read as a declaration-scoped name.
+- [Install](docs/install.md) describes the kit's hooks pinned by `rev` as the one way, says the setup's pins step holds `rev` and the plugins equal and proposes replacing local hooks that run the kit's scripts, and that a project keeps no runner, wrapper or make target over the kit's scripts; "Outside the agent" keeps the paths of skills installed into the project and says a plugin install has none.
+- The `research-init` and `formal-init` pages describe the pins step's replacement of local hooks, the probe's item `wrappers over the kit's scripts` and the instructions' sentence on the script's path.
 
 ## v0.12.1 — 2026-11-20
 
