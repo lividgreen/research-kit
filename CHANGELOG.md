@@ -22,6 +22,13 @@ The `research` plugin:
 - A refusal for the length of a title or a summary ends with a line `at the limit it reads: «…»`, the text cut at the limit.
 - `flow finding … --ref T`, where the task or finding `T` itself references an open question (a parked one included) that the new finding neither references nor answers, prints after the mint's own lines one note a question, `note: T references question-NNNN (title), which this finding does not: flow ref FINDING +question-NNNN if it bears on it`; it refuses nothing and changes no record, and under `--json` the list `notes` carries them.
 - `flow check` and every write that runs markdownlint under the flow's built-in rules remove the temporary configuration file when the lint ends.
+- `flow about ID…` is a read-only view of what the records hold on a subject: the given records, of any kind, and every record within `--depth N` links of one of them (2 where not given), either direction, over `references`, `answered_by`, `serves` and the records among a block's items; a goal or a direction that is reached is listed and not walked through, and a removed record is left out.
+  It prints `Hangs from` (goals, directions, questions), `Findings` (with their forms and summaries), `Closed tasks` (newest first, with the first sentence of each `resolution:` note) and `Open cards`, each section left out where empty, nearer records first, then a closing count and `searched: flow about ID… --depth D`; `--budget N` bounds the output in characters (14000 where not given) and the closing line counts the records it left out.
+  An unknown id is refused; under `--json` the keys `about`, `depth`, `hangs_from`, `findings`, `closed_tasks`, `open_cards` and `left_out`.
+- `flow artifacts --uncited PATH` lists, for one Markdown document of the tree, the headings, numbered statements and table rows that no standing finding's evidence anchors to, one line a place, `PATH:LINE: heading|statement|row — its text`, in the file's order, and a closing line with the counts of places uncited, places cited and findings citing the file with no anchor.
+  A heading counts as cited when a place in its section is; a path that is no Markdown file of the tree is refused; under `--json` the keys `path`, `uncited`, `cited` and `unanchored`.
+- The `flow` skill and the `method` skill say what the commands above do and the practice around them: a session collects what the records hold on a subject before it analyses, reviews or plans and names the search behind a "not measured" or "never decided"; a landing mints a finding for each result another record could need and says which it left without one; a decision's answer is sorted by what it is, the word "ruling" is not used for a record, and a decision of the person's is checked against the flow's rules and the project's own before it is applied; whoever picks up a card forms an approach from what is asked before reading the approach earlier work left, and the log entry says which one the session took.
+- The `freeze` skill's next action names the card to take, and not the route to take it by nor what to read first.
 - The `flow` skill says what the commands above now do, its "Writing a title and a summary" says that the limits are the project's and that `flow state` prints them in its first line, and the instructions paragraph `flow init` prints says the same of that line.
 
 The `formal` plugin:
@@ -32,6 +39,7 @@ The `formal` plugin:
 
 The documentation:
 
+- The flow page describes `flow about` and `flow artifacts --uncited`, and the flow, working-rules and freeze pages carry the sentences the skills above gained.
 - The `land` page says that a name under a namespace in `[documents] ambiguous_namespaces` that is also a declaration's base name is still read as a declaration-scoped name.
 
 ## v0.12.1 — 2026-11-20
