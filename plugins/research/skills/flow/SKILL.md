@@ -131,7 +131,7 @@ Only the mints mint, one per kind, each the kind's name; every one takes the tit
 | `flow idea "…" --summary "…"` | `--value`; `--for OWNER` |
 | `flow question "…" --summary "…"` | `--serves ID` (repeatable): an open goal or direction; `--size`; `--value`; `--for OWNER` |
 | `flow task "…" --summary "…"` | `--size`, `--value`, `--due YYYY-MM-DD`, `--after "…"`, `--for OWNER` |
-| `flow finding "…" --summary "…"` | `--evidence FORM:TARGET…` (one or more, required, repeatable); `--answers Q`, the open question it settles, which closes answered |
+| `flow finding "…" --summary "…"` | `--evidence FORM:TARGET…` (one or more, repeatable, required unless `--compose` is given); `--compose ID ID…`, a composite of two standing findings or more (below, "A composite finding"); `--answers Q`, the open question it settles, which closes answered |
 | `flow goal "…"` | none |
 | `flow direction "…"` | none |
 
@@ -450,6 +450,13 @@ A finding's trust is the set of forms its evidence carries, read and never set: 
 The forms give a finding's evidence a direction to improve in: a finding resting on `stated` alone (`flow find --form stated --only`) is work waiting, a proof to formalize, a probe to run, a work to cite, and `flow evidence F ITEM…` adds the evidence that raises its trust, each item resolved as at the mint.
 An item whose file a later change deleted is swapped for its successor by `flow evidence F --replace OLD NEW`, OLD matched exactly as written and NEW resolved as an added item is, or removed by `flow evidence F --retire OLD --reason R`, which is refused where it would leave the finding no evidence, the check failing a finding with none; either writes a dated note into the finding's body, as `flow note` does, so the record keeps what the evidence was.
 Where no resolver, register or library is found, such evidence is reported unchecked, and the coverage line of `flow check` says so: it names, for each form asked of a resolver, the route that answered (`via the formal plugin beside the research plugin`) or why none did.
+**A composite finding.** It is minted when an artifact states as one result what the records hold as several findings, the clauses of one theorem or the cases of one statement: `flow finding "…" --summary "…" --compose ID ID…`, each ID a standing finding, any other refused by name, two or more.
+It is an ordinary finding that states the whole result and names its parts in `references`; it has no kind, no link and no field of its own.
+Its evidence is the parts' evidence items in the order of the parts, each item once, and where `--evidence` is given too its items follow, an item a part already holds neither repeated nor refused; the evidence is copied on purpose, the one place the records hold it twice.
+Nothing is recalculated afterwards: the composite owns its items from the mint on, and a part that changes state notifies its referrers by the usual notice.
+A composite is never minted to restate a single finding under another title, and never to hide that a clause has no finding: the composite waits until the clause has one, or its summary says which clause it leaves out.
+Where the whole is more than the parts side by side, a formula or an argument over them, it is a finding of its own, with evidence of its own and plain `--ref` references.
+
 Findings live in one directory, and the document a finding belongs to is a reference `flow find --refers papers/alpha.md` groups by.
 
 ## Questions in practice
