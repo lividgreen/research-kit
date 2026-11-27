@@ -28,6 +28,7 @@ Against HEAD (or `--base REV`) it prints:
 
 Everything the report names must be there; everything the diff shows that the report omits is the surplus that makes a document boundary stale.
 It exits 1 on a document citing a name that is now private or removed.
+A cited name that left the manifests and is in `[documents] upstream` is not a failure: it is printed in a block of its own, `MOVED UPSTREAM`, one line a site (document, line, token), and the exit code does not count it; a name gone private is not moved upstream.
 It reads no proof: a `sorry`, an `admit`, a `native_decide` or a new `axiom` is the build's warnings and the project's `#print axioms` guards to catch, so quote both in the landing.
 Name each ABSENT commissioned declaration in the log entry under what did not land, whatever the report says; a PRIVATE one is in the tree but not citable, so no row names it.
 Each manifest is compared with the edited modules of its own package only, so regenerating one package's manifest does not refuse on another's, and an edited umbrella that holds only imports and guards needs no regeneration; a proof-only edit elsewhere still does, since the text cannot tell it from a changed statement.
@@ -39,7 +40,7 @@ A manifest with no `hypothesis` row is INERT, reported as such and never as a pa
 ## 2. Read-back BEFORE reading at the binders — a cold reader writes each landed statement out from the Lean alone
 
 The root session opens a declaration with the document already in mind, and that is the condition under which quantifier gaps survive an audit.
-So first `formal readback <every commissioned declaration> -o PACKET` builds the packet: each statement with its modifiers and scope lines, every project-local definition its elaborated statement refers to, to depth two (`--depth N` for another; a definition's value is read too), docstrings and comments STRIPPED, its own limits in its header; a bare name declared in two modules is refused as ambiguous and named by module instead.
+So first `formal readback <every commissioned declaration> -o PACKET` builds the packet: each statement with its modifiers and scope lines, every project-local definition its elaborated statement refers to, to depth two (`--depth N` for another; a definition's value is read too), docstrings and comments STRIPPED (a theorem is cut at the first `:=` outside brackets that no `let` or `have` of its statement is still waiting for, so a local definition in the statement is shown whole), its own limits in its header; a bare name declared in two modules is refused as ambiguous and named by module instead.
 What a statement refers to is read from the manifest's `uses` rows, which the generator writes from the compiled environment, so a projection `x.f`, an inherited field, dot notation and an instance are resolved by Lean and not guessed from the text; the source is read only to show each block.
 A declaration used that no line of its file declares by name (an instance Lean named, a derived one) is listed, not shown.
 A manifest without the `uses` section is an older generator's: `formal readback` refuses it (exit 2) and says to copy `scripts/DeclManifest.lean` over the workspace's and regenerate.
