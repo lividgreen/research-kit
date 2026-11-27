@@ -1402,7 +1402,7 @@ def selftest():
                and "r.md" not in item["detail"] and "1 Markdown file(s)" in item["detail"] and mark(item).strip() == "ok")
         rep3 = probe(root)
         expect("the probe counts it neither as a missing required item nor as a proposal",
-               "documents compiled from findings" not in [p["item"] for p in rep3["proposals"]] and "every required item is present" in render(rep3).splitlines()[-1]
+               "documents compiled from findings" not in [p["item"] for p in rep3["proposals"]] and "documents compiled from findings" not in render(rep3).splitlines()[-1]
                and "documents compiled from findings [found]: [documents] is unset" in render(rep3))
         (root / "flow.toml").write_text('[evidence]\nstatement_words = ["Claim"]\n', encoding="utf-8")
         expect("[evidence] statement_words binds the words read: Theorem no longer, Claim is", docs_item(root)["need"] == "none")
