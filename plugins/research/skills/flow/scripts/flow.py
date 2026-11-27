@@ -78,7 +78,7 @@ no --summary, a goal and a direction may have none:
 A transition that changes a record's state, or parks, unparks, blocks or unblocks it, names the records that refer
 to it, which may need a follow-up; it refuses nothing for them.
 
-Views: find, show, table (the hands, the decks and the piles as they lie), graph, state (the cold-start bundle), directions, tags, artifacts, index [--check | --print],
+Views: find, show, about, table (the hands, the decks and the piles as they lie), graph, state (the cold-start bundle), directions, tags, artifacts, index [--check | --print],
 check; `pages` (the dashboard's page manifest); `--json` on every command.
 
   flow state --check             what a machine sees of a freeze: the log's top entry today's where the tree
@@ -1360,34 +1360,40 @@ def heading_anchor(text):
 NOT_PARAGRAPH = re.compile(r"^ {0,3}(?:>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|\||([-*_])(?:[ \t]*\1){2,}[ \t]*$)")
 
 
-def heading_anchors(text):
-    """The anchors of a document's headings, ATX (`## Title`) and setext (`Title` over `===` or `---`), outside
-    code fences and a leading front matter block; a repeated one gains `-1`, `-2`, as GitHub numbers them."""
+def heading_places(text):
+    """A document's headings, ATX (`## Title`) and setext (`Title` over `===` or `---`), outside code fences and a leading front
+    matter block, as (anchor, line, level, title), the line 0-based; a repeated anchor gains `-1`, `-2`, as GitHub numbers them."""
     out, seen, fence, para = [], Counter(), None, []
 
-    def add(title):
+    def add(title, at, level):
         a = heading_anchor(title)
-        out.append(a if not seen[a] else f"{a}-{seen[a]}")
+        out.append((a if not seen[a] else f"{a}-{seen[a]}", at, level, title))
         seen[a] += 1
 
     lines = text.split("\n")
-    for line in lines[front_end(lines):]:
+    start = front_end(lines)
+    for n, line in enumerate(lines[start:], start):
         was, fence = fence, fence_after(fence, line)
         if was is not None or fence is not None:
             para = []
             continue
-        m = re.match(r"^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$", line)
+        m = re.match(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$", line)
         if m:
-            add(m.group(1))
+            add(m.group(2), n, len(m.group(1)))
             para = []
         elif para and re.match(r"^ {0,3}(?:=+|-+)[ \t]*$", line):
-            add(" ".join(para))
+            add(" ".join(p for _, p in para), para[0][0], 1 if line.strip().startswith("=") else 2)
             para = []
         elif not line.strip() or NOT_PARAGRAPH.match(line) or (not para and line.startswith("    ")):
             para = []  # a blank line, a block that interrupts the paragraph, or an indented code block
         else:
-            para.append(line.strip())
+            para.append((n, line.strip()))
     return out
+
+
+def heading_anchors(text):
+    """The anchors of a document's headings, in its order (`heading_places`)."""
+    return [a for a, _, _, _ in heading_places(text)]
 
 
 def _cached(cache, key, make):
@@ -3446,6 +3452,200 @@ def cmd_artifacts(cfg, recs, a, today):
         if p and r.id not in [x["id"] for x in paths[p]]:
             paths[p].append({"id": r.id, "via": "source"})
     return [{"path": p, "exists": (cfg.root / p).exists(), "records": paths[p]} for p in sorted(paths)]
+
+
+def document_places(cfg, text):
+    """The places of a Markdown document a finding's evidence could anchor to, in the file's order, outside code fences and a
+    leading front matter block: each heading (its anchor as `heading_places` computes it), each numbered statement (one of
+    `[evidence] statement_words`, then a number, opening a line after optional `**` or `#` marks; its anchor the word and the
+    number) and each table row whose first cell matches `[evidence] row_id` (its anchor that cell), as dicts `kind`, `anchor`,
+    `line` (1-based), `level` (a heading's, else None), `text`, `also` (a heading that opens a statement too is one place of
+    kind `statement` that also answers to its heading's anchor).  The reading is the one `_resolve_document` makes of a target."""
+    lines = text.split("\n")
+    heads = {n: (a, lv, t) for a, n, lv, t in heading_places(text)}
+    stmt = re.compile(r"^ {0,3}(?:#{1,6}[ \t]+)?(?:\*\*)?(%s)( ?)(\d+(?:\.\d+)*)\b" % "|".join(map(re.escape, cfg.stmt_words))) if cfg.stmt_words else None
+    row = re.compile(r"^\| *([^|]*?) *\|")
+    out, fence = [], None
+    for n in range(front_end(lines), len(lines)):
+        line = lines[n]
+        was, fence = fence, fence_after(fence, line)
+        if was is not None or fence is not None:
+            continue
+        m, r = (stmt.match(line) if stmt else None), row.match(line)
+        if m:
+            place = {"kind": "statement", "anchor": m.group(1) + m.group(2) + m.group(3), "line": n + 1, "level": None,
+                     "text": line.strip(), "also": None}
+            if n in heads:
+                place.update(level=heads[n][1], also=heads[n][0])
+            out.append(place)
+        elif n in heads:
+            out.append({"kind": "heading", "anchor": heads[n][0], "line": n + 1, "level": heads[n][1], "text": heads[n][2].strip(), "also": None})
+        elif r and re.fullmatch(cfg.row_id, r.group(1)):
+            out.append({"kind": "row", "anchor": r.group(1), "line": n + 1, "level": None, "text": line.strip(), "also": None})
+    return out
+
+
+def cited_place(cfg, places, anchor):
+    """The index of the place an evidence target's anchor names among a document's places, in the order `_resolve_document`
+    reads it (a row, a numbered statement, a heading); None where it names none."""
+    target = f"x.md#{anchor}"
+    if cfg.ev_row.match(target):
+        return next((i for i, p in enumerate(places) if p["kind"] == "row" and p["anchor"] == anchor), None)
+    s = cfg.ev_stmt.match(target)
+    if s:
+        said = s.group(2) + s.group(3) + s.group(4)
+        hits = [i for i, p in enumerate(places) if p["kind"] == "statement"]
+        found = next((i for i in hits if places[i]["anchor"] == said), None)
+        return found if found is not None else next((i for i in hits if re.match(re.escape(said) + r"\b", places[i]["anchor"])), None)
+    return next((i for i, p in enumerate(places) if anchor == (p["anchor"] if p["kind"] == "heading" else p["also"])), None)
+
+
+def cmd_uncited(cfg, recs, path):
+    """The places of one Markdown document of the project that no standing finding's evidence anchors to: (the uncited places,
+    the number cited, the findings citing the file with no anchor).  A place is cited by an item of form `stated`,
+    `statistical` or `reference` whose target is the file and that place; a heading also when a place in its section, up to the
+    next heading of the same or a higher level, is cited."""
+    norm = norm_path(path)
+    if outside_tree(path) or not (cfg.root / norm).is_file():
+        raise Refused(f"{path} is not a file of the tree: flow artifacts --uncited takes a Markdown document, written from the project root")
+    if not norm.endswith(".md"):
+        raise Refused(f"{path} is not Markdown (.md): a heading, a statement and a row are a Markdown document's anchors")
+    places = document_places(cfg, (cfg.root / norm).read_text(encoding="utf-8"))
+    direct, unanchored = set(), []
+    for r in sorted(recs.values(), key=lambda r: r.id):
+        if r.type != "finding" or r["state"] != "standing":
+            continue
+        bare = False
+        for e in r["evidence"] or []:
+            sp = split_evidence(e)
+            if not sp or sp[0] not in ("stated", "statistical", "reference") or sp[0] in cfg.resolved or evidence_path(e, cfg.opaque_forms) != norm:
+                continue
+            if "#" not in sp[1]:
+                bare = True
+                continue
+            i = cited_place(cfg, places, sp[1].split("#", 1)[1])
+            if i is not None:
+                direct.add(i)
+        if bare:
+            unanchored.append(r.id)
+    cited = set(direct)
+    for i, p in enumerate(places):
+        if p["level"] is not None:
+            end = next((j for j in range(i + 1, len(places)) if places[j]["level"] is not None and places[j]["level"] <= p["level"]), len(places))
+            if any(j in direct for j in range(i, end)):
+                cited.add(i)
+    return [dict(p, text=p["text"][:100]) for i, p in enumerate(places) if i not in cited], len(cited), unanchored
+
+
+ABOUT_DEPTH = 2  # the links `flow about` follows from the records it is given where --depth is not given
+ABOUT_LINKS = ("references", "answered_by", "serves", "blocked_by")  # `consumed_by` left out, the mirror of a reference
+
+
+def first_sentence(text):
+    """The first sentence of a text's first non-blank line, cut by the reflow's own rule."""
+    line = next((l.strip() for l in text.split("\n") if l.strip()), "")
+    return _builtin_reflow(line).split("\n")[0].strip()
+
+
+def resolution_of(t):
+    """The first sentence of the first `resolution:` note of a task's body, the note `flow make` writes; None where it has none."""
+    m = RESOLUTION_NOTE.search(t.body or "")
+    return first_sentence(t.body[m.end():]) or None if m else None
+
+
+def about_subject(recs, ids, depth):
+    """{id: distance} of the given records and every record within `depth` links of one of them, either direction, over
+    `references`, `answered_by`, `serves` and the records among `blocked_by`'s items; a goal or a direction that is reached
+    is in it and not walked through, and a removed record is left out."""
+    near = defaultdict(set)
+    for r in recs.values():
+        if r["state"] == "removed":
+            continue
+        for f, v in link_ids(r):
+            if f in ABOUT_LINKS and v in recs and v != r.id and recs[v]["state"] != "removed":
+                near[r.id].add(v)
+                near[v].add(r.id)
+    dist, frontier = {i: 0 for i in ids}, list(ids)
+    for step in range(1, depth + 1):
+        nxt = []
+        for x in frontier:
+            if dist[x] and recs[x].type in ("goal", "direction"):
+                continue
+            for y in sorted(near[x]):
+                if y not in dist:
+                    dist[y] = step
+                    nxt.append(y)
+        frontier = nxt
+    return dist
+
+
+def about_entry(cfg, recs, r, dist, today):
+    """One record of `flow about` as `--json` gives it: id, type, state, title, summary, distance; a finding's forms, an open
+    card's standing, a done task's closing day and the first sentence of its resolution."""
+    d = {"id": r.id, "type": r.type, "state": r["state"], "title": r["title"], "summary": r["summary"], "distance": dist[r.id]}
+    if r.type == "finding":
+        d["forms"] = forms_of(r)
+    if r.type in CARDS and r["state"] == "open":
+        d["standing"] = standing_words(cfg, recs, r, today)
+    if r.type == "task" and r["state"] == "done":
+        d["closed"], d["resolution"] = task_closed_day(r), resolution_of(r)
+    return d
+
+
+def cmd_about(cfg, recs, a, today):
+    """What the records hold on a subject, read-only: the given records and those within `--depth` links of one of them, in
+    sections (what the subject hangs from, its findings, its done tasks, its open cards) under a character budget.
+    Returns (the text's lines, the JSON's keys)."""
+    if a.depth < 1:
+        raise Refused(f"--depth {a.depth}: the links flow about follows from the given records, 1 or more")
+    ids = list(dict.fromkeys(a.ids))
+    for i in ids:
+        if i not in recs:
+            raise Refused(f"{i} is no record of the project")
+        if recs[i]["state"] == "removed":
+            raise Refused(f"{i} is removed: a removed record is left out of flow about")
+    dist = about_subject(recs, ids, a.depth)
+    subject = sorted((recs[i] for i in dist), key=lambda r: (dist[r.id], r.id))  # nearer the given ones first, then by id
+    row = lambda r: f"{r.id} — {row_state(cfg, recs, r, today)} — {r['title']}"
+    done = sorted((r for r in subject if r.type == "task" and r["state"] == "done"), key=lambda r: str(task_closed_day(r)), reverse=True)
+    sections = [
+        ("Hangs from", "hangs_from", [(r, [row(r)] + ([f"  {r['summary']}"] if r.type == "question" and r["summary"] else []))
+                                      for r in subject if r.type in ("goal", "direction", "question")]),
+        ("Findings", "findings", [(r, [f"{r.id} — {r['title']} — forms: {', '.join(forms_of(r)) or 'none'}"] + ([f"  {r['summary']}"] if r["summary"] else []))
+                                  for r in subject if r.type == "finding" and r["state"] == "standing"]),  # a finding is standing or removed
+        ("Closed tasks", "closed_tasks", [(r, [f"{r.id} — closed {task_closed_day(r)} — {r['title']}"] + ([f"  {resolution_of(r)}"] if resolution_of(r) else []))
+                                          for r in done]),
+        ("Open cards", "open_cards", [(r, [row(r)]) for r in subject if r.type in ("idea", "task") and r["state"] == "open"]),
+    ]
+    head = "# About " + ", ".join(f"{i} ({recs[i]['title']})" for i in ids)
+
+    def lay(budget):
+        """The sections' lines and records shown within a budget of characters, and the number of records cut: an entry is whole
+        or out, a section's heading goes with its first entry, and the first entry is always shown."""
+        used, shown, text, left, cut = len(head) + 1, {key: [] for _, key, _ in sections}, [], 0, False
+        for title, key, entries in sections:
+            body = []
+            for r, lines in entries:
+                cost = sum(len(l) + 1 for l in lines) + (len(title) + 4 if not body else 0)
+                if not cut and (used + cost <= budget or not any(shown.values())):
+                    used += cost
+                    body += lines
+                    shown[key].append(r)
+                else:
+                    cut, left = True, left + 1
+            if body:
+                text += ["", f"## {title}", *body]
+        return text, shown, left
+
+    text, shown, left = lay(a.budget)
+    counted = f"{len(subject)} record(s) within depth {a.depth} of {', '.join(ids)}"
+    if left:
+        full = lay(1 << 60)[0]
+        need = len(head) + sum(len(l) + 1 for l in full) + 400  # the closing lines with room to spare
+        counted += f"; {left} more beyond the budget: --budget {-(-need // 1000) * 1000}"
+    lines = [head, *text, "", counted, f"searched: flow about {' '.join(ids)} --depth {a.depth}"]
+    keys = {"about": ids, "depth": a.depth, **{key: [about_entry(cfg, recs, r, dist, today) for r in shown[key]] for _, key, _ in sections}, "left_out": left}
+    return lines, keys
 
 
 def render_directions(recs):
@@ -8660,6 +8860,92 @@ def selftest():
             expect("markdownlint is on PATH in CI, where the temporary configuration is tested", False)
         else:
             print("  --  the temporary markdownlint configuration not tested: no markdownlint on PATH")
+    # `flow about`, and `flow artifacts --uncited`
+    with tempfile.TemporaryDirectory() as t10:
+        r10 = Path(t10)
+        do_init(r10, build_parser().parse_args(["init"]))
+        c10 = Config(r10)
+        say10 = lambda argv, day=None: dispatched(c10, argv, today=day or today, as_json=True, quiet=True)
+        text10 = lambda argv, day=None: text_of(c10, argv, day=day).splitlines()
+        mk10 = lambda argv, day=None: say10(argv, day)[1]["created"][0]
+        res10 = r10 / "res.md"
+        done10 = lambda t, words, day: (res10.write_text(words + "\n", encoding="utf-8"), say10(["make", t, "--resolution", str(res10)], day))
+        (r10 / "d.csv").write_text("d\n", encoding="utf-8")
+        g10 = mk10(["goal", "Know the streets"])
+        d10 = mk10(["direction", "Count the trees"])
+        q10 = mk10(["question", "How many trees", "--summary", "The count of trees on one street.", "--serves", g10, "--serves", d10])
+        q20 = mk10(["question", "Another question of the goal", "--summary", "Elsewhere.", "--serves", g10])
+        t_old, t_new = mk10(["task", "Count by hand", "--summary", "S.", "--ref", q10]), mk10(["task", "Count by drone", "--summary", "S.", "--ref", q10])
+        done10(t_old, "Counted 40 trees. Then checked twice.", "2026-11-10")
+        done10(t_new, "Counted 41 trees.", "2026-11-12")
+        t_open = mk10(["task", "Count at night", "--summary", "S.", "--ref", q10])
+        t_wait = mk10(["task", "Wait for the count", "--summary", "S."])
+        say10(["block", t_wait, "--on", q10, "--reason", "needs it"])
+        i_open = mk10(["idea", "Use a satellite", "--summary", "S.", "--ref", q10])
+        t_gone = mk10(["task", "Never mind", "--summary", "S.", "--ref", q10])
+        say10(["remove", t_gone, "--reason", "no"])
+        f10 = mk10(["finding", "Forty-one trees", "--summary", "There are 41 trees.", "--evidence", "reference:d.csv", "--ref", t_new, "--answers", q10])
+        f_far = mk10(["finding", "Night count agrees", "--summary", "S.", "--evidence", "reference:d.csv", "--ref", t_open])
+        ab = lambda *argv, day=None: say10(["about", *argv], day)[1]
+        p = ab(q10)
+        expect("about lists what hangs from the subject, its findings, its done tasks newest first with the resolution's first sentence, its open cards",
+               [x["id"] for x in p["hangs_from"]] == [q10, d10, g10] and [x["id"] for x in p["findings"]] == [f10, f_far]
+               and [x["id"] for x in p["closed_tasks"]] == [t_new, t_old] and p["closed_tasks"][1]["resolution"] == "Counted 40 trees."
+               and p["closed_tasks"][1]["closed"] == "2026-11-10" and [x["id"] for x in p["open_cards"]] == [i_open, t_open, t_wait]
+               and p["findings"][0]["forms"] == ["reference"] and p["findings"][1]["distance"] == 2 and p["left_out"] == 0 and p["depth"] == 2 and p["about"] == [q10])
+        expect("a goal that is reached is listed and not walked through, a removed record is left out, a link by `blocked_by` is walked",
+               q20 not in [x["id"] for x in p["hangs_from"]] and t_gone not in json.dumps(p) and t_wait in [x["id"] for x in p["open_cards"]])
+        expect("a given goal is walked", {q10, q20} <= {x["id"] for x in ab(g10)["hangs_from"]})
+        expect("--depth 1 stops at one link, several ids are one subject",
+               f_far not in [x["id"] for x in ab(q10, "--depth", "1")["findings"]] and f_far in [x["id"] for x in ab(t_open, f10)["findings"]]
+               and ab(q10, "--depth", "1")["depth"] == 1)
+        lines = text10(["about", q10])
+        expect("the text opens with the subject, holds the sections in order and ends with the search it quotes",
+               lines[0] == f"# About {q10} (How many trees)" and [l for l in lines if l.startswith("## ")] == ["## Hangs from", "## Findings", "## Closed tasks", "## Open cards"]
+               and lines[lines.index("## Hangs from") + 1] == f"{q10} — answered (discard pile) — How many trees" and lines[lines.index("## Hangs from") + 2] == "  The count of trees on one street."
+               and f"{f10} — Forty-one trees — forms: reference" in lines and lines[lines.index(f"{t_new} — closed 2026-11-12 — Count by drone") + 1] == "  Counted 41 trees."
+               and f"{t_open} — open (ready) — Count at night" in lines and lines[-2] == f"10 record(s) within depth 2 of {q10}"
+               and lines[-1] == f"searched: flow about {q10} --depth 2")
+        small = ab(q10, "--budget", "300")
+        small_text = text10(["about", q10, "--budget", "300"])
+        expect("the budget cuts whole entries, counts the records left out and names the budget that holds all",
+               small["left_out"] > 0 and small["hangs_from"] and re.search(r"; \d+ more beyond the budget: --budget \d+$", small_text[-2])
+               and sum(len(x) + 1 for x in small_text) < 700)
+        expect("a budget of one character still shows the first entry", len(ab(q10, "--budget", "1")["hangs_from"]) == 1)
+        for argv, why in (([q10, "nope-0001"], "an unknown id"), ([t_gone], "a removed record"), ([q10, "--depth", "0"], "--depth 0")):
+            rc, p = say10(["about", *argv])
+            expect(f"planted: {why} is refused", rc == 1 and ("nope-0001" in p["problems"][0]["msg"] if "nope-0001" in argv else True))
+        # `artifacts --uncited`
+        (r10 / "paper.md").write_text("---\ntitle: x\n---\n# The paper\n\n## Results\n\n**Theorem 1.** Every thing holds and this statement runs on for a long while, "
+                                       "long enough that the line is cut where it reaches a hundred characters, which is this far.\n\nLemma 2. A lemma.\n\n"
+                                       "### Theorem 3\n\n| ID | What |\n|----|------|\n| FV-1 | first |\n| FV-2 | second |\n\nSetext heading\n---------------\n\n"
+                                       "```\nTheorem 9 in a fence\n```\n\n## Method\n\nNothing numbered.\n", encoding="utf-8")
+        un = lambda *argv: say10(["artifacts", "--uncited", *argv])
+        rc, p = un("paper.md")
+        places = {(x["kind"], x["anchor"]): x["line"] for x in p["uncited"]}
+        expect("artifacts --uncited lists every place no finding cites, in the file's order, a line number the file's own (front matter counted), the text cut at 100",
+               rc == 0 and len(p["uncited"]) == 9
+               and places[("heading", "the-paper")] == 4 and places[("statement", "Theorem 1")] == 8 and places[("statement", "Lemma 2")] == 10
+               and places[("statement", "Theorem 3")] == 12 and places[("row", "FV-2")] == 17 and places[("heading", "setext-heading")] == 19 and places[("heading", "method")] == 26
+               and ("statement", "Theorem 9") not in places and p["cited"] == 0 and p["unanchored"] == [] and p["path"] == "paper.md"
+               and len(next(x for x in p["uncited"] if x["anchor"] == "Theorem 1")["text"]) == 100 and [x["line"] for x in p["uncited"]] == sorted(x["line"] for x in p["uncited"]))
+        mk10(["finding", "Theorem one", "--summary", "S.", "--evidence", "stated:paper.md#Theorem 1"])
+        mk10(["finding", "The first row", "--summary", "S.", "--evidence", "statistical:paper.md#FV-1"])
+        mk10(["finding", "Setext section", "--summary", "S.", "--evidence", "reference:./paper.md#setext-heading"])
+        mk10(["finding", "Whole file", "--summary", "S.", "--evidence", "reference:paper.md"])
+        f_gone = mk10(["finding", "Lemma two", "--summary", "S.", "--evidence", "stated:paper.md#Lemma 2"])
+        say10(["remove", f_gone, "--reason", "planted"])
+        f_whole = mk10(["finding", "Whole file again", "--summary", "S.", "--evidence", "reference:paper.md", "--evidence", "stated:paper.md#FV-2"])
+        rc, p = un("paper.md")
+        places = {(x["kind"], x["anchor"]) for x in p["uncited"]}
+        expect("a place is cited by a standing finding's evidence of a form the flow resolves, a heading also by a place of its section, a removed finding's evidence counts for none",
+               rc == 0 and places == {("statement", "Lemma 2"), ("heading", "method")}
+               and p["cited"] == 7 and len(p["unanchored"]) == 2 and f_whole in p["unanchored"])
+        txt = text10(["artifacts", "--uncited", "paper.md"])
+        expect("the text is a line a place and a closing line, exit 0", txt[0].startswith("paper.md:10: statement — Lemma 2. A lemma.") and txt[-1] == "2 place(s) of paper.md no finding cites; 7 cited; 2 finding(s) cite the file with no anchor")
+        for argv, why in (([str(r10 / "nowhere.md")[len(str(r10)) + 1:]], "a path that is no file"), (["d.csv"], "a file that is not Markdown"), (["../paper.md"], "a path outside the tree")):
+            rc, p = un(*argv)
+            expect(f"planted: {why} is refused", rc == 1)
     staged_selftest(expect)
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
@@ -8815,7 +9101,12 @@ def build_parser():
     p.add_argument("--since", metavar="REV", help="since this commit instead")
     p.add_argument("--unnamed", action="store_true", help="only those no entry since the base names")
     p.add_argument("--ids", action="store_true", help="the ids alone, on one line")
-    sp.add_parser("artifacts", help="every repository path a record refers to, with the records naming it")
+    p = sp.add_parser("artifacts", help="every repository path a record refers to, with the records naming it")
+    p.add_argument("--uncited", metavar="PATH", help="instead, the places of one Markdown document (headings, numbered statements, table rows) that no finding's evidence anchors to")
+    p = sp.add_parser("about", help="what the records hold on a subject: the given records and those within --depth links, in sections")
+    p.add_argument("ids", nargs="+", metavar="ID", help="a record of any kind")
+    p.add_argument("--depth", type=int, default=ABOUT_DEPTH, metavar="N", help=f"the links followed from the given records, either direction ({ABOUT_DEPTH} where not given)")
+    p.add_argument("--budget", type=int, default=14000, metavar="N", help="the characters printed (14000 where not given); the records cut are counted in the closing line")
     sp.add_parser("pages")
     p = sp.add_parser("init"); p.add_argument("--records", default="records")
     p.add_argument("--log"); p.add_argument("--owner", action="append", help="repeatable"); p.add_argument("--force", action="store_true")
@@ -9611,6 +9902,17 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 emit(f"{len(rows)} record(s) changed {said}" + (", not named by an entry since" if a.unnamed else ""))
                 if moved:
                     emit(f"re-ranked only: {', '.join(moved)}")
+        elif a.cmd == "about":
+            lines, keys = cmd_about(cfg, recs, a, today)
+            out.update(keys)
+            if not quiet and not as_json:
+                print("\n".join(lines))  # the blank lines between the sections are printed, which `emit` leaves out
+        elif a.cmd == "artifacts" and a.uncited is not None:
+            places, cited, unanchored = cmd_uncited(cfg, recs, a.uncited)
+            out.update(path=norm_path(a.uncited), uncited=[{k: p[k] for k in ("line", "kind", "anchor", "text")} for p in places], cited=cited, unanchored=unanchored)
+            for p in places:
+                emit(f"{out['path']}:{p['line']}: {p['kind']} — {p['text']}")
+            emit(f"{len(places)} place(s) of {out['path']} no finding cites; {cited} cited; {len(unanchored)} finding(s) cite the file with no anchor")
         elif a.cmd == "artifacts":
             arts = cmd_artifacts(cfg, recs, a, today)
             out["artifacts"] = arts

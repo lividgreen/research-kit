@@ -10,7 +10,7 @@ This page is what it does, the check under it, and its words.
 
 Its one rule is to save what is important for the work; its test is the clone: could a session reading only the inbox, the ranked list and the log's top State paragraph go on without asking?
 
-1. The records say what the session knows: the log's top State paragraph is current, and its next action names the next session's first move.
+1. The records say what the session knows: the log's top State paragraph is current, and its next action names the card the next session takes first, and not the route to take it by nor what to read first.
    A decision that waits on you is named there by the task that holds it, never carried as prose alone.
    The State paragraph says where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
 2. What only the conversation holds is flushed, turn by turn, your messages and the replies both: an idea in your words, a ruling where the rules live, never a card's content, a reading into the record it is about, a correction as a dated line, an open question as a question or an idea, a decision still open that waits on you as a task in your deck whose title names it, the card that waits blocked on it; then everything the session created is closed or left with a note, and each card the session's hand holds is named in the log entry with what the session did on it, one left untouched being returned or passed with a note.

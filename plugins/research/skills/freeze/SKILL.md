@@ -18,7 +18,7 @@ The one rule is to save what is important for the work, anything useful the sess
 Where the `flow` skill is not loaded, load it before the steps: no record is minted without it.
 
 1. **The records say what the session knows.**
-   The log's top State paragraph is current and its next action names the fresh session's first move; where work happened after the entry, it is extended or a new entry added with `flow log add FILE`.
+   The log's top State paragraph is current and its next action names the card the fresh session takes first, and not the route to take it by nor what to read first; where work happened after the entry, it is extended or a new entry added with `flow log add FILE`.
    The State paragraph says where the work stands and the next move, and never the gates' result or the push, which are facts about the commit and go in the turn's report, step 6.
    A decision that waits on the person is named there by the task in their deck that holds it (step 2), and never carried as prose alone.
    `flow touched --unnamed` lists the records changed since the newest committed entry that no entry names yet, the ids the entry is to name; `--ids` prints them on one line, and a record only re-ranked by a renumbering is left out, not to be named.

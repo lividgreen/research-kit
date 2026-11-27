@@ -67,6 +67,13 @@ These are one project's rules, earned over a research programme that pairs writt
 - A defect that recurs after it was written down gets a mechanical check, which is when a lesson stops being prose.
 - A declaration name in a document is a claim that the declaration exists with that statement; a document never names a declaration in order to say it does NOT exist, since the check that resolves names cannot tell assertion from denial.
 
+## The problem before the plan
+
+- Whoever picks up a card first reads what is asked, its title, its summary and what its body says counts as done or as an answer, and forms an approach of their own.
+- Only then do they read the approach earlier work left, a first move, a route in the body, an earlier round's resolution, and take the better of the two, or both.
+- The session's log entry says in one sentence what its own approach was and which it took.
+- A handoff or a landing that follows a design round of the same line of work, whose resolution is the plan, is outside the rule.
+
 ## Before pricing a target
 
 - Check what structure the target already carries before pricing a replacement into it.
@@ -109,6 +116,7 @@ These invariants keep that honest.
   the question is parked, its reason naming the finding and its revival what reopens the search;
   when the answer lands, its finding answers the question and the working-value finding is removed.
 - A ruled decision is not put to the owner again: executing a ruling is the agent's.
+- Before the agent applies a decision of the person's, it checks it against the flow's rules and the project's own; where it conflicts with one, the agent says so, names the rule, and asks before applying it.
 - Reversible options are paths, not forks: take the one of highest benefit and go; a wall is a pivot, not a question.
 - The owner's test is applied literally: a binary test as given, with the borderline cases listed, never widened into a category of the agent's own.
 - The owner's statements are captured as they are made — an idea in their words with its date and source, a ruling where the project's rules live, a preference in the agent's memory — and a task is minted when its shape is already there.
