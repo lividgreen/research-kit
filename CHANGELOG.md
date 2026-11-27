@@ -4,8 +4,10 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
-**Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
+**Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says, and, in a project whose documents are compiled from its findings, the step below.
 `flow graph --from ID` now prints the records within two links, and `--depth 0` gives what it printed before; `flow state` opens with one more line, the project's parameters, which matters for a project's own script that reads its output.
+A project whose documents are compiled from its findings writes `[documents] globs` and `must` in `flow.toml` (the setup asks), labels the parts and runs `flow parts`.
+One that kept labels of its own with a part id (`<!-- part-NNNN: finding-NNNN -->`) rewrites each to `<!-- finding-NNNN -->` and retires the evidence items of its own form that cited the part ids, since the kit stores nothing in the finding.
 
 The `research` plugin:
 
@@ -31,6 +33,14 @@ The `research` plugin:
 - `flow finding "…" --compose ID ID…` mints a composite finding: each ID a standing finding (anything else is refused, naming it), two or more, each added to the new finding's `references`, and the finding's evidence the parts' items in the order of the parts, each item once.
   `--evidence` is optional beside `--compose` and its items follow the parts'; one a part holds is neither repeated nor refused.
   A finding with neither `--evidence` nor `--compose` is refused as before; the `flow` skill's "Evidence and trust" says when a composite is minted.
+- `flow.toml` has a table `[documents]`, written by `flow init` with every key commented: `globs`, the documents compiled from the records, `must`, regular expressions that a line of them matches to be a part that must name a finding, and `strict`.
+  A part of a document names the finding it states, or an open question, by a label, an HTML comment holding one record id (`<!-- finding-0090 -->`), alone on the line directly under the part or closing its line; several parts may name one record, and the kit stores nothing in the finding.
+  With `globs` unset nothing is read; an invalid pattern, a glob outside the tree, a value of the wrong type and another key are refused when `flow.toml` is read, and `flow doctor` names the three keys in a `flow.toml` written before.
+- `flow check` reports, for the documents `[documents] globs` names, D1 (a label naming no record, a removed record or a record that is neither a finding nor a question), D2 (a finding that is not standing, a question that is not open), D3 (a misplaced label, or two on one part), D4 (a part that must name a finding and names a question) and D5 (such a part with no label, only where `strict = true`), each naming the document, the line and the record; its coverage line counts the documents read.
+- `flow parts [PATH…]` lists the labelled parts of the scanned documents, `PATH:LINE: ID (title) — the part's line`, then the parts that must name a finding and have no label, the failures and the counts, and ends with what it does not look at; `--missing` prints the unlabelled parts alone, `--strict` exits 1 where there is one, and without it the exit is 1 for a D1 to D4 problem alone; under `--json` the keys `documents`, `parts`, `missing` and `problems`; with no globs it says so and exits 0.
+- Where a record is stated is read from the labels: `flow show ID` prints a block `stated in:`, one line a part, `PATH:LINE — the part's line` (under `--json` the key `stated_in`); `flow find --refers PATH` lists the records a label in the document names beside those naming the path; `flow artifacts` lists a scanned document with those records, `via: "label"`; `flow artifacts --uncited PATH` counts a part whose label names a live record (a standing finding, an open question) as cited; and the notice of a state change lists the parts naming the record, `PATH:LINE (a document's part)` (under `--json` a key `parts` in the notice).
+- The `flow` skill's new section "Documents compiled from findings" says the principle, the label and its two places, the binding, the codes, what `flow parts` reports and what neither looks at, how a corpus is brought under the labels, and that the level of proof is the project's list of accepted forms, a document setting none of its own; the `method` skill's "Documents" says that a document states what the records hold and names each result by its label.
+- The `research-init` setup asks whether the project has documents compiled from its findings and which files and heads, and on yes writes `[documents] globs` and `must`; its probe reports `[documents]` unset as information, a project item `documents compiled from findings`, where the tree holds Markdown files with numbered statements, and never as a required item.
 - The `freeze` skill's next action names the card to take, and not the route to take it by nor what to read first.
 - The `flow` skill says what the commands above now do, its "Writing a title and a summary" says that the limits are the project's and that `flow state` prints them in its first line, and the instructions paragraph `flow init` prints says the same of that line.
 
@@ -43,6 +53,7 @@ The `formal` plugin:
 The documentation:
 
 - The flow page describes `flow about` and `flow artifacts --uncited`, and the flow, working-rules and freeze pages carry the sentences the skills above gained.
+- The flow page's bindings file holds `[documents]`, its table of codes D1 to D5, and a section on documents compiled from findings: the label, the binding, `flow parts` and the places a record's statement is read back; the `research-init` page describes the setup's question and the probe's item.
 - The `land` page says that a name under a namespace in `[documents] ambiguous_namespaces` that is also a declaration's base name is still read as a declaration-scoped name.
 
 ## v0.12.1 — 2026-11-20

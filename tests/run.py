@@ -458,8 +458,8 @@ def main():
     check("docs/research/library-cards.md lists a card's fields as the library writes them", listed == fields, str(listed))
     for name, page in (("flow", "docs/research/flow.md"), ("library", "docs/research/library.md")):
         script = SCRIPTS[name].read_text(encoding="utf-8")
-        codes = set(re.findall(r'"code": "([VL]\d+)"', script)) | set(re.findall(r'bad\("([VL]\d+)"', script))
-        named = set(re.findall(r"^\| ([VL]\d+) \|", (ROOT / page).read_text(encoding="utf-8"), re.M))
+        codes = set(re.findall(r'"code": "([VLD]\d+)"', script)) | set(re.findall(r'bad\((?:n, )?"([VLD]\d+)"', script))
+        named = set(re.findall(r"^\| ([VLD]\d+) \|", (ROOT / page).read_text(encoding="utf-8"), re.M))
         check(f"{page} names every code {name} check can report", codes <= named, str(sorted(codes - named)))
 
     print("the documentation's links")
