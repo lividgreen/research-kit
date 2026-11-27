@@ -5,6 +5,24 @@ Each release is a tag; the version is read from the tag and the version fields `
 ## Unreleased
 
 **Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
+`flow graph --from ID` now prints the records within two links, and `--depth 0` gives what it printed before; `flow state` opens with one more line, the project's parameters, which matters for a project's own script that reads its output.
+
+The `research` plugin:
+
+- `flow graph --from ID` prints the records within `--depth N` links of ID, either direction, and the edges among them, 2 links where `--depth` is not given and `--depth 0` the whole connected part; where the bound left records out its last line says how many, `N more record(s) beyond depth D: --depth 0 for all` (a comment under `--dot`), and under `--json` the key `beyond_depth` gives the count.
+  `--depth` without `--from` is refused.
+- `flow find --refers ID --depth N` lists the records naming ID within N steps, 1 being plain `--refers`; `--deep` stays and follows with no bound, and `--depth` with `--deep` or without `--refers` is refused.
+- `flow draw ID… --owner O` draws one card or several, all or none: each id is checked first as a single draw is, the hand's limit counted across the call, a refusal names its id and writes nothing, and each card is reported on its own line.
+- `flow block ID --on A B` takes several items in one flag, one block on all of them as the repeated flag gives; `--on A --on B` still works.
+- An argument error inside a command prints that command's usage line and the error, not the list of all commands; the exit code is as it was.
+- `flow evidence --from FILE` (`-` for the standard input) adds evidence to many findings in one run, from one JSON object a line, `{"id": "finding-0012", "evidence": ["form:target", …]}`: every row is checked as `flow evidence ID ITEM…` checks it before any is written, one bad row refuses the run with every bad row reported by its row number, its line in the file, and reason, and the findings are written and the index rebuilt once.
+  It takes no finding, item, `--replace` or `--retire` beside it; under `--json` the keys `written`, `added` and `refused`, as `flow set --from`'s.
+- `flow state` opens with one line of the project's parameters read from `flow.toml`, `flow.toml: title ≤ 100 characters, summary ≤ 500; values low, medium, high; evidence forms formal, statistical, …; hands agent 2, human 0 (0 = no limit)`, then a blank line; under `--json` the key `parameters`.
+  The first page only: not on a page after the first, nor under `--check`.
+- A refusal for the length of a title or a summary ends with a line `at the limit it reads: «…»`, the text cut at the limit.
+- `flow finding … --ref T`, where the task or finding `T` itself references an open question (a parked one included) that the new finding neither references nor answers, prints after the mint's own lines one note a question, `note: T references question-NNNN (title), which this finding does not: flow ref FINDING +question-NNNN if it bears on it`; it refuses nothing and changes no record, and under `--json` the list `notes` carries them.
+- `flow check` and every write that runs markdownlint under the flow's built-in rules remove the temporary configuration file when the lint ends.
+- The `flow` skill says what the commands above now do, its "Writing a title and a summary" says that the limits are the project's and that `flow state` prints them in its first line, and the instructions paragraph `flow init` prints says the same of that line.
 
 The `formal` plugin:
 

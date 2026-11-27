@@ -885,13 +885,29 @@ _MDLINT_SAID = set()  # what mdlint_cmd said on the standard error already, once
 
 
 def mdlint_builtin(cfg):
-    """The flow's built-in rules as a file `markdownlint -c` reads, written once to a temporary one."""
+    """The flow's built-in rules as a file `markdownlint -c` reads, written to a temporary one that `mdlint_done` removes when
+    the lint that asked for it ends."""
     if _MDLINT_TEMP[0] is None or not _MDLINT_TEMP[0].is_file():
         fd, name = tempfile.mkstemp(prefix="flow-markdownlint-", suffix=".json")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(MDLINT_DEFAULT)
         _MDLINT_TEMP[0] = Path(name)
     return _MDLINT_TEMP[0]
+
+
+def mdlint_done():
+    """The temporary configuration removed, the lint that wrote it being over, whatever its result."""
+    tmp, _MDLINT_TEMP[0] = _MDLINT_TEMP[0], None
+    if tmp is not None:
+        tmp.unlink(missing_ok=True)
+
+
+def mdlint_present(cfg):
+    """Whether markdownlint is there to lint with, no lint run and no temporary file left."""
+    try:
+        return bool(mdlint_cmd(cfg))
+    finally:
+        mdlint_done()
 
 
 def mdlint_cmd(cfg):
@@ -933,6 +949,8 @@ def mdlint(cfg, path):
         r = subprocess.run(cmd + [str(path)], capture_output=True, text=True, cwd=cfg.root)
     except OSError:  # on PATH and yet not runnable: as absent
         return None
+    finally:
+        mdlint_done()
     return Counter(re.findall(r"\b(MD\d{3})\b", r.stdout + r.stderr)), (r.stdout + r.stderr).strip()
 
 
@@ -958,18 +976,21 @@ def mdlint_many(cfg, paths, chunk=20000):
             size = 0
         groups[-1].append(p)
         size += len(str(p)) + 1
-    for group in groups:
-        try:
-            r = subprocess.run(cmd + [str(p) for p in group], capture_output=True, text=True, cwd=cfg.root)
-        except OSError:
-            return None
-        for ln in (r.stdout + r.stderr).splitlines():
-            for p in group:
-                if ln.startswith(f"{p}:") or ln.startswith(f"{mdlint_relative(cfg, p)}:"):  # markdownlint-cli2 names a file from the root
-                    codes = re.findall(r"\b(MD\d{3})\b", ln)
-                    found[p][0].update(codes[:1])
-                    found[p][1].append(ln)
-                    break
+    try:
+        for group in groups:
+            try:
+                r = subprocess.run(cmd + [str(p) for p in group], capture_output=True, text=True, cwd=cfg.root)
+            except OSError:
+                return None
+            for ln in (r.stdout + r.stderr).splitlines():
+                for p in group:
+                    if ln.startswith(f"{p}:") or ln.startswith(f"{mdlint_relative(cfg, p)}:"):  # markdownlint-cli2 names a file from the root
+                        codes = re.findall(r"\b(MD\d{3})\b", ln)
+                        found[p][0].update(codes[:1])
+                        found[p][1].append(ln)
+                        break
+    finally:
+        mdlint_done()
     return found
 
 
@@ -1073,7 +1094,8 @@ def check_title(cfg, title):
         raise Refused("a title is one line: a newline in it is refused")
     if len(t) > cfg.title_max:
         raise Refused(f"the title is {len(t)} characters, over the limit of {cfg.title_max} ([card] title_max): a title says what the card is "
-                      "in a line, and what more there is to say goes in the summary (`--summary`, or `flow set ID summary \"…\"`)")
+                      "in a line, and what more there is to say goes in the summary (`--summary`, or `flow set ID summary \"…\"`)\n"
+                      f"at the limit it reads: «{t[:cfg.title_max]}»")
     return t
 
 
@@ -1087,7 +1109,8 @@ def check_summary(cfg, summary):
         raise Refused("a summary is one paragraph on one line of the file: a newline in it is refused")
     if len(t) > cfg.summary_max:
         raise Refused(f"the summary is {len(t)} characters, over the limit of {cfg.summary_max} ([card] summary_max): a summary explains "
-                      "the card in a paragraph, and what more there is to say goes in the body (`--body FILE`, or `flow note ID --body FILE`)")
+                      "the card in a paragraph, and what more there is to say goes in the body (`--body FILE`, or `flow note ID --body FILE`)\n"
+                      f"at the limit it reads: «{t[:cfg.summary_max]}»")
     return t
 
 
@@ -1691,7 +1714,7 @@ def validate(cfg, recs, today):
     cache = {}
     coverage = {"records": len(recs), "kinds": list(cfg.kinds), "forms": list(cfg.forms),
                 "probes": bool(cfg.probes and (cfg.root / cfg.probes).is_file()),
-                "reflow": cfg.reflow_source, "markdownlint": bool(mdlint_cmd(cfg))}
+                "reflow": cfg.reflow_source, "markdownlint": mdlint_present(cfg)}
 
     def bad(code, r, msg):
         problems.append({"code": code, "id": r.id if r else None,
@@ -2220,6 +2243,21 @@ def standing(recs, fid):
     return f
 
 
+def finding_notes(recs, f, answers=None):
+    """The open questions that a record the new finding `f` references itself references, and `f` neither references nor answers:
+    for each, the record naming it and its title, one hop and no walk.  A task or a finding is read; a note, never a refusal."""
+    notes, seen = [], set(f["references"] or []) | ({answers} if answers else set())
+    for t in f["references"] or []:
+        if t not in recs or recs[t].type not in ("task", "finding"):
+            continue
+        for q in recs[t]["references"] or []:
+            if q in seen or q not in recs or recs[q].type != "question" or recs[q]["state"] != "open":
+                continue
+            seen.add(q)
+            notes.append({"ref": t, "question": q, "title": recs[q]["title"]})
+    return notes
+
+
 def cmd_finding(cfg, recs, a, today):
     """The one mint of a finding, whatever produced it; --answers names the question it settles, which closes answered."""
     common = mint_common(cfg, recs, a)
@@ -2272,6 +2310,91 @@ def cmd_evidence(cfg, recs, a, today):
             append_note(f, today, f"evidence `{old}` retired: {a.reason.strip()}")
     save(cfg, f)
     return [], [f]
+
+
+def read_rows(source, what="rows"):
+    """The text of a rows file, `-` the standard input; refused where it is no file or cannot be read."""
+    if source == "-":
+        return sys.stdin.read()
+    p = Path(source)
+    if not p.exists() or p.is_dir():  # a pipe is no regular file, and `--from <(...)` reads it
+        raise Refused(f"{what} file not found: {source}")
+    try:
+        return p.read_text(encoding="utf-8")
+    except OSError as e:
+        raise Refused(f"{what} file cannot be read: {source} ({e.strerror or e})")
+    except UnicodeDecodeError as e:
+        raise Refused(f"{source}: not UTF-8 ({e.reason} at byte {e.start})")
+
+
+EVIDENCE_ROW_KEYS = ("id", "evidence")
+
+
+def evidence_row(line):
+    """A row of `flow evidence --from` as (id, items); refused, the refusal saying what is wrong, for a line that is not a JSON
+    object, a key it lacks or does not know, a value of the wrong type.  The id the row names is `.ident`."""
+    ident = None
+    try:
+        try:
+            row = json.loads(line)
+        except ValueError as e:
+            raise Refused(f"not valid JSON ({e})")
+        if not isinstance(row, dict):
+            raise Refused("a row is a JSON object: {\"id\": \"finding-0012\", \"evidence\": [\"form:target\", …]}")
+        ident = row.get("id") if isinstance(row.get("id"), str) else None
+        for k in EVIDENCE_ROW_KEYS:
+            if k not in row:
+                raise Refused(f"the row has no \"{k}\"")
+        unknown = [k for k in row if k not in EVIDENCE_ROW_KEYS]
+        if unknown:
+            raise Refused(f"the row has no key {', '.join(map(json.dumps, unknown))}; its keys are {', '.join(EVIDENCE_ROW_KEYS)}")
+        if not isinstance(row["id"], str):
+            raise Refused("\"id\" is a string")
+        items = row["evidence"]
+        if not isinstance(items, list) or not items or not all(isinstance(i, str) and i.strip() for i in items):
+            raise Refused("\"evidence\" is a list of one item or more, each a string FORM:TARGET")
+        return row["id"], items
+    except Refused as e:
+        e.ident = ident
+        raise
+
+
+def batch_evidence(cfg, recs, source, today):
+    """`flow evidence --from FILE`: the rows of FILE (`-`, the standard input) checked first, each as `flow evidence ID ITEM…`
+    checks its own, the items an earlier row gave a finding counted as held; then, no row refused, every finding written
+    and the whole undone if a write fails.  Returns the answer's fields, `written` the rows written (as `set --from`'s is) and
+    `added` the items: nothing is written where `refused` is not empty."""
+    text = read_rows(source)
+    refused, added, order, n_rows = [], {}, [], 0  # n_rows: the rows read
+    for n, line in enumerate(text.splitlines(), 1):  # a row's number is its line's in the file; blank lines are no rows
+        if not line.strip():
+            continue
+        n_rows += 1
+        ident = None
+        try:
+            ident, items = evidence_row(line)
+        except Refused as e:
+            refused.append({"row": n, "id": getattr(e, "ident", None), "msg": str(e)})
+            continue
+        try:
+            f = get(recs, ident, "finding")
+            if f["state"] != "standing":
+                raise Refused(f"{f.id} is {f['state']}: its evidence is history, kept as it was")
+            resolve_items(cfg, items, have=list(f["evidence"] or []) + added.get(ident, []))
+            if ident not in added:
+                order.append(ident)
+            added.setdefault(ident, []).extend(items)
+        except Refused as e:
+            refused.append({"row": n, "id": ident, "msg": str(e)})
+    if refused:
+        return {"written": 0, "added": 0, "refused": refused, "changed": []}
+    changed = []
+    for i in order:
+        recs[i].fm["evidence"] = list(recs[i]["evidence"] or []) + added[i]
+        changed.append(recs[i])
+    if changed:
+        write_linted(cfg, {r.path: record_text(cfg, r) for r in changed})
+    return {"written": n_rows, "added": sum(len(added[i]) for i in order), "refused": [], "changed": changed}
 
 
 def cmd_goal(cfg, recs, a, today):
@@ -2328,7 +2451,7 @@ def cmd_refill(cfg, recs, a, today):
     """A hand filled by rank: from the top of the ranked list, every card whose standing is ready in the common deck or the
     owner's own is drawn, until the hand's limit; the ranked cards passed over are said with why.  An unranked card is never
     drawn, and a hand with no limit is refused."""
-    if a.id:
+    if a.ids:
         raise Refused("draw takes an ID or --refill, not both: `flow draw ID --owner O` draws one card, `flow draw --refill --owner O` fills the hand")
     if a.owner not in cfg.owners:
         raise Refused(f"owner {a.owner!r} not in {cfg.owners}")
@@ -2360,37 +2483,50 @@ def cmd_refill(cfg, recs, a, today):
     return [], drew
 
 
-def cmd_draw(cfg, recs, a, today):
-    """A card into a hand: any of the three kinds whose standing is ready, from the common deck or the owner's own.  It writes
-    `owner`, `drawn` and, the first time, `started`; a card in another owner's deck is passed first.  With --refill, no ID: the
-    hand is filled by rank to its limit."""
-    if a.refill:
-        return cmd_refill(cfg, recs, a, today)
-    if not a.id:
-        raise Refused("draw takes an ID (`flow draw ID --owner O`), or --refill to fill the hand by rank")
-    r = get(recs, a.id)
+def draw_refusal(cfg, recs, r, owner, today, held):
+    """Why the card `r` cannot be drawn into `owner`'s hand now, `held` the cards that hand holds already, or None: every refusal
+    of a single draw."""
     if r.type not in CARDS:
-        raise Refused(f"{r.id} is {kind_word(r.type)}: an idea, a question or a task is drawn into a hand")
+        return f"{r.id} is {kind_word(r.type)}: an idea, a question or a task is drawn into a hand"
     if r["state"] != "open":
-        raise Refused(f"{r.id} is {r['state']}, not open")
-    if a.owner not in cfg.owners:
-        raise Refused(f"owner {a.owner!r} not in {cfg.owners}")
+        return f"{r.id} is {r['state']}, not open"
     if r["drawn"] is not None:
-        raise Refused(f"{r.id} is in {r['owner']}'s hand already" + ("" if r["owner"] == a.owner else
-                      f": `flow pass {r.id} --to {a.owner} --note …` moves it"))
-    if r["owner"] not in (None, a.owner):
-        raise Refused(f"{r.id} is in {r['owner']}'s deck: `flow pass {r.id} --to {a.owner} --note …` moves it first, or {r['owner']} draws it")
+        return f"{r.id} is in {r['owner']}'s hand already" + ("" if r["owner"] == owner else f": `flow pass {r.id} --to {owner} --note …` moves it")
+    if r["owner"] not in (None, owner):
+        return f"{r.id} is in {r['owner']}'s deck: `flow pass {r.id} --to {owner} --note …` moves it first, or {r['owner']} draws it"
     holds = blocked_now(cfg, recs, r, today)
     why = (["parked (`flow unpark` it first)"] if r["parked"] is not None else []) + \
           ([f"blocked on {', '.join(holds)}, which still holds (`flow unblock {r.id} --on X` for words or a mistake)"] if holds else [])
     if why:
-        raise Refused(f"{r.id} is {' and '.join(why)}")
-    lim = int(cfg.hand.get(a.owner, 0) or 0)
-    n = len(held_by(recs, a.owner))
-    if lim and n >= lim:
-        raise Refused(f"{a.owner}'s hand is full ({n} of {lim}); return or close a card first")
-    draw_into(cfg, r, a.owner, today)
-    return [], [r]
+        return f"{r.id} is {' and '.join(why)}"
+    lim = int(cfg.hand.get(owner, 0) or 0)
+    if lim and held >= lim:
+        return f"{owner}'s hand is full ({held} of {lim}); return or close a card first"
+    return None
+
+
+def cmd_draw(cfg, recs, a, today):
+    """Cards into a hand: any of the three kinds whose standing is ready, from the common deck or the owner's own.  It writes
+    `owner`, `drawn` and, the first time, `started`; a card in another owner's deck is passed first.  Several ids are drawn
+    all or none: each is checked first, as a single draw is, the hand's limit counted across the call.  With --refill, no
+    ID: the hand is filled by rank to its limit."""
+    if a.refill:
+        return cmd_refill(cfg, recs, a, today)
+    if not a.ids:
+        raise Refused("draw takes an ID (`flow draw ID --owner O`), or --refill to fill the hand by rank")
+    cards = [get(recs, i) for i in a.ids]
+    if a.owner not in cfg.owners:
+        raise Refused(f"owner {a.owner!r} not in {cfg.owners}")
+    if len(set(a.ids)) < len(a.ids):
+        raise Refused(f"draw names {next(i for i in a.ids if a.ids.count(i) > 1)} twice")
+    held = len(held_by(recs, a.owner))
+    for n, r in enumerate(cards):
+        why = draw_refusal(cfg, recs, r, a.owner, today, held + n)
+        if why:
+            raise Refused(why if len(cards) == 1 else f"{why if why.startswith(r.id) else f'{r.id}: {why}'}; nothing was written")
+    for r in cards:
+        draw_into(cfg, r, a.owner, today)
+    return [], cards
 
 
 def cmd_return(cfg, recs, a, today):
@@ -2949,18 +3085,7 @@ def batch_set(cfg, recs, source, today):
     """`flow set --from FILE`: the rows of FILE (`-`, the standard input) applied to the tree `recs`, read once, as a
     `flow set` applies one each; the changed records written whole, markdownlint run once over them, a record that fails put
     back as it was; the index written once.  A row refused never stops the run.  Returns the answer's fields."""
-    if source == "-":
-        text = sys.stdin.read()
-    else:
-        p = Path(source)
-        if not p.exists() or p.is_dir():  # a pipe is no regular file, and `--from <(...)` reads it
-            raise Refused(f"rows file not found: {source}")
-        try:
-            text = p.read_text(encoding="utf-8")
-        except OSError as e:
-            raise Refused(f"rows file cannot be read: {source} ({e.strerror or e})")
-        except UnicodeDecodeError as e:
-            raise Refused(f"{source}: not UTF-8 ({e.reason} at byte {e.start})")
+    text = read_rows(source)
     written, unchanged, refused, applied, first = 0, 0, [], {}, {}
     for n, line in enumerate(text.splitlines(), 1):  # a row's number is its line's in the file; blank lines are no rows
         if not line.strip():
@@ -3182,16 +3307,19 @@ def refers_to(r, target, opaque=("formal", "peer-reviewed")):
     return target in tree_links(r.body)
 
 
-def referrers(recs, target, deep=False, opaque=("formal", "peer-reviewed")):
-    """The ids of the records naming `target`; with `deep`, of those naming them, and so on."""
-    found, frontier = set(), [target]
-    while frontier:
-        x = frontier.pop()
-        for r in recs.values():
-            if r.id not in found and r.id != target and refers_to(r, x, opaque):
-                found.add(r.id)
-                if deep:
-                    frontier.append(r.id)
+def referrers(recs, target, deep=False, opaque=("formal", "peer-reviewed"), depth=1):
+    """The ids of the records naming `target` within `depth` steps (1 the records naming it); with `deep`, of those naming
+    them, and so on, with no bound."""
+    found, frontier, step = set(), [target], 0
+    while frontier and (deep or step < depth):
+        step += 1
+        nxt = []
+        for x in frontier:
+            for r in recs.values():
+                if r.id not in found and r.id != target and refers_to(r, x, opaque):
+                    found.add(r.id)
+                    nxt.append(r.id)
+        frontier = nxt
     return found
 
 
@@ -3208,6 +3336,11 @@ def cmd_find(cfg, recs, a, today):
         raise Refused(f"--grep {a.grep!r} is not a regular expression: {e}")
     if a.deep and not a.refers:
         raise Refused("--deep follows --refers: flow find --refers ID --deep")
+    if a.depth is not None and (not a.refers or a.deep):
+        raise Refused("--depth bounds --refers: flow find --refers ID --depth N" if not a.refers else
+                      "--deep follows --refers with no bound and --depth stops it at N steps: one of the two")
+    if a.depth is not None and a.depth < 1:
+        raise Refused(f"--depth {a.depth}: the steps --refers follows, 1 (plain --refers) or more; --deep for no bound")
     if a.only and not a.form:
         raise Refused("--only holds the forms of --form: flow find --form stated --only")
     if a.state in OLD_TASK_STATES:
@@ -3220,7 +3353,7 @@ def cmd_find(cfg, recs, a, today):
     if a.value and a.value != "none" and a.value not in cfg.values:
         raise Refused(f"--value {a.value!r} is not one of {', '.join(cfg.values)}, nor `none` (the cards not judged)")
     target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
-    naming = referrers(recs, target, a.deep, cfg.opaque_forms) if a.refers else None
+    naming = referrers(recs, target, a.deep, cfg.opaque_forms, a.depth or 1) if a.refers else None
     for r in recs.values():
         if a.type and r.type != a.type:
             continue
@@ -3357,25 +3490,44 @@ def show_text(cfg, recs, r, today):
     return "\n".join(lines)
 
 
+GRAPH_DEPTH = 2  # the links `flow graph --from ID` follows from ID where --depth is not given
+
+
 def cmd_graph(cfg, recs, a, today):
-    edges = []  # every link but consumed_by, the mirror of a reference
+    """The links of the records as text, every link but `consumed_by`, the mirror of a reference.  With --from ID the records
+    within --depth links of ID (2 where not given), either direction, and the edges among them; --depth 0 the whole connected
+    part.  Returns (text, left): the number of records of the connected part the bound left out."""
+    if a.depth is not None and not a.frm:
+        raise Refused("--depth bounds --from: flow graph --from ID --depth N")
+    if a.depth is not None and a.depth < 0:
+        raise Refused(f"--depth {a.depth}: the links --from follows, 1 or more, or 0 for the whole connected part")
+    edges, left = [], 0
     for r in sorted(recs.values(), key=lambda r: r.id):
         for f, vals in links(r, recs).items():
             edges += [(r.id, v, f) for v in vals if f != "consumed_by"]
+    depth = GRAPH_DEPTH if a.depth is None else a.depth
     if a.frm:
-        keep, frontier = {a.frm}, [a.frm]
+        reached, frontier, step = {a.frm}, [a.frm], 0
+        keep = {a.frm}
         while frontier:
-            x = frontier.pop()
-            for s, d, _ in edges:
-                for y in ((d,) if s == x else ()) + ((s,) if d == x else ()):
-                    if y not in keep:
-                        keep.add(y)
-                        frontier.append(y)
+            step += 1
+            nxt = []
+            for x in frontier:
+                for s, d, _ in edges:
+                    for y in ((d,) if s == x else ()) + ((s,) if d == x else ()):
+                        if y not in reached:
+                            reached.add(y)
+                            nxt.append(y)
+                            if not depth or step <= depth:
+                                keep.add(y)
+            frontier = nxt
+        left = len(reached) - len(keep)
         edges = [e for e in edges if e[0] in keep and e[1] in keep]
+    more = f"{left} more record(s) beyond depth {depth}: --depth 0 for all" if left else None
     if a.dot:
         body = "\n".join(f'  "{s}" -> "{d}" [label="{f}"];' for s, d, f in edges)
-        return f"digraph flow {{\n{body}\n}}"
-    return "\n".join(f"{s} --{f}--> {d}" for s, d, f in edges) or "no edges"
+        return f"digraph flow {{\n{body}\n}}" + (f"\n// {more}" if more else ""), left
+    return "\n".join([f"{s} --{f}--> {d}" for s, d, f in edges] or ["no edges"]) + (f"\n{more}" if more else ""), left
 
 
 # --- the cold-start bundle -------------------------------------------------------
@@ -3431,10 +3583,24 @@ def hand_lines(cfg, recs, today):
     return out
 
 
+def parameters(cfg):
+    """The project's parameters a session needs before its first mint, read from flow.toml: the limits of a title and a summary,
+    the values, the evidence forms, each hand's limit."""
+    return {"title_max": cfg.title_max, "summary_max": cfg.summary_max, "values": list(cfg.values), "forms": list(cfg.forms),
+            "hand": {o: int(cfg.hand.get(o, 0) or 0) for o in cfg.owners}}
+
+
+def parameters_line(p):
+    """The parameters as the one line `flow state` opens with."""
+    return (f"flow.toml: title ≤ {p['title_max']} characters, summary ≤ {p['summary_max']}; values {', '.join(p['values'])}; "
+            f"evidence forms {', '.join(p['forms'])}; hands {', '.join(f'{o} {n}' for o, n in p['hand'].items())} (0 = no limit)")
+
+
 def state_lines(cfg, skip=0, budget=14000, recs=None, today=None):
     """The inbox, the index's due list, open goals and directions (their top-level lines), ranked list and hands,
-    the dates that have passed, and the log's top entry, every line carrying its FILE:LINE, under a byte budget; returns (lines, next_from)."""
-    out = []
+    the dates that have passed, and the log's top entry, every line carrying its FILE:LINE, under a byte budget; returns (lines, next_from).
+    The project's parameters, one line and a blank one, open the bundle: a page that starts after them (`skip`) does not print them."""
+    out = [parameters_line(parameters(cfg)), ""]
     if cfg.inbox.is_file():
         ls = cfg.inbox.read_text(encoding="utf-8").rstrip("\n").split("\n")
         # an inbox holding only its heading (and the comment `flow init` writes under it) holds no item: nothing is printed
@@ -4747,7 +4913,8 @@ INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should 
 {log_line}- Where the project keeps a registry of its deliverables — what it produces and in what order —
   that file is named here and nowhere else; none is needed to start.
 - `INBOX.md` is where the person leaves items between sessions; a session reads it at its start.
-- `flow state` prints the cold-start bundle a session reads first.
+- `flow state` prints the cold-start bundle a session reads first; its first line gives the project's limits for
+  a title and a summary.
 - What the agent writes to the person names a record with its title: the first mention in a message is
   `task-0012 (the title)`, later mentions in the same message the id alone, however long the message; a few
   records are named each, never as a range of ids.
@@ -6256,6 +6423,7 @@ def selftest():
                     try:
                         with contextlib.redirect_stderr(said):
                             cmd = mdlint_cmd(c2)
+                            mdlint_done()
                     finally:
                         os.environ["PATH"] = was_path
                         c2.mdlint_config = was_cfg
@@ -8294,6 +8462,204 @@ def selftest():
             expect("markdownlint is on PATH in CI, where the batch's lint is tested", False)
         else:
             print("  --  the batch's lint not tested: no markdownlint on PATH")
+    # the bounded views, several ids in one call, `flow evidence --from`, the parameters line, the notice at a finding's mint
+    with tempfile.TemporaryDirectory() as t9, tempfile.TemporaryDirectory() as tmp9:
+        r9 = Path(t9)
+        do_init(r9, build_parser().parse_args(["init", "--log", "LOG.md"]))
+        c9 = Config(r9)
+        say9 = lambda argv, **kw: dispatched(c9, argv, today=today, as_json=True, quiet=True, **kw)
+        mk9 = lambda argv: say9(argv)[1]["created"][0]
+        for n in "abcd":
+            (r9 / f"{n}.csv").write_text(f"{n}\n", encoding="utf-8")
+        ref = lambda *items: [x for i in items for x in ("--evidence", f"reference:{i}.csv")]
+        # a chain of findings, each referencing the one before it, the first the question's
+        q9 = mk9(["question", "Is the chain long", "--summary", "A question."])
+        chain = [mk9(["finding", "link 1", "--summary", "S.", *ref("a"), "--ref", q9])]
+        for n in range(2, 6):
+            chain.append(mk9(["finding", f"link {n}", "--summary", "S.", *ref("a"), "--ref", chain[-1]]))
+        text9 = lambda argv: text_of(c9, argv).splitlines()
+        edge_lines = lambda argv: [l for l in text9(argv) if "-->" in l]
+        hub = chain[2]
+        near = text9(["graph", "--from", hub])
+        expect("graph --from ID is the records within two links, either direction, the edges among them, and says how many it left out",
+               len([l for l in near if "-->" in l]) == 4 and near[-1] == f"1 more record(s) beyond depth 2: --depth 0 for all"
+               and not any(q9 in l for l in near))
+        expect("--depth N is N links, and --depth 0 the whole connected part with no line about a bound",
+               len(edge_lines(["graph", "--from", hub, "--depth", "1"])) == 2
+               and text9(["graph", "--from", hub, "--depth", "1"])[-1] == "3 more record(s) beyond depth 1: --depth 0 for all"
+               and len(edge_lines(["graph", "--from", hub, "--depth", "0"])) == 5 and "beyond" not in "\n".join(text9(["graph", "--from", hub, "--depth", "0"]))
+               and text9(["graph", "--from", hub, "--depth", "5"]) == text9(["graph", "--from", hub, "--depth", "0"]))
+        expect("graph without --from is the whole graph as before", len(edge_lines(["graph"])) == 5 and "beyond" not in "\n".join(text9(["graph"])))
+        dot = text9(["graph", "--from", hub, "--dot"])
+        expect("under --dot the bound's line is a comment", dot[0] == "digraph flow {" and dot[-2] == "}" and dot[-1].startswith("// 1 more record(s) beyond depth 2:"))
+        rc, p = say9(["graph", "--from", hub])
+        expect("--json gives the count of records beyond the bound as a new key", p["beyond_depth"] == 1 and p["graph"].count("-->") == 4)
+        rc, p = say9(["graph", "--depth", "1"])
+        expect("--depth without --from is refused", rc == 1 and "--depth bounds --from" in p["problems"][0]["msg"])
+        found9 = lambda argv: sorted(r["id"] for r in say9(["find"] + argv)[1]["records"])
+        expect("find --refers is the records naming ID, --depth N those within N steps, --deep with no bound",
+               found9(["--refers", chain[0]]) == [chain[1]] and found9(["--refers", chain[0], "--depth", "1"]) == [chain[1]]
+               and found9(["--refers", chain[0], "--depth", "2"]) == sorted(chain[1:3])
+               and found9(["--refers", chain[0], "--deep"]) == sorted(chain[1:]) and found9(["--refers", chain[0], "--depth", "9"]) == sorted(chain[1:]))
+        for argv, why in ((["--refers", chain[0], "--deep", "--depth", "2"], "--deep with --depth"), (["--depth", "2"], "--depth without --refers"),
+                          (["--refers", chain[0], "--depth", "0"], "--depth 0")):
+            expect(f"planted: {why} is refused", say9(["find"] + argv)[0] == 1)
+
+        # several ids in one call
+        t9s = [mk9(["task", f"Chore {n}", "--summary", "S."]) for n in range(1, 7)]
+        rc, p = say9(["draw", *t9s[:3], "--owner", "agent"])
+        expect("flow draw takes several ids, each drawn in the order given and reported on its own", rc == 0 and p["changed"] == t9s[:3]
+               and all(load_all(c9)[i]["drawn"] is not None for i in t9s[:3]))
+        say9(["return", t9s[0], "--note", "put back"])
+        say9(["return", t9s[1], "--note", "put back"])
+        say9(["return", t9s[2], "--note", "put back"])
+        say9(["draw", t9s[3], t9s[4], "--owner", "agent"])  # two in hand of four
+        parked = mk9(["task", "Parked chore", "--summary", "S."])
+        say9(["park", parked, "--reason", "waits", "--revival", "when asked"])
+        before9 = {x: x.read_text(encoding="utf-8") for x in sorted((r9 / "records").rglob("*.md"))}
+        rc, p = say9(["draw", t9s[0], parked, "--owner", "agent"])
+        expect("planted: one card refused in a call writes none, and the refusal names its id",
+               rc == 1 and parked in p["problems"][0]["msg"] and "nothing was written" in p["problems"][0]["msg"]
+               and {x: x.read_text(encoding="utf-8") for x in sorted((r9 / "records").rglob("*.md"))} == before9)
+        rc, p = say9(["draw", t9s[0], t9s[1], t9s[2], "--owner", "agent"])
+        expect("planted: the hand's limit is counted across the call (two in hand of four, three more)",
+               rc == 1 and t9s[2] in p["problems"][0]["msg"] and "hand is full (4 of 4)" in p["problems"][0]["msg"] and load_all(c9)[t9s[0]]["drawn"] is None)
+        rc, p = say9(["draw", t9s[0], t9s[0], "--owner", "agent"])
+        expect("planted: an id named twice is refused", rc == 1 and "twice" in p["problems"][0]["msg"])
+        rc, p = say9(["draw", t9s[0], "--refill", "--owner", "agent"])
+        expect("--refill still takes no id", rc == 1 and "not both" in p["problems"][0]["msg"])
+        w1, w2 = mk9(["task", "Waits on A", "--summary", "S."]), mk9(["task", "Waits on B", "--summary", "S."])
+        rc, p = say9(["block", w1, "--on", t9s[5], q9, "--reason", "both"])
+        rc2, p2 = say9(["block", w2, "--on", t9s[5], "--on", q9, "--reason", "both"])
+        expect("--on takes several values, and `--on A B` is one block, as `--on A --on B`",
+               rc == rc2 == 0 and load_all(c9)[w1]["blocked_by"]["on"] == [t9s[5], q9] == load_all(c9)[w2]["blocked_by"]["on"])
+        for argv, word in ((["draw", t9s[0], "--bogus", "--owner", "agent"], "usage: flow draw"), (["block", w1], "usage: flow block"),
+                           (["evidence", "--bogus"], "usage: flow evidence"), (["log", "add"], "usage: flow log add")):
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    dispatched(c9, argv, today=today, as_json=True, quiet=True)
+                code = 0
+            except SystemExit as e:
+                code = e.code
+            expect(f"an argument error in a subcommand prints that subcommand's usage line, exit 2 ({' '.join(argv[:2])})",
+                   code == 2 and err.getvalue().startswith(word) and "{idea," not in err.getvalue())
+
+        # `flow evidence --from FILE`
+        ev9 = mk9(["finding", "Evidence one", "--summary", "S.", *ref("a")])
+        ev8 = mk9(["finding", "Evidence two", "--summary", "S.", *ref("a")])
+        rows9 = r9 / "ev.jsonl"
+        evrows = lambda lines: rows9.write_text("".join((json.dumps(x) if not isinstance(x, str) else x) + "\n" for x in lines), encoding="utf-8")
+        evrows([{"id": ev9, "evidence": ["reference:b.csv"]}, "", {"id": ev8, "evidence": ["reference:b.csv", "reference:c.csv"]},
+                {"id": ev9, "evidence": ["reference:c.csv"]}])
+        rc, p = say9(["evidence", "--from", str(rows9)])
+        expect("evidence --from adds each row's items, a finding named twice taking both, and rebuilds the index once",
+               rc == 0 and p["written"] == 3 and p["added"] == 4 and sorted(p["changed"]) == sorted([ev9, ev8]) and p["refused"] == []
+               and load_all(c9)[ev9]["evidence"] == ["reference:a.csv", "reference:b.csv", "reference:c.csv"]
+               and load_all(c9)[ev8]["evidence"] == ["reference:a.csv", "reference:b.csv", "reference:c.csv"]
+               and (r9 / "records" / "INDEX.md").read_text(encoding="utf-8") == render_index(c9, load_all(c9)))
+        before9 = {x: x.read_text(encoding="utf-8") for x in sorted((r9 / "records").rglob("*.md"))}
+        gone = mk9(["finding", "Evidence three", "--summary", "S.", *ref("a")])
+        say9(["remove", gone, "--reason", "planted"])
+        before9 = {x: x.read_text(encoding="utf-8") for x in sorted((r9 / "records").rglob("*.md"))}
+        evrows([{"id": ev9, "evidence": ["reference:d.csv"]}, {"id": ev9, "evidence": ["reference:b.csv"]}, "not json",
+                {"id": "finding-9999", "evidence": ["reference:d.csv"]}, {"id": t9s[0], "evidence": ["reference:d.csv"]},
+                {"id": gone, "evidence": ["reference:d.csv"]}, {"id": ev8, "evidence": ["reference:d.csv", "reference:d.csv"]},
+                {"id": ev8, "evidence": ["reference:nowhere.csv"]}, {"id": ev8}, {"id": ev8, "evidence": []}, {"id": ev8, "evidence": ["reference:d.csv"], "x": 1}])
+        rc, p = say9(["evidence", "--from", str(rows9)])
+        bad9 = {x["row"]: x["msg"] for x in p["refused"]}
+        expect("planted: every bad row is reported with its row number (its line in the file) and reason, and one bad row writes nothing",
+               rc == 1 and p["written"] == 0 and sorted(bad9) == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+               and "there already" in bad9[2] and "not valid JSON" in bad9[3] and "does not exist" in bad9[4] and "not a finding" in bad9[5]
+               and "removed" in bad9[6] and "there already" in bad9[7] and "not in the tree" in bad9[8] and "no \"evidence\"" in bad9[9]
+               and "one item or more" in bad9[10] and "no key" in bad9[11]
+               and {x: x.read_text(encoding="utf-8") for x in sorted((r9 / "records").rglob("*.md"))} == before9)
+        txt = text_of(c9, ["evidence", "--from", str(rows9)])
+        expect("a refused run says so in a line, then one line a bad row", "11 refused, nothing written" not in txt and "0 row(s) written, 10 refused, nothing written" in txt
+               and "  row 3: not valid JSON" in txt)
+        had_stdin = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"id": ev9, "evidence": ["reference:d.csv"]}) + "\n")
+        try:
+            rc, p = say9(["evidence", "--from", "-"])
+        finally:
+            sys.stdin = had_stdin
+        expect("`--from -` reads the rows from the standard input", rc == 0 and p["written"] == 1 and "reference:d.csv" in load_all(c9)[ev9]["evidence"])
+        for argv, why in ((["evidence", ev9, "reference:d.csv", "--from", str(rows9)], "a finding"), (["evidence", "--from", str(rows9), "--replace", "a", "b"], "--replace"),
+                          (["evidence", "--from", str(rows9), "--retire", "a", "--reason", "x"], "--retire"), (["evidence"], "nothing")):
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    dispatched(c9, argv, today=today, as_json=True, quiet=True)
+                usage = False
+            except SystemExit as e:
+                usage = e.code == 2
+            expect(f"planted: `flow evidence --from` with {why}, or neither, is refused as a usage error", usage)
+        rc, p = say9(["evidence", "--from", str(r9 / "nowhere.jsonl")])
+        expect("a rows file that is not there is refused whole", rc == 1 and "not found" in p["problems"][0]["msg"])
+        evrows([])
+        rc, p = say9(["evidence", "--from", str(rows9)])
+        expect("a rows file with no row writes nothing and is no refusal, as `set --from`'s", rc == 0 and p["written"] == 0 and p["changed"] == [] and p["refused"] == [])
+
+        # the parameters line of `flow state`, and the cut text of a length refusal
+        lines, _ = state_lines(c9, recs=load_all(c9), today=today)
+        expect("flow state opens with the project's parameters, then a blank line",
+               lines[0] == "flow.toml: title ≤ 100 characters, summary ≤ 500; values low, medium, high; evidence forms formal, statistical, peer-reviewed, stated, "
+                           "reference; hands agent 4, owner 0 (0 = no limit)" and lines[1] == "")
+        rc, p = say9(["state"])
+        expect("under --json the same as a key, the first page only", p["parameters"] == {"title_max": 100, "summary_max": 500, "values": ["low", "medium", "high"],
+               "forms": list(SHIPPED_FORMS), "hand": {"agent": 4, "owner": 0}} and p["lines"][0].startswith("flow.toml: title")
+               and say9(["state", "--from", "3"])[1]["parameters"] is None and not any(l.startswith("flow.toml:") for l in say9(["state", "--from", "3"])[1]["lines"]))
+        rc, p = say9(["state", "--check"])
+        expect("state --check prints no parameters line", "parameters" not in p and not any(str(l).startswith("flow.toml:") for l in p.get("hands", [])))
+        c9.title_max, c9.summary_max = 12, 20
+        rc, p = say9(["idea", "a title that is quite long", "--summary", "S."])
+        rc2, p2 = say9(["idea", "short", "--summary", "a summary that is long enough"])
+        expect("a length refusal ends with the text cut at the limit, on a line of its own",
+               rc == 1 and p["problems"][0]["msg"].endswith("\nat the limit it reads: «a title that»") and "is 26 characters, over the limit of 12" in p["problems"][0]["msg"]
+               and rc2 == 1 and p2["problems"][0]["msg"].endswith("\nat the limit it reads: «a summary that is lo»"))
+        c9.title_max, c9.summary_max = TITLE_MAX, SUMMARY_MAX
+        expect("the instructions flow init prints say that `flow state`'s first line gives the limits",
+               "its first line gives the project's limits for\n  a title and a summary" in INSTRUCTIONS)
+
+        # the notice at the mint of a finding
+        t_q = mk9(["task", "A task bearing on a question", "--summary", "S.", "--ref", q9])
+        q_parked = mk9(["question", "A parked question", "--summary", "S."])
+        say9(["park", q_parked, "--reason", "waits", "--revival", "when asked"])
+        say9(["ref", t_q, f"+{q_parked}"])
+        q_done = mk9(["question", "A question to answer", "--summary", "S."])
+        say9(["ref", t_q, f"+{q_done}"])
+        rc, p = say9(["finding", "Found on the task", "--summary", "S.", *ref("a"), "--ref", t_q, "--answers", q_done])
+        expect("a finding minted with --ref T, T referencing an open question the finding neither references nor answers, gets a note a question, "
+               "the parked one among them, changing no record",
+               rc == 0 and [(n["ref"], n["question"]) for n in p["notes"]] == [(t_q, q9), (t_q, q_parked)]
+               and p["notes"][0]["title"] == "Is the chain long" and set(p["changed"]) == {q_done} and load_all(c9)[t_q]["references"] == [q9, q_parked, q_done])
+        txt = text_of(c9, ["finding", "Found again", "--summary", "S.", *ref("a"), "--ref", t_q, "--ref", q9])
+        last = txt.splitlines()[-1]
+        minted9 = re.search(r"^created (\S+)", txt, re.M).group(1)
+        expect("the note is the last line, naming the way to add the reference",
+               last == f"note: {t_q} references {q_parked} (A parked question), which this finding does not: flow ref {minted9} +{q_parked} if it bears on it"
+               and txt.count("note: ") == 1 and q9 not in last and q_done not in txt)
+        rc, p = say9(["finding", "Found plainly", "--summary", "S.", *ref("a"), "--ref", ev9])
+        expect("a finding with no such question has no note", p["notes"] == [])
+        # no markdownlint configuration left in the temporary directory
+        if shutil.which("markdownlint"):
+            was_tmp = tempfile.tempdir
+            tempfile.tempdir = tmp9
+            try:
+                say9(["check"])
+                say9(["idea", "A linted idea", "--summary", "S."])
+                say9(["set", mk9(["idea", "Another idea", "--summary", "S."]), "value", "high"])
+                run_ = subprocess.run([sys.executable, __file__, "--root", str(r9), "check"], capture_output=True, text=True, env={**os.environ, "TMPDIR": tmp9})
+                try:
+                    say9(["set", "--from", str(r9 / "nowhere.jsonl")])
+                except Exception:
+                    pass
+            finally:
+                tempfile.tempdir = was_tmp
+            expect("flow check and every write leave no flow-markdownlint file in the temporary directory", not list(Path(tmp9).glob("flow-markdownlint-*")) and run_.returncode == 0)
+        elif os.environ.get("CI"):
+            expect("markdownlint is on PATH in CI, where the temporary configuration is tested", False)
+        else:
+            print("  --  the temporary markdownlint configuration not tested: no markdownlint on PATH")
     staged_selftest(expect)
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
@@ -8301,13 +8667,24 @@ def selftest():
 
 # --- dispatch ----------------------------------------------------------------
 
+class SubParser(argparse.ArgumentParser):
+    """A subcommand's parser, which refuses an argument it does not know itself: its own usage line and the error, where
+    the parent would print the usage of the whole command list."""
+
+    def parse_known_args(self, args=None, namespace=None):
+        ns, extras = super().parse_known_args(args, namespace)
+        if extras:
+            self.error(f"unrecognized arguments: {' '.join(extras)}")
+        return ns, extras
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="flow", description=__doc__.splitlines()[0])
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--root")
     ap.add_argument("--today")
     ap.add_argument("--selftest", action="store_true")
-    sp = ap.add_subparsers(dest="cmd")
+    sp = ap.add_subparsers(dest="cmd", parser_class=SubParser)
 
     def mint(kind, help_):
         p = sp.add_parser(kind, help=help_)
@@ -8337,7 +8714,8 @@ def build_parser():
     p.add_argument("--answers", metavar="Q", help="the open question it settles, which closes answered")
     mint("goal", "the owner's goal: the title names the outcome, the body what reached means and how far out it lies")
     mint("direction", "the owner's direction, its words the body")
-    p = sp.add_parser("draw", help="a card into a hand, or with --refill the hand filled by rank to its limit"); p.add_argument("id", nargs="?")
+    p = sp.add_parser("draw", help="cards into a hand, or with --refill the hand filled by rank to its limit")
+    p.add_argument("ids", nargs="*", metavar="ID", help="one card or more, all drawn or none")
     p.add_argument("--owner", required=True)
     p.add_argument("--refill", action="store_true", help="no ID: draw by rank from the top every ready card of the common deck or the owner's own, until the hand's limit")
     p = sp.add_parser("return"); p.add_argument("id"); p.add_argument("--note", required=True, help="what the session did on the card and why it goes back")
@@ -8347,7 +8725,11 @@ def build_parser():
     p = sp.add_parser("make"); p.add_argument("task"); p.add_argument("--resolution", required=True, metavar="FILE", help=RESOLUTION_HELP + "; required")
     p = sp.add_parser("abort"); p.add_argument("task"); p.add_argument("--reason", required=True); p.add_argument("--resolution", metavar="FILE", help=RESOLUTION_HELP)
     p = sp.add_parser("answer"); p.add_argument("question"); p.add_argument("--by", required=True, help="the standing finding that settles it")
-    p = sp.add_parser("evidence"); p.add_argument("finding"); p.add_argument("evidence", nargs="*", metavar="FORM:TARGET", help="added: how a finding's trust is raised")
+    p = sp.add_parser("evidence"); p.add_argument("finding", nargs="?"); p.add_argument("evidence", nargs="*", metavar="FORM:TARGET", help="added: how a finding's trust is raised")
+    p.set_defaults(evidence_parser=p)
+    p.add_argument("--from", dest="from_file", metavar="FILE",
+                   help="many additions in one run instead of FINDING ITEM…: FILE (`-` for the standard input) holds one JSON object a line, "
+                        "{\"id\": \"finding-0012\", \"evidence\": [\"form:target\", …]}; every row is checked first, one bad row refuses the run")
     p.add_argument("--replace", nargs=2, metavar=("OLD", "NEW"), help="the item OLD, as written, swapped for NEW, resolved as an added item is; a dated note in the body")
     p.add_argument("--retire", metavar="OLD", help="the item OLD removed, with --reason; a dated note in the body")
     p.add_argument("--reason", help="with --retire: why the item goes, kept in the note")
@@ -8366,7 +8748,8 @@ def build_parser():
     p.add_argument("--tag", action="append", help="added to the card's tags in the same write; repeatable; a restate drops the tag revival-owner unless it is given again")
     p = sp.add_parser("unpark", help="a parked card back to waiting no more; the tag revival-owner, if it carries it, is removed"); p.add_argument("id"); p.add_argument("--note")
     p = sp.add_parser("block"); p.add_argument("id")
-    p.add_argument("--on", required=True, action="append", help="a task's or a question's id, a date alone (YYYY-MM-DD) or words; repeatable")
+    p.add_argument("--on", required=True, action="extend", nargs="+", metavar="X",
+                   help="one item or more, each a task's or a question's id, a date alone (YYYY-MM-DD) or words; repeatable")
     p.add_argument("--reason", required=True)
     p = sp.add_parser("unblock"); p.add_argument("id"); p.add_argument("--on", metavar="X", help="one item removed, as written; none, the block taken off")
     p.add_argument("--note")
@@ -8396,7 +8779,8 @@ def build_parser():
     p.add_argument("--form", action="append", help="a finding's evidence form; repeatable, a finding listed when it carries every one given")
     p.add_argument("--only", action="store_true", help="with --form: the findings whose evidence carries those forms and no other")
     p.add_argument("--refers", metavar="ID|PATH", help="the records naming ID or PATH by a link, an evidence item, a source that is a path or a body link")
-    p.add_argument("--deep", action="store_true", help="with --refers: the records naming those, and so on")
+    p.add_argument("--deep", action="store_true", help="with --refers: the records naming those, and so on, with no bound")
+    p.add_argument("--depth", type=int, metavar="N", help="with --refers: the records naming ID within N steps (1 is plain --refers)")
     p.add_argument("--parked", action="store_true"); p.add_argument("--ranked", action="store_true")
     p.add_argument("--blocked", action="store_true", help="the records whose block holds today")
     p.add_argument("--held", action="store_true", help="the cards in a hand")
@@ -8407,7 +8791,8 @@ def build_parser():
     p = sp.add_parser("table", help="the table as it lies: each owner's hand and deck, the common deck, the two piles")
     p.add_argument("--top", type=int, default=5, help="the cards a deck shows, from its top (five where not given)")
     p = sp.add_parser("show"); p.add_argument("id")
-    p = sp.add_parser("graph"); p.add_argument("--from", dest="frm"); p.add_argument("--dot", action="store_true")
+    p = sp.add_parser("graph"); p.add_argument("--from", dest="frm", metavar="ID"); p.add_argument("--dot", action="store_true")
+    p.add_argument("--depth", type=int, metavar="N", help="with --from: the records within N links of ID, either direction (2 where not given); 0 the whole connected part")
     p = sp.add_parser("index"); p.add_argument("--check", action="store_true"); p.add_argument("--print", action="store_true", dest="print_")
     p = sp.add_parser("check")
     p.add_argument("--staged", action="store_true", help="check what a commit will hold, the git index, not the working tree (the commit hook's entry)")
@@ -8897,6 +9282,11 @@ def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
             a.set_parser.error("set takes ID FIELD VALUE (with --note, --to-summary) or --from FILE, whose rows carry their own, not both")
         if a.from_file is None and (a.id is None or a.field is None or a.value is None):
             a.set_parser.error("set takes ID FIELD VALUE, or --from FILE for many")
+    if a.cmd == "evidence":  # FINDING ITEM…, --replace, --retire, or --from FILE: one of the four
+        if a.from_file is not None and (a.finding or a.evidence or a.replace is not None or a.retire is not None or a.reason is not None):
+            a.evidence_parser.error("evidence takes FINDING ITEM…, --replace, --retire, or --from FILE, whose rows carry their own, not together")
+        if a.from_file is None and a.finding is None:
+            a.evidence_parser.error("evidence takes FINDING ITEM…, or --from FILE for many")
     writes = a.cmd in TRANSITIONS or a.cmd == "log" or (a.cmd == "index" and not a.print_ and not a.check) or (a.cmd == "reflow" and a.write)
     with project_lock(cfg, cfg.research, "flow") if writes else contextlib.nullcontext():
         return _dispatch(cfg, a, today, as_json, quiet)
@@ -8943,6 +9333,35 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 emit(f"  left half written (a row written, another refused): {', '.join(res['half'])}")
             if res["refused"]:
                 out["ok"] = False
+        elif a.cmd == "evidence" and a.from_file is not None:
+            out.update(written=0, added=0, refused=[])  # on every path, a refusal of the whole file's too
+            _JOURNAL.clear()
+            try:
+                res = batch_evidence(cfg, recs, a.from_file, today)
+            except BaseException:  # the run happens whole or not at all
+                rollback()
+                raise
+            _JOURNAL.clear()
+            for k in ("written", "added", "refused"):
+                out[k] = res[k]
+            out["changed"] = [r.id for r in res["changed"]]
+            out["records"] = [summary_of(cfg, r, recs, today) for r in res["changed"]]
+            if res["refused"]:
+                out["ok"] = False
+                emit(f"flow evidence --from {a.from_file}: 0 row(s) written, {len(res['refused'])} refused, nothing written")
+                for x in res["refused"]:
+                    emit(f"  row {x['row']}" + (f", {x['id']}" if x["id"] else "") + f": {x['msg']}")
+            else:
+                index_text = render_index(cfg, recs)
+                index_new = not cfg.index.is_file() or cfg.index.read_text(encoding="utf-8") != index_text
+                if index_new:
+                    cfg.index.parent.mkdir(parents=True, exist_ok=True)
+                    write_whole(cfg.index, index_text)
+                out["index"] = rel(cfg, cfg.index) if index_new else None
+                emit(f"flow evidence --from {a.from_file}: {res['written']} row(s) written, 0 refused; {res['added']} item(s) added to "
+                     f"{len(res['changed'])} record(s)" + (f"; index refreshed: {rel(cfg, cfg.index)}" if index_new else ""))
+                for r in res["changed"]:
+                    emit(f"changed {r.id} ({changed_words(cfg, recs, r, today)}; {rel(cfg, r.path)}){dash_title(recs, r.id)}")
         elif a.cmd in TRANSITIONS:
             if a.cmd == "rank" and not a.set and not a.id:
                 raise Refused("rank takes ID N, --set ID..., or ID --clear")
@@ -9019,11 +9438,16 @@ def _dispatch(cfg, a, today, as_json, quiet):
             if (a.cmd in ("answer", "impossible") or (a.cmd == "finding" and a.answers)) and changed:  # the question is changed[0], ideas after it
                 emit(f"closed {changed[0].id} ({changed[0]['state']}){dash_title(recs, changed[0].id)}")
                 emit(f"  by {with_title(recs, changed[0]['answered_by'])}")
+            if a.cmd == "finding":
+                out["notes"] = finding_notes(recs, created[0], a.answers)
             if a.cmd in ("make", "abort") and changed and changed[0]["after"]:  # the post-done instruction, for the agent to follow
                 out["after"] = changed[0]["after"]
                 emit(f"after {with_title(recs, changed[0].id)}")  # the instruction is free text, so it is a line of its own
                 emit(f"  {changed[0]['after']}")
             emit(f"index refreshed: {rel(cfg, cfg.index)}")
+            for n in out.get("notes") or []:
+                emit(f"note: {n['ref']} references {n['question']} ({n['title']}), which this finding does not: "
+                     f"flow ref {created[0].id} +{n['question']} if it bears on it")
         elif a.cmd == "find":
             hits = cmd_find(cfg, recs, a, today)
             out["records"] = [summary_of(cfg, r, recs, today) for r in hits]
@@ -9125,6 +9549,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             lines, more = state_lines(cfg, a.frm, a.budget, recs, today)
             behind = kit_behind(cfg) if not a.frm else None
             out["kit_behind"] = behind
+            out["parameters"] = parameters(cfg) if not a.frm else None
             lines = ([behind] if behind else []) + lines
             out["lines"], out["next_from"] = lines, more
             for ln in lines:
@@ -9152,7 +9577,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             for p in problems:
                 emit(f"{p['path']}: refused, put back as it was: {p['msg']}")
             emit(f"flow reflow --write: {len(written)} file(s) rewritten, {len(same)} already one sentence per line, {len(problems)} refused; "
-                 f"reflow via {cfg.reflow_source}" + ("" if mdlint_cmd(cfg) else "; markdownlint ABSENT, so the files are not linted"))
+                 f"reflow via {cfg.reflow_source}" + ("" if mdlint_present(cfg) else "; markdownlint ABSENT, so the files are not linted"))
             if problems:
                 out["ok"] = False
         elif a.cmd == "reflow":
@@ -9198,8 +9623,9 @@ def _dispatch(cfg, a, today, as_json, quiet):
             if not as_json:
                 print(json.dumps(out["pages"], ensure_ascii=False, indent=1))
         elif a.cmd == "graph":
-            text = cmd_graph(cfg, recs, a, today)
+            text, left = cmd_graph(cfg, recs, a, today)
             out["graph"] = text
+            out["beyond_depth"] = left
             emit(text)
         elif a.cmd == "index":
             text = render_index(cfg, recs)
