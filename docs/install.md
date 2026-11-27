@@ -193,26 +193,15 @@ With a Lean workspace, `/formal:formal-init` follows for the prover side ([The f
 pre-commit, or `prek`, installs the kit at the pinned tag in an environment of its own at the first run, so the hooks need no other install; the runner itself comes from `pipx install pre-commit`, `uv tool install prek` or the system's packages, and the setup proposes one where none is on PATH.
 A hook runner sets aside the unstaged changes to tracked files and leaves untracked files in place, a tree that never existed, so `flow-check` and `library-check` run as `flow check --staged` and `library check --staged`: the same checks on a temporary checkout of the git index, which is what the commit holds, with a path git ignores read from the working tree ([The flow](research/flow.md#flow-check) and [The library](research/library.md#library-check) say how).
 A transition's move that is not staged, or a card minted and ranked first and not yet added, is no part of the commit and fails nothing; the four `formal` hooks read the working tree, where the workspace's build is.
-A project that writes these hooks as `repo: local` ones gives the entries the flag the same way, and a project that pins the kit by `rev` moves the `rev` with the plugins.
+A project pins the kit by `rev` and moves the `rev` with the plugins ([Following the releases](#following-the-releases)).
 A commit made after a transition stages the records directory whole (`git add -A` on it), and a batch of transitions is committed at once.
 A session that shares a working tree with another and commits only its own paths commits from a work tree of its own, as [Several sessions in one tree](#several-sessions-in-one-tree) says.
 Each check reads its bindings file at the project root; a project with no `flow.toml`, `library.toml` or `formal.toml` leaves that hook out.
 A bindings file names code that runs — the reflow module, the library's command, the resolvers of `[evidence.resolvers]` and the command for a PDF's text, which the checks run, and `formal.toml`'s `[manifest] generate`, which the prover session runs — so a project's bindings are trusted as its hooks are: read them before running a check in a repository you did not write; [What runs](network.md#what-runs) lists all of it.
 To update the hooks, set `rev` to the latest tag from [Releases](https://github.com/lividgreen/research-kit/releases) (`pre-commit autoupdate` or `prek autoupdate` does it); the plugins follow the releases through the marketplace's `latest`, as the next section says.
 
-A plugin-install project that wants one version everywhere may write its hooks the other way, as `repo: local` hooks with `language: system`, each `entry` a runner of the project's own followed by the script's command, so the hooks run the installed plugin's scripts and the marketplace's `ref` is the one pin; the kit ships no such runner, and the project's finds the script under the agent's plugin cache (see *Outside the agent* below).
-
-```yaml
-- repo: local
-  hooks:
-    - id: flow-check
-      name: flow check
-      language: system
-      entry: scripts/kit.py flow check   # the project's own runner, then the script's command
-      pass_filenames: false
-```
-
-The setup probe then reads the hooks as local, running the installed plugin's scripts, and holds the plugins' pins alone, saying that no hook pins the kit by `rev`.
+The hooks are the kit's own, pinned by `rev`, whichever way the agent has the plugins: a project keeps no runner over the kit's scripts and no `repo: local` hook running them.
+The setup's pins step holds the `rev` and the plugins equal; where a project's hooks are `repo: local` entries running the kit's scripts, the probe proposes, as an upgrade step and not a failure, to replace them with the block above at the installed release, and names the entries.
 
 ### Following the releases
 
@@ -227,9 +216,8 @@ The kit keeps a branch `latest` that the release workflow moves to each release 
 | Factory Droid | `droid plugin marketplace add 'lividgreen/research-kit#latest'` |
 
 A release then reaches the project by updating the marketplace and the plugins: in Claude Code `claude plugin marketplace update research-kit` (or auto-update turned on for the marketplace), then `claude plugin update research@research-kit --scope project` and the same for `formal@research-kit`, then a restart.
-The restart is literal: until it, the session runs the old skills' text against the new scripts; a session that must mint a record before its restart runs the new version's script by its cache path, as the skills say to anyway, and the records it writes pass the new check.
-Local hooks running the installed plugin's scripts follow the plugins with nothing to move; remote hooks pin a tag by `rev`, since pre-commit takes no branch as a pin, and `prek autoupdate` or `pre-commit autoupdate` moves it to the latest release in the project's next commit.
-A project whose hooks are `repo: local` entries has no `rev` to set, but a release may change an entry itself: it reads the release's changelog for one and edits its own entries to match, as with `--staged` in v0.12.0.
+The restart is literal: until it, the session runs the old skills' text against the new scripts; a session that must mint a record before its restart runs the new version's script by the path its skill gives, and the records it writes pass the new check.
+The hooks pin a tag by `rev`, since pre-commit takes no branch as a pin, and `prek autoupdate` or `pre-commit autoupdate` moves it to the latest release in the project's next commit.
 Where the release changes the records' model, `flow-check` at the new version fails every commit that touches a record until the records are in the new form, so the project's next commit carries the migration; a project that must commit before it runs that commit with `SKIP=flow-check` (prek and pre-commit read it) and says so in the log entry.
 `flow task`, `flow state` and `flow show` run on an unmigrated tree at the new version, so the migration task is minted first; `flow doctor --fix` then writes the mechanical part of the migration and lists the rest ([The flow](research/flow.md#flow-doctor)).
 Grok Build documents no ref for a marketplace, and an agent that installs from a clone or a copy holds whatever was checked out; there the plugin and the hooks move by hand.
@@ -253,7 +241,7 @@ Once the plugins move by `claude plugin update`, an install record outside the r
 `flow init` writes it and the setup's verify step moves it, once the steps up to the installed release are taken, so the order of an upgrade is: the plugins moved and the session restarted, then `/research:research-init`, whose probe names the **Upgrading** paragraphs of each release after the marker up to the installed one and whose last step moves the marker.
 A `flow.toml` written before v0.7.0 has no such line: `flow doctor` names it for the hand, and the probe counts the releases from the oldest pin until the setup writes it.
 On another computer, a checkout of a project migrated elsewhere carries the newer marker while that machine's plugin is older: there the flow's scripts refuse every write and `flow check`, naming both releases and the commands that move the plugin (`claude plugin marketplace update research-kit`, `claude plugin update research@research-kit --scope project`, a restart), since an older script misreads newer records and bindings; the reads still answer, with a warning.
-A remote hook's `rev` is committed, so the checkout gets the tag the migrating commit moved it to and pre-commit installs it; a local hook runs the installed plugin, which refuses as above, so the commit fails with the commands until the plugin moves.
+The hooks' `rev` is committed, so the checkout gets the tag the migrating commit moved it to and pre-commit installs it.
 Where the marker is older than the plugin, nothing refuses: `flow state` says to run `/research:research-init`.
 Never remove the marketplace to upgrade: `claude plugin marketplace remove research-kit` uninstalls the plugins installed from it for every project on the machine, whose settings still enable them, and deletes the project's own entry from `.claude/settings.json`.
 Claude Code 2.1.318 behaves so.
@@ -300,7 +288,6 @@ python3 .claude/skills/flow/scripts/flow.py check
 ```
 
 The other scripts lie under their skills the same way: `library/scripts/library.py`, `dashboard/scripts/dashboard.py`, and the `formal` plugin's `land/scripts/formal.py`.
-Under a plugin install a script sits in the agent's plugin cache instead, Claude Code's `~/.claude/plugins/cache/research-kit/<plugin>/<version>/skills/…` (`CLAUDE_CODE_PLUGIN_CACHE_DIR` moves that root), a path that changes with each version; so a project that runs the scripts outside the agent installs the skills into the project directory.
-A project that stays on the plugin install and wants a Makefile target writes its own small runner, which finds the script under the plugin cache at the pinned version, the probe's `pins at one tag` holding the pins together; the kit ships no runner.
+A plugin install has no such path in the project: a session loads the skill and runs its script by the path the skill gives, which changes with each release, so no file of the project names it and the project keeps no wrapper or make target over the kit's scripts; the probe's `wrappers over the kit's scripts` lists the lines that do.
 
 research-kit installs no command and is not published to PyPI: the agent runs the scripts from their skills, and the pre-commit hooks build their own environment from this repository at the pinned tag; the `research-kit` project on PyPI is an unrelated one.

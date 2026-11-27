@@ -2304,8 +2304,9 @@ def do_init(root, workspace, force=False):
 def init_instructions(workspace, instructions):
     """The paragraphs `formal init` prints for the project's instructions file."""
     return ("What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:\n\n"
-            "- `formal …` here is the land skill's script run by its installed path from the project root, no command\n"
-            "  on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/formal/<version>/skills/land/scripts/formal.py …`.\n"
+            "- `formal …` here is the land skill's script; a session loads the `land` skill before its first formal command,\n"
+            "  and the skill gives the script's path, which changes with each release, so no file of the project names it\n"
+            "  and the project keeps no wrapper or make target over it.\n"
             f"- The prover workspace is `{workspace}/`; its standing rules are `{instructions}`, which the\n"
             "  prover session reads first and which the project's root session never overrides but by naming a file.\n"
             "- Lean work ships as a checked handoff prompt (`formal handoffcheck`), and a handback is landed by\n"
@@ -2954,6 +2955,9 @@ def init_scenarios(root, expect):
     r = subprocess.run([sys.executable, __file__, "init", "--print-instructions", "--root", str(root)], capture_output=True, text=True)
     expect("init --print-instructions prints the paragraphs for formal.toml as it stands and writes nothing",
            r.returncode == 0 and "The prover workspace is `lean/`; its standing rules are `lean/CLAUDE.md`" in r.stdout and snap() == before, r.stdout + r.stderr)
+    expect("the paragraphs name no plugin-cache path and no wrapper: the script's path is the skill's to give, and the project keeps none",
+           "plugins/cache" not in r.stdout and "<version>" not in r.stdout and "the skill gives the script's path" in r.stdout
+           and "keeps no wrapper or make target over it" in r.stdout, r.stdout)
     with tempfile.TemporaryDirectory() as t2:
         r = subprocess.run([sys.executable, __file__, "init", "--print-instructions", "--root", t2, "--workspace", "prover"], capture_output=True, text=True)
         expect("init --print-instructions with no formal.toml prints the workspace given and writes nothing",
@@ -3588,9 +3592,12 @@ def selftest_cases():
             expect("a remote rev is stated, and no rev-less claim made", f"the hooks pin rev v{ver}" in r["detail"] and "no hook pins" not in r["detail"], r["detail"])
             (root / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: formal-check\n    language: system\n    entry: scripts/kit.py formal check\n", encoding="utf-8")
             r = kit_pins(root, ver, latest=lambda: ("v99.0.0", None))
-            expect("local hooks running the kit's scripts are said to carry no rev and to follow the plugins' pins; `repo: local` is no local repository",
-                   "no hook pins the kit by `rev`; the hooks are local and run the installed plugin's scripts, so they follow the plugins' pins" in r["detail"]
-                   and "local repository" not in r["detail"] and "the hooks' rev" not in r["detail"], r["detail"])
+            expect("local hooks running the kit's scripts are said to carry no rev; `repo: local` is no local repository",
+                   "no hook pins the kit by `rev`; the hooks are local (`repo: local`) and run the kit's scripts, which no `rev` pins" in r["detail"]
+                   and "local repository" not in r["detail"] and "the hooks pin rev" not in r["detail"], r["detail"])
+            expect("local hooks are an upgrade step and no failure: one step replaces them with the kit's hooks pinned by rev, naming the entries and the tag, with no clause for writing them local",
+                   not r["ok"] and len([c for c in r["commands"] if c.startswith("replace the local hooks `formal-check` in .pre-commit-config.yaml with the kit's, pinned by `rev`")]) == 1
+                   and "`rev: v99.0.0`" in " ".join(r["commands"]) and "which follow the plugins" not in " ".join(r["commands"]), str(r["commands"]))
             (root / ".pre-commit-config.yaml").write_text("repos:\n- repo: local\n  hooks:\n  - id: prover-gate\n    language: system\n    entry: scripts/kit.py formal check\n", encoding="utf-8")
             hk = {it["item"]: it for it in probe(root)["project"]}["formal-check hook"]
             expect("a local hook whose entry runs `formal check` is the formal-check hook, whatever its id", hk["ok"] and "entry runs" in hk["detail"], hk["detail"])
@@ -3742,32 +3749,54 @@ def hooks_pin(text):
 KIT_ENTRY = re.compile(r"\b(?:flow|library|dashboard|formal)\.py\b|\b(?:flow|library|formal)\s+(?:check|cite|anchors|register|index|doctor)\b")
 
 
-def hooks_kind(text):
-    """How a .pre-commit-config.yaml's hooks reach the kit, read from its lines with the comments dropped: "kit"
-    where a hook repo names research-kit, or any other repo but `local` carries the kit's hook ids (a checkout's
-    path); "local" where a `repo: local` hook's `entry` runs the kit's scripts (`flow.py`, `library.py`,
-    `dashboard.py` or `formal.py`, or `flow`, `library` or `formal` with a subcommand), so the installed plugin's
-    version runs and no hook carries a `rev`; None where neither."""
+def hook_repos(text):
+    """The `repo:` items of a .pre-commit-config.yaml, read from its lines with the comments dropped: a list of
+    (the repo's name, the item's lines), each item bounded as hooks_pin bounds it."""
     lines = [re.sub(r"(?:^|\s)#.*$", "", l).rstrip() for l in text.split("\n")]
     indent = lambda l: len(l) - len(l.lstrip())
-    local = False
+    out = []
     for i, l in enumerate(lines):
         m = re.match(r"\s*(?:-\s+)?repo:\s*['\"]?([^\s'\"]+)", l)
         if not m:
             continue
-        s = i  # the item, bounded as hooks_pin bounds it
+        s = i
         while s > 0 and not (re.match(r"\s*-\s", lines[s]) and (s == i or indent(lines[s]) < indent(l))):
             s -= 1
         d, e = indent(lines[s]), s + 1
         while e < len(lines) and not (lines[e].strip() and indent(lines[e]) <= d):
             e += 1
-        item = lines[s:e]
-        if m.group(1) == "local":
-            entries = [re.match(r"\s*(?:-\s+)?entry:\s*(.*)", x) for x in item]
-            local = local or any(r and KIT_ENTRY.search(r.group(1)) for r in entries)
-        elif "research-kit" in m.group(1) or any(re.match(r"\s*(?:-\s+)?id:\s*['\"]?(?:flow|library|formal)-(?:check|cite|anchors|register)\b", x) for x in item):
+        out.append((m.group(1), lines[s:e]))
+    return out
+
+
+def local_kit_hooks(text):
+    """The hooks of the `repo: local` items of a .pre-commit-config.yaml whose `entry` runs the kit's scripts (`flow.py`,
+    `library.py`, `dashboard.py` or `formal.py`, or `flow`, `library` or `formal` with a subcommand), each by its `id`
+    or, where it has none, its entry, in the file's order."""
+    out = []
+    indent = lambda l: len(l) - len(l.lstrip())
+    for repo, item in hook_repos(text):
+        if repo != "local":
+            continue
+        after = next((n + 1 for n, l in enumerate(item) if re.match(r"\s*hooks:\s*$", l)), len(item))
+        firsts = [n for n in range(after, len(item)) if re.match(r"\s*-\s", item[n])]
+        starts = [n for n in firsts if indent(item[n]) == indent(item[firsts[0]])] + [len(item)] if firsts else []
+        for a, b in zip(starts, starts[1:]):
+            entry = next((m.group(1).strip() for m in (re.match(r"\s*(?:-\s+)?entry:\s*(.*)", x) for x in item[a:b]) if m), "")
+            if KIT_ENTRY.search(entry):
+                out.append(next((m.group(1) for m in (re.match(r"\s*(?:-\s+)?id:\s*['\"]?([^\s'\"]+)", x) for x in item[a:b]) if m), entry))
+    return out
+
+
+def hooks_kind(text):
+    """How a .pre-commit-config.yaml's hooks reach the kit, read from its lines with the comments dropped: "kit"
+    where a hook repo names research-kit, or any other repo but `local` carries the kit's hook ids (a checkout's
+    path); "local" where a `repo: local` hook's `entry` runs the kit's scripts (`local_kit_hooks`), so the installed
+    plugin's version runs and no hook carries a `rev`; None where neither."""
+    for repo, item in hook_repos(text):
+        if repo != "local" and ("research-kit" in repo or any(re.match(r"\s*(?:-\s+)?id:\s*['\"]?(?:flow|library|formal)-(?:check|cite|anchors|register)\b", x) for x in item)):
             return "kit"
-    return "local" if local else None
+    return "local" if local_kit_hooks(text) else None
 
 
 def install_record():
@@ -3905,7 +3934,7 @@ def kit_pins(root, version, record=None, latest=None, dirty=None, main_tree=None
         said.append(f"the hooks pin rev {rev}")
         tags["the hooks' rev"] = rev
     if not repo:
-        said.append("no hook pins the kit by `rev`" + ("; the hooks are local and run the installed plugin's scripts, so they follow the plugins' pins"
+        said.append("no hook pins the kit by `rev`" + ("; the hooks are local (`repo: local`) and run the kit's scripts, which no `rev` pins"
                                                       if hooks_kind(pc) == "local" else ""))
     try:
         st = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
@@ -3959,8 +3988,9 @@ def kit_pins(root, version, record=None, latest=None, dirty=None, main_tree=None
     ordered = all(kit_tag(t) for t in tags.values())
     target = newest or ((max(tags.values(), key=kit_tag) if ordered else tags.get("the hooks' rev") or next(iter(tags.values()))) if tags else None)
     T = target or "<tag>"
+    local = [] if repo else local_kit_hooks(pc)
     off = [w for w, t in tags.items() if t != T] + (["the marketplace's ref"] if unpinned or stuck and tags["the marketplace's ref"] == T else []) \
-        + [f"{n} (not installed)" for n in missing]
+        + [f"{n} (not installed)" for n in missing] + (["the hooks' `rev` (unset: the hooks are local)"] if local else [])
     steps, releases = [], None
     if off:
         if unpinned or stuck:
@@ -3974,8 +4004,11 @@ def kit_pins(root, version, record=None, latest=None, dirty=None, main_tree=None
         steps += [f"claude plugin update {n} --scope {inst[n].get('scope') or 'project'}" for n in lag]
         steps += [f"claude plugin install {n} --scope project" for n in missing]
         if tags.get("the hooks' rev", T) != T:
-            steps.append(f"set the hooks' `rev` to {T} in .pre-commit-config.yaml (`prek autoupdate` or `pre-commit autoupdate` does it), "
-                         "or write them as local hooks running the installed plugin's scripts, which follow the plugins")
+            steps.append(f"set the hooks' `rev` to {T} in .pre-commit-config.yaml (`prek autoupdate` or `pre-commit autoupdate` does it)")
+        if local:
+            steps.append(f"replace the local hooks {', '.join(f'`{h}`' for h in local)} in .pre-commit-config.yaml with the kit's, pinned by `rev`: "
+                         f"`repo: https://github.com/{KIT_REPO}`, `rev: {T}`, the kit's hooks (`flow-check`, `library-check`, `formal-check`, "
+                         "`formal-cite`, `formal-anchors`, `formal-register`, as the project has them)")
         if tags.get("the plugin this runs from", T) != T:
             steps.append(f"move the plugin this runs from to {T}: its agent's marketplace pin, or by hand for a clone or a copy")
         steps.append("restart the session, then read the pins again")

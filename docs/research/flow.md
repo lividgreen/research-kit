@@ -344,7 +344,7 @@ The targets of a bound form are the resolver's, so the flow reads no path out of
 `[kit] release` is a committed fact of the project, so a script on any machine reads the same answer.
 The flow's script reads its own release from the `SKILL.md` beside it, or from the package the remote hooks install; a copy of the script alone has none and refuses nothing on the marker.
 Where the marker is newer than the script, the project was migrated on another machine or checkout and this plugin, or this hook's pinned tag, is behind: every write (a transition, `flow init --force`, `flow doctor --fix`, `flow log add`, `flow index`) is refused and `flow check` reports the mismatch as a problem (exit 1), each naming both releases and the commands that move the plugin, `claude plugin marketplace update research-kit`, `claude plugin update research@research-kit --scope project` and a restart, or `prek autoupdate` for remote hooks; the reads answer, with a warning on the standard error first.
-A remote hook's `rev` is committed, so a checkout gets the tag the migrating commit moved it to; a local hook runs the installed plugin, which refuses as above, so the commit fails with the commands.
+The hooks' `rev` is committed, so a checkout gets the tag the migrating commit moved it to.
 Where the marker is older than the script, nothing refuses: `flow state` prints one line first, `the setup was last brought to vX; this is vY: run /research:research-init`, and `flow check` says nothing.
 A `flow.toml` without the line, written before v0.7.0, is a thing for `flow doctor`'s hand, never mechanical, since the machine does not know which release the project stood at.
 

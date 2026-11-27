@@ -5342,8 +5342,9 @@ forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 
 INSTRUCTIONS = """What the project's instructions (CLAUDE.md, AGENTS.md) should now carry, in their words:
 
-- `flow …` here is the flow skill's script run by its installed path from the project root, no command
-  on PATH: under Claude Code `python3 ~/.claude/plugins/cache/research-kit/research/<version>/skills/flow/scripts/flow.py …`.
+- `flow …` here is the flow skill's script; a session loads the `flow` skill before its first flow command,
+  and the skill gives the script's path, which changes with each release, so no file of the project names it
+  and the project keeps no wrapper or make target over it.
 - The records are `{records}/`, one file each, read through `flow find`, `flow show ID`
   and `flow state`, never by a glob; `flow.toml` binds the names.
 - A record's state changes only through a `flow` transition; bodies are edited by hand,
@@ -7934,6 +7935,9 @@ def selftest():
                    "A session starts with `flow state`, then does what the person's message asks;" in INSTRUCTIONS
                    and "the agent recommends the next moves, the `whatsnext` skill among them" in INSTRUCTIONS
                    and "ends with the\n  `freeze` skill" in INSTRUCTIONS and "starts with the `whatsnext` skill" not in INSTRUCTIONS)
+            expect("the paragraphs name no plugin-cache path and no wrapper: the script's path is the skill's to give, and the project keeps none",
+                   "plugins/cache" not in INSTRUCTIONS and "<version>" not in INSTRUCTIONS and "the skill gives the script's path" in INSTRUCTIONS
+                   and "keeps no wrapper or make target over it" in INSTRUCTIONS)
             expect("the paragraphs name neither a skill's steps nor what flow state lists, which the skills and the command carry",
                    "the hands" not in INSTRUCTIONS and "the hand reviewed" not in INSTRUCTIONS and "the hand is filled" not in INSTRUCTIONS
                    and "the cold-start bundle a session reads first" in INSTRUCTIONS)
