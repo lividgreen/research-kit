@@ -79,7 +79,7 @@ no --summary, a goal and a direction may have none:
 A transition that changes a record's state, or parks, unparks, blocks or unblocks it, names the records that refer
 to it, which may need a follow-up; it refuses nothing for them.
 
-Views: find, show, about, table (the hands, the decks and the piles as they lie), graph, state (the cold-start bundle), directions, tags, artifacts, index [--check | --print],
+Views: find, show, about, table (the hands, the decks and the piles as they lie), graph, state (the cold-start bundle), directions, tags, artifacts, parts, index [--check | --print],
 check; `pages` (the dashboard's page manifest); `--json` on every command.
 
   flow state --check             what a machine sees of a freeze: the log's top entry today's where the tree
@@ -440,6 +440,28 @@ class Config:
             raise Refused(f"flow.toml: [card] values {values!r} is not a list of distinct words, in rising order, none of them `none` "
                           "(the word that clears a value)")
         self.values = tuple(values)
+        # [documents]: the documents compiled from the records.  `globs` the files read (unset or empty: the feature is off),
+        # `must` the regular expressions a line matches to be a part that must name a finding, `strict` whether the check
+        # fails such a part with no label.
+        docs = raw.get("documents", {})
+        if not isinstance(docs, dict):
+            raise Refused("flow.toml: [documents] is a table of globs, a list of patterns, must, a list of regular expressions, and strict, true or false")
+        for key in docs:
+            if key not in ("globs", "must", "strict"):
+                raise Refused(f"flow.toml: [documents] {key} is no key of the table: it holds globs, must and strict")
+        globs, must, strict = docs.get("globs", []), docs.get("must", []), docs.get("strict", False)
+        if not isinstance(globs, list) or not all(isinstance(g, str) and g.strip() and not posixpath.isabs(g) and ".." not in g.split("/") for g in globs):
+            raise Refused(f"flow.toml: [documents] globs {globs!r} is not a list of patterns, each written from the project root and inside it (`papers/*.md`)")
+        if not isinstance(must, list) or not all(isinstance(p, str) for p in must):
+            raise Refused(f"flow.toml: [documents] must {must!r} is not a list of regular expressions")
+        if not isinstance(strict, bool):
+            raise Refused(f"flow.toml: [documents] strict {strict!r} is not true or false")
+        self.doc_globs, self.doc_strict, self.doc_must = tuple(globs), strict, []
+        for p in must:
+            try:
+                self.doc_must.append(re.compile(p))
+            except re.error as e:
+                raise Refused(f"flow.toml: [documents] must {p!r} is no regular expression: {e}")
         # The reference library, when the project has one: the command that answers `keys`
         # with its cite prefix and every card's state and grade.  The flow knows no more of it.
         lib_cmd = raw.get("library", {}).get("command")
@@ -1940,6 +1962,11 @@ def validate(cfg, recs, today):
         lim = int(cfg.hand.get(o, 0) or 0)
         if lim and n > lim:
             problems.append({"code": "V9", "id": None, "path": None, "msg": f"{o} holds {n} cards; limit {lim}"})
+    # the documents compiled from the records: the labels' places and the records they name (D1 to D4, D5 where strict)
+    docs = read_documents(cfg, recs)
+    problems += [p for d in docs for p in d["problems"]]
+    coverage["documents"] = {"files": len(docs), "labelled": sum(len(d["parts"]) for d in docs), "unlabelled": sum(len(d["missing"]) for d in docs),
+                             "strict": cfg.doc_strict} if cfg.doc_globs else None
     # index freshness
     if cfg.index.is_file():
         have, want = cfg.index.read_text(encoding="utf-8"), render_index(cfg, recs)
@@ -3332,13 +3359,18 @@ def refers_to(r, target, opaque=("formal", "peer-reviewed")):
     return target in tree_links(r.body)
 
 
-def referrers(recs, target, deep=False, opaque=("formal", "peer-reviewed"), depth=1):
+def referrers(recs, target, deep=False, opaque=("formal", "peer-reviewed"), depth=1, also=()):
     """The ids of the records naming `target` within `depth` steps (1 the records naming it); with `deep`, of those naming
-    them, and so on, with no bound."""
+    them, and so on, with no bound.  `also` are records that name it besides, at the first step (the records a document's labels
+    name, where `target` is that document)."""
     found, frontier, step = set(), [target], 0
     while frontier and (deep or step < depth):
         step += 1
         nxt = []
+        for i in also if step == 1 else ():
+            if i in recs and i not in found and i != target:
+                found.add(i)
+                nxt.append(i)
         for x in frontier:
             for r in recs.values():
                 if r.id not in found and r.id != target and refers_to(r, x, opaque):
@@ -3378,7 +3410,9 @@ def cmd_find(cfg, recs, a, today):
     if a.value and a.value != "none" and a.value not in cfg.values:
         raise Refused(f"--value {a.value!r} is not one of {', '.join(cfg.values)}, nor `none` (the cards not judged)")
     target = a.refers if not a.refers or a.refers in recs else norm_path(a.refers)  # a path is compared as the records carry it
-    naming = referrers(recs, target, a.deep, cfg.opaque_forms, a.depth or 1) if a.refers else None
+    # a document `[documents] globs` names: the records its labels name are among those naming it
+    labelled = {p["id"] for d in read_documents(cfg, None, [target]) for p in d["parts"]} if a.refers and target not in recs and target in document_files(cfg) else ()
+    naming = referrers(recs, target, a.deep, cfg.opaque_forms, a.depth or 1, labelled) if a.refers else None
     for r in recs.values():
         if a.type and r.type != a.type:
             continue
@@ -3458,9 +3492,16 @@ def cmd_artifacts(cfg, recs, a, today):
     tree, with the records naming it and
     whether it is in the tree: the artifacts index, a pure function of the records."""
     paths = defaultdict(list)
+    stated = defaultdict(set)  # a document `[documents] globs` names -> the records its labels name
+    for d in read_documents(cfg, None):
+        for part in d["parts"]:
+            stated[d["path"]].add(part["id"])
     for r in sorted(recs.values(), key=lambda r: r.id):
         if r["state"] == "removed":
             continue
+        for doc in sorted(stated):
+            if r.id in stated[doc]:
+                paths[doc].append({"id": r.id, "via": "label"})
         for e in (r["evidence"] or []) if "evidence" in r.fm else []:
             p = evidence_path(e, cfg.opaque_forms)
             if p:
@@ -3547,6 +3588,10 @@ def cmd_uncited(cfg, recs, path):
                 direct.add(i)
         if bare:
             unanchored.append(r.id)
+    if norm in document_files(cfg):  # a labelled part is cited where its label names a live record (a standing finding, an open question)
+        labelled = {p["line"] for d in read_documents(cfg, None, [norm]) for p in d["parts"]  # its line, which a label alone under it names too
+                    if p["id"] in recs and recs[p["id"]].type in ("finding", "question") and live(recs[p["id"]])}
+        direct |= {i for i, p in enumerate(places) if p["line"] in labelled}
     cited = set(direct)
     for i, p in enumerate(places):
         if p["level"] is not None:
@@ -3554,6 +3599,166 @@ def cmd_uncited(cfg, recs, path):
             if any(j in direct for j in range(i, end)):
                 cited.add(i)
     return [dict(p, text=p["text"][:100]) for i, p in enumerate(places) if i not in cited], len(cited), unanchored
+
+
+# --- documents compiled from findings: the labels ------------------------------------
+#
+# A document of the project (`[documents] globs`) states results the records hold; a part of it names the record it states by a
+# label, an HTML comment holding one record id, alone on the line directly under the part or closing its line.  One reader finds
+# the labels and the parts that must carry one; the check (D1 to D5) and the views read its answer.
+
+PART_CUT = 100  # the characters of a part's line that a part carries
+
+
+def document_files(cfg):
+    """The files `[documents] globs` names, as paths from the project root, sorted; none where `globs` is unset or empty."""
+    found = set()
+    for g in cfg.doc_globs:
+        found |= {p.relative_to(cfg.root).as_posix() for p in cfg.root.glob(g) if p.is_file()}
+    return sorted(found)
+
+
+def label_pattern(cfg):
+    """The text of a label, the id as this project's `flow.toml` shapes ids: a prefix of a kind, a hyphen, digits."""
+    return r"<!--[ \t]*((?:%s)-\d+)[ \t]*-->" % "|".join(map(re.escape, cfg.prefix.values()))
+
+
+def read_document(cfg, recs, path, text, strict=None):
+    """The labels of one document's text (the lines outside code fences and a leading front matter block): returns
+    `(parts, missing, problems)`.  `parts` are the labelled parts in the file's order, each `{"path", "line", "id", "text", "must"}`:
+    `line` is the labelled line (1-based), `text` that line as written without its label, cut to 100 characters, `must` whether
+    a `[documents] must` pattern matches it.  `missing` are the parts that must name a record and carry no label, `{"path", "line",
+    "text"}`.  `problems` are the check's D1 to D5 in the shape `{"code", "id", "path", "msg"}`, the message opening `line N:`,
+    in the file's order; D5 only where `strict` is true (None reads `[documents] strict`).  A label is in one of two places: alone on
+    its line, directly under a line of text (blank or code above it, another label or nothing, and it is misplaced, D3), or
+    closing a line, after its text; the part is that line.  Two labels on one part are D3 and the first stands for it.
+    `recs` is the project's records, None where the caller wants no D1, D2 or D4."""
+    strict = cfg.doc_strict if strict is None else strict
+    lines = text.split("\n")
+    pat = label_pattern(cfg)
+    alone, tail = re.compile(r"[ \t]*%s[ \t]*" % pat), re.compile(r"%s[ \t]*$" % pat)
+    cands, found = {}, []  # line index -> {"text", "ids"}; (line index, problem)
+    fence, above = None, None  # the line above: None, "blank", "code", "label", "text"
+
+    def bad(n, code, id_, msg):
+        found.append((n, {"code": code, "id": id_, "path": path, "msg": f"line {n + 1}: {msg}"}))
+
+    for n in range(front_end(lines), len(lines)):
+        line = lines[n]
+        was, fence = fence, fence_after(fence, line)
+        if was is not None or fence is not None:
+            above = "code"
+            continue
+        if not line.strip():
+            above = "blank"
+            continue
+        m = alone.fullmatch(line)
+        if m:
+            if above == "text":
+                cands[n - 1]["ids"].append((m.group(1), n))
+            else:
+                bad(n, "D3", m.group(1), f"the label {m.group(1)} is alone on its line with "
+                    + {None: "nothing above it", "blank": "a blank line above it", "label": "another label alone on the line above it",
+                       "code": "a code fence above it"}[above] + ": it stands directly under the line it labels")
+            above = "label"
+            continue
+        body, ids = line.rstrip(), []
+        while (m := tail.search(body)) and body[:m.start()].strip():
+            ids.insert(0, (m.group(1), n))
+            body = body[:m.start()].rstrip()
+        if ids and re.fullmatch(pat, body.strip()):  # a line of nothing but labels is no part
+            above = "label"
+            continue
+        cands[n] = {"text": body.strip(), "ids": ids}
+        above = "text"
+    parts, missing = [], []
+    for n in sorted(cands):
+        c = cands[n]
+        must = any(rx.search(c["text"]) for rx in cfg.doc_must)
+        if len(c["ids"]) > 1:
+            bad(n, "D3", c["ids"][1][0], f"two labels on one part, {' and '.join(i for i, _ in c['ids'])}: a part names one record, "
+                "and one that states several findings names their composite")
+        if not c["ids"]:
+            if must:
+                missing.append({"path": path, "line": n + 1, "text": c["text"][:PART_CUT]})
+                if strict:
+                    bad(n, "D5", None, f"a part that must name a finding carries no label: {c['text'][:PART_CUT]}")
+            continue
+        id_ = c["ids"][0][0]
+        parts.append({"path": path, "line": n + 1, "id": id_, "text": c["text"][:PART_CUT], "must": must})
+        if recs is None:
+            continue
+        r = recs.get(id_)
+        if r is None:
+            bad(n, "D1", id_, f"the label {id_} names no record of the project")
+        elif r["state"] == "removed":
+            bad(n, "D1", id_, f"the label {id_} names a removed record")
+        elif r.type not in ("finding", "question"):
+            bad(n, "D1", id_, f"the label {id_} names {'an' if r.type[0] in 'aeiou' else 'a'} {r.type}: a label names a finding or a question")
+        else:
+            if (r.type == "finding" and r["state"] != "standing") or (r.type == "question" and r["state"] != "open"):
+                bad(n, "D2", id_, f"the label {id_} names a {r.type} that is {r['state']}, not {'standing' if r.type == 'finding' else 'open'}")
+            if must and r.type == "question":
+                bad(n, "D4", id_, f"a part that must name a finding names {id_}, a question")
+    return parts, missing, [p for _, p in sorted(found, key=lambda x: x[0])]
+
+
+def read_documents(cfg, recs, paths=None, strict=None):
+    """What the labels of the documents `[documents] globs` names say, one dict a document in path order, `[]` where the feature is
+    off: `{"path", "parts", "missing", "problems"}`, each as `read_document` returns it.  `paths`, the documents wanted (each must
+    be one of the globs' files, or it is refused naming it), narrows it.  This is the one reader of labels: the check, `flow parts`
+    and the views that say where a record is stated all read it."""
+    files = document_files(cfg)
+    if paths is not None:
+        want = []
+        for p in paths:
+            n = norm_path(p)
+            if n not in files:
+                raise Refused(f"{p} is not among the files [documents] globs names ({', '.join(cfg.doc_globs) or 'none bound'})")
+            if n not in want:
+                want.append(n)
+        files = sorted(want)
+    out = []
+    for f in files:
+        try:
+            text = (cfg.root / f).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise Refused(f"{f}, named by [documents] globs, cannot be read as text: {e}")
+        parts, missing, problems = read_document(cfg, recs, f, text, strict)
+        out.append({"path": f, "parts": parts, "missing": missing, "problems": problems})
+    return out
+
+
+def stated_in(cfg, r):
+    """The parts of the scanned documents whose labels name record `r`, in path and line order: where it is stated."""
+    if not cfg.doc_globs or r.type not in ("finding", "question"):
+        return []
+    return [p for d in read_documents(cfg, None) for p in d["parts"] if p["id"] == r.id]
+
+
+def cmd_parts(cfg, recs, a):
+    """`flow parts`: the labelled parts of the scanned documents, the held parts with no label, the failures and the counts.
+    Returns (the text's lines, the JSON's keys, the exit code's problems: D1 to D4, and D5 where `--strict`)."""
+    if not cfg.doc_globs:
+        return ["no documents bound: [documents] globs in flow.toml"], {"documents": [], "parts": [], "missing": [], "problems": []}, []
+    docs = read_documents(cfg, recs, a.paths or None, bool(a.strict))
+    parts, missing = [p for d in docs for p in d["parts"]], [m for d in docs for m in d["missing"]]
+    problems = [p for d in docs for p in d["problems"]]
+    summary = [{"path": d["path"], "held": sum(p["must"] for p in d["parts"]) + len(d["missing"]), "labelled": sum(p["must"] for p in d["parts"]),
+                "other": sum(not p["must"] for p in d["parts"])} for d in docs]
+    keys = {"documents": summary, "parts": parts, "missing": missing, "problems": problems}
+    gone = [f"{m['path']}:{m['line']}: no label — {m['text']}" for m in missing]
+    if a.missing:
+        return gone or ["no held part without a label"], keys, problems
+    title = lambda i: f"{i} ({recs[i]['title']})" if i in recs else f"{i} (no such record)"
+    lines = [f"{p['path']}:{p['line']}: {title(p['id'])} — {p['text']}" for p in parts] + gone
+    lines += [f"{p['path']}: {p['code']} {p['msg']}" for p in problems]
+    lines += [f"{s['path']}: {s['labelled']} of {s['held']} held part(s) labelled, {s['other']} other part(s) naming a record" for s in summary]
+    naming = lambda t, state: sum(1 for p in parts if p["id"] in recs and recs[p["id"]].type == t and recs[p["id"]]["state"] == state)
+    lines.append(f"parts: {naming('finding', 'standing')} labelled naming a finding, {naming('question', 'open')} naming an open question, "
+                 f"{len(missing)} held part(s) with no label, {len(problems)} failure(s)")
+    lines.append("not checked: whether a part's text is its record's claim, and whether unlabelled text states a result")
+    return lines, keys, problems
 
 
 ABOUT_DEPTH = 2  # the links `flow about` follows from the records it is given where --depth is not given
@@ -3706,6 +3911,10 @@ def show_text(cfg, recs, r, today):
         for f, ids in bl.items():
             for i in ids:
                 lines.append(f"  {f} ← {i} — {recs[i]['title']}")
+    stated = stated_in(cfg, r)
+    if stated:
+        lines.append("stated in:")
+        lines += [f"  {p['path']}:{p['line']} — {p['text']}" for p in stated]
     return "\n".join(lines)
 
 
@@ -4917,6 +5126,9 @@ BINDING_READERS = {
     "evidence.row_id": "`flow check` and the evidence mints: the pattern a table row's id matches",
     "evidence.probes": "`flow check`: the probes register statistical evidence resolves against",
     "library.command": "`flow check`: the command that answers the library's keys",
+    "documents.globs": "`flow check`, `flow parts`, `flow show`, `flow find --refers` and `flow artifacts`: the documents compiled from the records, whose labels are read",
+    "documents.must": "`flow check` and `flow parts`: the lines that are parts which must name a finding",
+    "documents.strict": "`flow check`: whether a part that must name a finding and carries no label fails",
     "index.recent_findings": "`flow index`: how many recent findings the index lists",
     "index.oldest_ideas": "`flow index`: how many of the oldest ideas the index lists",
     "index.due_within": "`flow state`: how far ahead the due list reaches",
@@ -5117,6 +5329,14 @@ forms = ["formal", "statistical", "peer-reviewed", "stated", "reference"]
 # flow asks the library skill installed beside the flow skill, else `library` on PATH, either only
 # where a library.toml stands at the root; `command = []` asks none.
 # command = ["library"]
+
+[documents]
+# The documents compiled from the records: a part of one names the finding it states, or an open question,
+# by a label in its source, `<!-- finding-0012 -->`, alone on the line under the part or closing its line.
+# globs = ["papers/*.md"]     # the documents read, from the project root; unset, none, and the labels are not checked
+# must = ['^\\*\\*(Theorem|Proposition|Lemma|Corollary) \\d+(\\.\\d+)*']   # regular expressions: a line one of them
+#                                                                    # matches is a part that must name a finding
+# strict = false              # true: `flow check` fails a `must` part with no label; false, `flow parts` reports it
 
 """
 
@@ -8989,6 +9209,241 @@ def selftest():
         for argv, why in (([str(r10 / "nowhere.md")[len(str(r10)) + 1:]], "a path that is no file"), (["d.csv"], "a file that is not Markdown"), (["../paper.md"], "a path outside the tree")):
             rc, p = un(*argv)
             expect(f"planted: {why} is refused", rc == 1)
+    # the documents compiled from findings: `[documents]`, the labels' reader, D1 to D5, `flow parts`
+    with tempfile.TemporaryDirectory() as t11:
+        r11 = Path(t11)
+        do_init(r11, build_parser().parse_args(["init"]))
+        init11 = (r11 / "flow.toml").read_text(encoding="utf-8")
+        cfg11 = lambda: Config(r11)
+        say11 = lambda argv: dispatched(cfg11(), argv, today=today, as_json=True, quiet=True)
+        text11 = lambda argv: text_of(cfg11(), argv).splitlines()
+        mk11 = lambda argv: say11(argv)[1]["created"][0]
+
+        def bind11(body):
+            """The project's flow.toml with the `[documents]` table holding `body` (init's own, every key commented, where None)."""
+            text = init11 if body is None else re.sub(r"(?s)\[documents\]\n.*?\n\n\[index\]", lambda m: f"[documents]\n{body}\n\n[index]", init11)
+            (r11 / "flow.toml").write_text(text, encoding="utf-8")
+
+        documents = init11.split("[documents]\n", 1)[1].split("\n\n[index]", 1)[0].splitlines()
+        expect("flow init writes [documents] with every key commented, the way a label reads, and Config reads it as off",
+               len(documents) == 6 and all(l.startswith("#") for l in documents) and "<!-- finding-0012 -->" in documents[1]
+               and documents[2].startswith('# globs = ["papers/*.md"]') and documents[3].startswith("# must = ['^\\*\\*(Theorem|Proposition|Lemma|Corollary) \\d+(\\.\\d+)*']")
+               and documents[5].startswith("# strict = false") and (cfg11().doc_globs, cfg11().doc_must, cfg11().doc_strict) == ((), [], False))
+        expect("flow doctor's notes name no key of [documents] where flow init wrote the table", not any(n["key"].startswith("[documents]") for n in doctor_notes(cfg11())))
+        old11 = init11.split("\n[documents]\n", 1)[0] + "\n[index]" + init11.split("\n[index]", 1)[1]
+        (r11 / "flow.toml").write_text(old11, encoding="utf-8")
+        expect("flow doctor's notes name the three keys of a flow.toml written before [documents], with what reads them",
+               {n["key"] for n in doctor_notes(cfg11())} == {"[documents] globs", "[documents] must", "[documents] strict"}
+               and all("flow check" in n["reads"] for n in doctor_notes(cfg11())))
+        bind11(None)
+        rc, p = say11(["parts"])
+        expect("with no globs flow parts prints one line and exits 0, flow check says nothing of documents and reads no file",
+               rc == 0 and text11(["parts"]) == ["no documents bound: [documents] globs in flow.toml"] and p["documents"] == [] and p["parts"] == [] and p["missing"] == []
+               and say11(["check"])[1]["coverage"]["documents"] is None and not any(l.startswith("documents:") for l in text11(["check"])))
+        bind11("globs = []\nmust = ['^Theorem']")
+        expect("globs empty is as unset: the feature is off", text11(["parts"]) == ["no documents bound: [documents] globs in flow.toml"] and read_documents(cfg11(), {}) == [])
+        for body, why, word in (('globs = "papers/*.md"', "globs that is no list", "globs"), ("globs = [3]", "a glob that is no string", "globs"),
+                                ('globs = ["/papers/*.md"]', "an absolute glob", "globs"), ('globs = ["../papers/*.md"]', "a glob climbing out of the tree", "globs"),
+                                ('globs = [""]', "an empty glob", "globs"), ("must = '^Theorem'", "must that is no list", "must"), ("must = [3]", "a pattern that is no string", "must"),
+                                ("must = ['^(Theorem']", "an invalid regular expression", "'^(Theorem'"), ('strict = "yes"', "strict that is no boolean", "strict"),
+                                ("strict = 1", "strict that is a number", "strict"), ('globs = ["a.md"]\nlabels = true', "another key", "labels")):
+            bind11(body)
+            try:
+                Config(r11)
+                refused_ = ""
+            except Refused as e:
+                refused_ = str(e)
+            expect(f"planted: [documents] with {why} is refused when flow.toml is read, naming it", "[documents]" in refused_ and word in refused_)
+        (r11 / "flow.toml").write_text("documents = 3\n" + old11, encoding="utf-8")
+        try:
+            Config(r11)
+            refused_ = ""
+        except Refused as e:
+            refused_ = str(e)
+        expect("planted: [documents] that is no table is refused", "[documents]" in refused_)
+        # the records the labels name
+        bind11(None)
+        EV11 = ["--evidence", "reference:https://example.org/x"]
+        f1, f2, f_old = (mk11(["finding", t, "--summary", "A result.", *EV11]) for t in ("Result one", "Result two", "Result gone"))
+        q_open, q_done = (mk11(["question", t, "--summary", "A question."]) for t in ("Open question", "Answered question"))
+        f_ans = mk11(["finding", "The answer", "--summary", "It is so.", *EV11, "--answers", q_done])
+        t11 = mk11(["task", "A task", "--summary", "A task."])
+        say11(["remove", f_old, "--reason", "planted: false"])
+        MUST11 = "'^\\*\\*(Theorem|Lemma) \\d+', '^Fact \\d+'"
+        bind11(f'globs = ["papers/*.md", "notes/**/*.md"]\nmust = [{MUST11}]')
+        (r11 / "papers").mkdir()
+        (r11 / "notes" / "deep").mkdir(parents=True)
+        doc = "\n".join([
+            "---", "title: Paper", "<!-- finding-0001 -->", "---",                      # 1-4: front matter: no label
+            f"<!-- {f1} -->",                                                          # 5: nothing above it (the front matter is no line above)
+            "# Paper", "",
+            "**Theorem 1.** One.", f"<!-- {f1} -->",                                    # the statement form, 8-9
+            "**Lemma 2.** Two. " + f"<!-- {f2} -->",                                     # a statement closing its line
+            "**Theorem 3.** Unlabelled.", "",                                           # held, no label
+            "- an item stating one " + f"<!-- {f1} -->", "- an item that is not held",   # list items
+            "| ID | Claim |", "|---|---|", f"| FV-1 | the claim | <!-- {f2} -->", "",      # a table row
+            "Fact 4. A question's part.", f"<!-- {q_open} -->", "",                       # a held part naming a question
+            "**Theorem 5.** Blank between.", "", f"<!-- {f1} -->", "",                   # misplaced: blank line above
+            "A line, labelled.", f"<!-- {f1} -->", f"<!-- {f2} -->", "",                 # the second label is misplaced: another label above
+            "**Theorem 6.** Two labels. " + f"<!-- {f1} --> <!-- {f2} -->", "",           # two labels on one part
+            "**Theorem 7.** Gone. " + f"<!-- {f_old} -->", "**Theorem 8.** Never. <!-- finding-0099 -->",
+            "**Theorem 9.** A task. " + f"<!-- {t11} -->",
+            "- Closed. " + f"<!-- {q_done} -->", "",
+            "```", "**Theorem 11.** In code. <!-- finding-0099 -->", "```", "",
+            "Text <!-- a note --> and <!-- finding-0099 extra --> and <!-- Finding-0001 --> and <!-- finding-0001 --><!-- --> after.", "",
+            f"A part <!-- {f1} --> not at the end, then words.", "",
+            "<!-- " + f2 + " --><!-- " + f1 + " -->", "last line"])
+        (r11 / "papers" / "p.md").write_text(doc + "\n", encoding="utf-8")
+        at = lambda start: next(i for i, l in enumerate(doc.split("\n"), 1) if l.startswith(start))
+        parts, missing, problems = read_document(cfg11(), load_all(cfg11()), "papers/p.md", doc + "\n", strict=True)
+        got = {(p["line"], p["id"], p["must"]) for p in parts}
+        expect("the reader finds a statement labelled by the line under it and by a closing label, a list item, a table row; the part is the labelled line",
+               {(at("**Theorem 1."), f1, True), (at("**Lemma 2."), f2, True), (at("- an item stating"), f1, False), (at("| FV-1"), f2, False)} <= got
+               and next(p for p in parts if p["line"] == at("**Theorem 1."))["text"] == "**Theorem 1.** One."
+               and next(p for p in parts if p["line"] == at("| FV-1"))["text"] == "| FV-1 | the claim |"
+               and next(p for p in parts if p["line"] == at("**Lemma 2."))["text"] == "**Lemma 2.** Two."
+               and all(set(p) == {"path", "line", "id", "text", "must"} and p["path"] == "papers/p.md" for p in parts))
+        expect("a label in the front matter, one in a code fence, a comment that is no id, an id with words, a capital or a mid-line label are no labels",
+               at("**Theorem 11.") not in {p["line"] for p in parts} and not any(p["line"] in (3,) for p in parts)
+               and not any(p["id"] == "finding-0099" and p["line"] == at("Text <!--") for p in parts) and at("A part <!--") not in {p["line"] for p in parts}
+               and not [x for x in parts if x["line"] == at("Text <!--")])
+        codes11 = lambda code: sorted(int(p["msg"].split(":")[0][5:]) for p in problems if p["code"] == code)  # the lines of a code's problems
+        expect("D3: an alone label with nothing above it, with a blank line above it, under another alone label; two labels on one part",
+               codes11("D3") == [5, at("**Theorem 5.") + 2, at("A line, labelled.") + 2, at("**Theorem 6.")])
+        expect("D3 names the label's record and the document", all(p["id"] and p["path"] == "papers/p.md" for p in problems if p["code"] == "D3"))
+        d3 = {p["msg"].split(":")[0]: p for p in problems if p["code"] == "D3"}
+        expect("D3 gives each reading: nothing above, a blank line, another label, two labels on one part",
+               "nothing above it" in d3["line 5"]["msg"] and "a blank line above it" in d3[f"line {at('**Theorem 5.') + 2}"]["msg"]
+               and "another label alone" in d3[f"line {at('A line, labelled.') + 2}"]["msg"] and "two labels on one part" in d3[f"line {at('**Theorem 6.')}"]["msg"])
+        expect("D1: a label naming no record, a removed record, a task", sorted((int(p["msg"].split(":")[0][5:]), p["id"]) for p in problems if p["code"] == "D1")
+               == sorted([(at("**Theorem 7."), f_old), (at("**Theorem 8."), "finding-0099"), (at("**Theorem 9."), t11)]))
+        expect("D2: a label naming a question that is not open; D4: a held part naming a question", [(p["id"]) for p in problems if p["code"] == "D2"] == [q_done]
+               and [(p["id"]) for p in problems if p["code"] == "D4"] == [q_open])
+        expect("D5 where strict: each held part with no label, naming its line", sorted(int(p["msg"].split(":")[0][5:]) for p in problems if p["code"] == "D5")
+               == sorted(m["line"] for m in missing) and at("**Theorem 3.") in [m["line"] for m in missing] and at("**Theorem 5.") in [m["line"] for m in missing])
+        expect("without strict the reader reports no D5, the missing parts as ever",
+               not [p for p in read_document(cfg11(), load_all(cfg11()), "papers/p.md", doc + "\n", strict=False)[2] if p["code"] == "D5"]
+               and len(read_document(cfg11(), load_all(cfg11()), "papers/p.md", doc + "\n", strict=False)[1]) == len(missing))
+        expect("recs None asks no record: no D1, D2 or D4", {p["code"] for p in read_document(cfg11(), None, "papers/p.md", doc + "\n")[2]} == {"D3"})
+        (r11 / "notes" / "deep" / "n.md").write_text(f"Fact 1. Elsewhere.\n<!-- {f1} -->\n\nFact 2. Bare.\n", encoding="utf-8")
+        (r11 / "notes" / "skip.txt").write_text(f"Fact 1. Not read. <!-- finding-0099 -->\n", encoding="utf-8")
+        rd = read_documents(cfg11(), load_all(cfg11()))
+        expect("the globs name the files, from the root, ** reaching down, in path order, a file the globs do not name unread",
+               [d["path"] for d in rd] == ["notes/deep/n.md", "papers/p.md"] and rd[0]["parts"][0]["line"] == 1 and [m["line"] for m in rd[0]["missing"]] == [4]
+               and document_files(cfg11()) == ["notes/deep/n.md", "papers/p.md"])
+        expect("several parts, in one document or in several, may name one record", sum(1 for d in rd for p in d["parts"] if p["id"] == f1) >= 5)
+        # flow parts
+        rc, p = say11(["parts"])
+        expect("flow parts exits 1 for a D1 to D4 problem, and carries the keys documents, parts, missing, problems",
+               rc == 1 and {"documents", "parts", "missing", "problems"} <= set(p) and {x["code"] for x in p["problems"]} == {"D1", "D2", "D3", "D4"})
+        pd = {d["path"]: d for d in p["documents"]}
+        expect("the documents' counts: held parts, those labelled, the other parts naming a record",
+               pd["notes/deep/n.md"] == {"path": "notes/deep/n.md", "held": 2, "labelled": 1, "other": 0}
+               and pd["papers/p.md"] == {"path": "papers/p.md", "held": 9, "labelled": 7, "other": 4})
+        lines = text11(["parts"])
+        n_lines = [l for l in lines if l.startswith("notes/deep/n.md:")]
+        expect("the text: a line a labelled part, `PATH:LINE: ID (title) — the line`, then the held parts with no label, then the failures, the document lines, the totals, the last line",
+               lines[0] == f"notes/deep/n.md:1: {f1} (Result one) — Fact 1. Elsewhere." and f"papers/p.md:{at('**Theorem 3.')}: no label — **Theorem 3.** Unlabelled." in lines
+               and lines.index(f"papers/p.md:{at('**Theorem 3.')}: no label — **Theorem 3.** Unlabelled.") > lines.index(f"papers/p.md:{at('- an item stating')}: {f1} (Result one) — - an item stating one")
+               and "notes/deep/n.md: 1 of 2 held part(s) labelled, 0 other part(s) naming a record" in lines
+               and any(l.startswith("papers/p.md: D3 line 5:") for l in lines)
+               and lines[-2].startswith("parts: ") and lines[-1] == "not checked: whether a part's text is its record's claim, and whether unlabelled text states a result")
+        expect("a label naming no record is listed as such", any(l.endswith("Never.") and "finding-0099 (no such record)" in l for l in lines))
+        tot = next(l for l in lines if l.startswith("parts: "))
+        expect("the totals: findings standing, open questions, held parts with no label, failures", tot == f"parts: {sum(1 for x in p['parts'] if x['id'] in (f1, f2))} labelled naming a finding, "
+               f"{sum(1 for x in p['parts'] if x['id'] == q_open)} naming an open question, {len(p['missing'])} held part(s) with no label, {len(p['problems'])} failure(s)")
+        rc, p1 = say11(["parts", "notes/deep/n.md"])
+        expect("flow parts PATH reads that document alone, and a path beside the globs is refused naming it",
+               rc == 0 and [d["path"] for d in p1["documents"]] == ["notes/deep/n.md"] and say11(["parts", "README.md"])[0] == 1
+               and "README.md" in say11(["parts", "README.md"])[1]["problems"][0]["msg"] and say11(["parts", "notes/skip.txt"])[0] == 1)
+        expect("a path is read as the records read one: ./notes//deep/n.md is the same file", say11(["parts", "./notes//deep/n.md"])[0] == 0)
+        rc, pm = say11(["parts", "--missing", "notes/deep/n.md"])
+        expect("--missing prints the held parts with no label alone, and without strict exits 0 for them",
+               rc == 0 and text11(["parts", "--missing", "notes/deep/n.md"]) == ["notes/deep/n.md:4: no label — Fact 2. Bare."])
+        rc, _ = say11(["parts", "--strict", "notes/deep/n.md"])
+        expect("--strict exits 1 where a held part has no label, whatever strict in flow.toml says", rc == 1 and say11(["parts", "notes/deep/n.md"])[0] == 0)
+        expect("--missing with nothing missing says so", text11(["parts", "--missing", "notes/deep/n.md"]) != [] and
+               (r11 / "notes" / "deep" / "n.md").write_text(f"Fact 1. Elsewhere.\n<!-- {f1} -->\n", encoding="utf-8") is not None
+               and text11(["parts", "--missing", "notes/deep/n.md"]) == ["no held part without a label"])
+        # flow check
+        rc, pc = say11(["check"])
+        found = {x["code"] for x in pc["problems"]}
+        expect("flow check fails D1 to D4 with strict unset, each problem shaped {code, id, path, msg} and naming the document and the line",
+               rc == 1 and found >= {"D1", "D2", "D3", "D4"} and "D5" not in found
+               and all(set(x) == {"code", "id", "path", "msg"} and x["path"] == "papers/p.md" and x["msg"].startswith("line ") for x in pc["problems"] if x["code"].startswith("D")))
+        expect("flow check says what it read of the documents", pc["coverage"]["documents"] == {"files": 2, "labelled": 11 + 1, "unlabelled": 2, "strict": False})
+        bind11(f'globs = ["papers/*.md", "notes/**/*.md"]\nmust = [{MUST11}]\nstrict = true')
+        rc, pc = say11(["check"])
+        expect("with strict = true flow check fails each held part with no label as D5, and flow parts without --strict still exits for D1 to D4 alone",
+               "D5" in {x["code"] for x in pc["problems"]} and sum(x["code"] == "D5" for x in pc["problems"]) == 2
+               and "documents: 2 file(s) read" in "\n".join(text11(["check"])) and "a failure: [documents] strict is true" in "\n".join(text11(["check"])))
+        (r11 / "papers" / "p.md").write_text("**Theorem 1.** Alone.\n", encoding="utf-8")
+        rc_strict, pc = say11(["check"])
+        rc_parts, pp = say11(["parts"])
+        expect("with D1 to D4 clean and a held part bare: the check fails it only under strict, flow parts exits 0 without --strict and 1 with it",
+               rc_strict == 1 and [x["code"] for x in pc["problems"]] == ["D5"] and rc_parts == 0 and pp["problems"] == [] and len(pp["missing"]) == 1
+               and say11(["parts", "--strict"])[0] == 1)
+        bind11(f'globs = ["papers/*.md"]\nmust = [{MUST11}]')
+        (r11 / "papers" / "p.md").write_text(f"**Theorem 1.** Alone.\n<!-- {f1} -->\n**Theorem 2.** Two.\n<!-- {f2} -->\n", encoding="utf-8")
+        rc, pc = say11(["check"])
+        expect("a corpus clean of every code: the check is green, flow parts exits 0 with the counts", rc == 0 and pc["problems"] == [] and
+               text11(["parts"])[-2] == "parts: 2 labelled naming a finding, 0 naming an open question, 0 held part(s) with no label, 0 failure(s)")
+        # every D code the check can report is planted above
+        planted11 = {x["code"] for x in pc["problems"]} | found | {"D5"}
+        reportable11 = set(re.findall(r'bad\(n, "(D\d+)"', SOURCE))
+        expect(f"every document code the check can report is planted ({', '.join(sorted(reportable11 - planted11)) or 'none missing'})", reportable11 <= planted11 and reportable11 == {"D1", "D2", "D3", "D4", "D5"})
+        # where a record is stated: show, find --refers, artifacts, artifacts --uncited, the notice
+        bind11(f'globs = ["papers/*.md"]\nmust = [{MUST11}]')
+        for old in (r11 / "papers").glob("*.md"):
+            old.unlink()
+        pdoc = ["# Paper", "", "## Results", "**Theorem 1.** Alone.", f"<!-- {f1} -->", f"**Lemma 2.** Two. <!-- {f2} -->", "Fact 3. Not labelled.", "",
+                "| ID | Claim |", "|---|---|", f"| FV-1 | a row | <!-- {f2} -->", "| FV-2 | another row |", "", "## Elsewhere", "Fact 4. Open one.", f"<!-- {q_open} -->"]
+        (r11 / "papers" / "p.md").write_text("\n".join(pdoc) + "\n", encoding="utf-8")
+        rc, p = say11(["show", f1])
+        expect("flow show ID gives a block `stated in:` of the parts naming it, `PATH:LINE — the part's line`, and under --json the key stated_in",
+               rc == 0 and p["stated_in"] == [{"path": "papers/p.md", "line": 4, "text": "**Theorem 1.** Alone."}]
+               and text_of(cfg11(), ["show", f1]).splitlines()[-2:] == ["stated in:", "  papers/p.md:4 — **Theorem 1.** Alone."])
+        rc, p = say11(["show", f2])
+        expect("a record several parts name lists each, in the file's order, a closing label's line without the label",
+               [(x["line"], x["text"]) for x in p["stated_in"]] == [(6, "**Lemma 2.** Two."), (11, "| FV-1 | a row |")])
+        expect("a question a label names is shown with its parts too", [x["line"] for x in say11(["show", q_open])[1]["stated_in"]] == [15])
+        rc, p = say11(["show", f_ans])
+        expect("a record no label names has no block and the key an empty list", p["stated_in"] == [] and "stated in:" not in text_of(cfg11(), ["show", f_ans]))
+        ids11 = lambda argv: sorted(r["id"] for r in say11(argv)[1]["records"])
+        expect("find --refers PATH lists the records a label in PATH names, and with no globs naming PATH, none of them",
+               ids11(["find", "--refers", "papers/p.md"]) == sorted([f1, f2, q_open]) and ids11(["find", "--refers", "./papers//p.md"]) == sorted([f1, f2, q_open])
+               and ids11(["find", "--refers", "notes/deep/n.md"]) == [])
+        by = {x["path"]: x for x in say11(["artifacts"])[1]["artifacts"]}
+        expect("flow artifacts lists a scanned document with the records its labels name, via label, once a record",
+               by["papers/p.md"]["records"] == sorted([{"id": i, "via": "label"} for i in (f1, f2, q_open)], key=lambda x: x["id"]) and by["papers/p.md"]["exists"]
+               and "notes/deep/n.md" not in by)
+        rc, p = say11(["artifacts", "--uncited", "papers/p.md"])
+        expect("--uncited counts a labelled part's line, a statement, a row and a heading by its section, as cited; the places left are the unlabelled ones",
+               rc == 0 and {(x["kind"], x["anchor"]) for x in p["uncited"]} == {("statement", "Fact 3"), ("row", "FV-2")} and p["cited"] == 7 and p["unanchored"] == [])
+        keep11 = (r11 / "papers" / "p.md").read_text(encoding="utf-8")
+        (r11 / "papers" / "p.md").write_text(f"Fact 1. Live. <!-- {f1} -->\nFact 2. Gone. <!-- {f_old} -->\nFact 3. Nowhere. <!-- finding-0099 -->\nFact 4. A task. <!-- {t11} -->\n"
+                                             f"Fact 5. Closed. <!-- {q_done} -->\nFact 6. Open. <!-- {q_open} -->\n", encoding="utf-8")
+        expect("--uncited counts a label as citing only where it names a live record: not a removed one, one that is none, a task, a question answered",
+               {x["anchor"] for x in say11(["artifacts", "--uncited", "papers/p.md"])[1]["uncited"]} == {"Fact 2", "Fact 3", "Fact 4", "Fact 5"})
+        (r11 / "papers" / "p.md").write_text(keep11, encoding="utf-8")
+        (r11 / "papers" / "q.md").write_text("Fact 1. A statement, no label.\n", encoding="utf-8")
+        bind11(f'globs = ["papers/p.md"]\nmust = [{MUST11}]')
+        expect("--uncited reads no label of a document the globs do not name",
+               [(x["kind"], x["anchor"]) for x in say11(["artifacts", "--uncited", "papers/q.md"])[1]["uncited"]] == [("statement", "Fact 1")])
+        bind11(f'globs = ["papers/*.md"]\nmust = [{MUST11}]')
+        rc, p = say11(["remove", f2, "--reason", "planted: false"])
+        expect("the notice lists the parts naming a record whose state changed, beside its referrers, under --json a key parts",
+               p["notices"] == [{"id": f2, "refers": [], "parts": [{"path": "papers/p.md", "line": 6}, {"path": "papers/p.md", "line": 11}]}])
+        lines = text11(["remove", f1, "--reason", "planted: false"])
+        i = next((n for n, l in enumerate(lines) if l.startswith(f"changed {f1} ")), None)
+        expect("the text prints each part as `PATH:LINE (a document's part)` under the changed line, after the referrers",
+               i is not None and lines[i + 1:i + 3] == ["  refers to it, may need a follow-up:", "    papers/p.md:4 (a document's part)"])
+        # a project's own prefixes shape the labels
+        bind11(f'globs = ["papers/*.md"]')
+        (r11 / "flow.toml").write_text((r11 / "flow.toml").read_text(encoding="utf-8").replace('finding = "finding"', 'finding = "fnd"'), encoding="utf-8")
+        (r11 / "papers" / "p.md").write_text("A one. <!-- finding-0001 --> \nB two. <!-- fnd-0001 -->\n", encoding="utf-8")
+        rd = read_documents(cfg11(), None)
+        expect("a label's id is shaped as the project's flow.toml shapes ids", [p["id"] for p in rd[0]["parts"]] == ["fnd-0001"])
     staged_selftest(expect)
     print(f"flow selftest: {'OK' if not failures else str(len(failures)) + ' FAILED: ' + '; '.join(failures)}")
     return 0 if not failures else 1
@@ -9152,6 +9607,10 @@ def build_parser():
     p.add_argument("ids", nargs="+", metavar="ID", help="a record of any kind")
     p.add_argument("--depth", type=int, default=ABOUT_DEPTH, metavar="N", help=f"the links followed from the given records, either direction ({ABOUT_DEPTH} where not given)")
     p.add_argument("--budget", type=int, default=14000, metavar="N", help="the characters printed (14000 where not given); the records cut are counted in the closing line")
+    p = sp.add_parser("parts", help="the parts of the documents compiled from the records, by the labels naming their records, and those that must carry one and do not")
+    p.add_argument("paths", nargs="*", metavar="PATH", help="the documents to read, each one of [documents] globs' files; all of them where none is given")
+    p.add_argument("--missing", action="store_true", help="only the parts that must name a finding and carry no label")
+    p.add_argument("--strict", action="store_true", help="exit 1 where a part that must carry a label has none, whatever `strict` in flow.toml says")
     sp.add_parser("pages")
     p = sp.add_parser("init"); p.add_argument("--records", default="records")
     p.add_argument("--log"); p.add_argument("--owner", action="append", help="repeatable"); p.add_argument("--force", action="store_true")
@@ -9181,11 +9640,12 @@ def ends_badly(r, was, now):
     return (r.type == "task" and now in ("aborted", "removed")) or (r.type == "finding" and now == "removed")
 
 
-def notices(recs, before, created, changed):
+def notices(recs, before, created, changed, stated=None):
     """For each record a transition changed in its state, or parked, unparked, blocked or unblocked, the records that refer to
     it by a link, each with its state: who may need a follow-up.  A removed record is left out, and so is one the same
     command minted or changed; nothing is refused or failed for them.  The link `consumed_by` is read only where the
-    record ended badly or came back (`ends_badly`), and an idea consumed names no one: the closing is its own act."""
+    record ended badly or came back (`ends_badly`), and an idea consumed names no one: the closing is its own act.  `stated` maps
+    a record's id to the parts of the documents that name it, each `{"path", "line"}`: they are listed beside the referrers."""
     touched = {r.id for r in created + changed}
     out = []
     for r in changed:
@@ -9197,8 +9657,9 @@ def notices(recs, before, created, changed):
         for x, f in linked_by(recs, r.id):
             if (f != "consumed_by" or bad_end) and x["state"] != "removed" and x.id not in touched and x.id not in [y["id"] for y in refs]:
                 refs.append({"id": x.id, "state": x["state"]})
-        if refs:
-            out.append({"id": r.id, "refers": refs})
+        parts = [{"path": p["path"], "line": p["line"]} for p in (stated or {}).get(r.id, [])]
+        if refs or parts:
+            out.append({"id": r.id, "refers": refs, **({"parts": parts} if parts else {})})
     return out
 
 
@@ -9719,8 +10180,15 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["created"] = [r.id for r in created]
             out["changed"] = [r.id for r in changed]
             out["records"] = [summary_of(cfg, r, recs, today) for r in created + changed]
-            out["notices"] = notices(recs, before, created, changed)
-            said = {n["id"]: n["refers"] for n in out["notices"]}
+            try:
+                stated = {}
+                for d in read_documents(cfg, None) if cfg.doc_globs else []:
+                    for p in d["parts"]:
+                        stated.setdefault(p["id"], []).append(p)
+            except Refused:
+                stated = {}  # a document that cannot be read is the check's to say; the notice refuses nothing
+            out["notices"] = notices(recs, before, created, changed, stated)
+            said = {n["id"]: n for n in out["notices"]}
             recs = load_all(cfg)  # the records as the transition wrote them, so a record it minted has its title for the lines below
             cfg.index.parent.mkdir(parents=True, exist_ok=True)
             write_whole(cfg.index, render_index(cfg, recs))  # before the first line is printed: an output closed early leaves no stale index
@@ -9755,8 +10223,10 @@ def _dispatch(cfg, a, today, as_json, quiet):
                     emit(f"changed {r.id} ({changed_words(cfg, recs, r, today)}; {rel(cfg, r.path)}){dash_title(recs, r.id)}")
                     if r.id in said:  # who refers to it, for the session to decide on: never a refusal
                         emit("  refers to it, may need a follow-up:")
-                        for x in said[r.id]:  # one to a line, the title ending it
+                        for x in said[r.id]["refers"]:  # one to a line, the title ending it
                             emit(f"    {x['id']} ({x['state']}){dash_title(recs, x['id'])}")
+                        for x in said[r.id].get("parts", []):  # the parts of the documents naming it
+                            emit(f"    {x['path']}:{x['line']} (a document's part)")
             if a.cmd == "rank" and a.insert:  # the record placed, said as `--set` says one, after the changed line the insert has always printed
                 out["ranked"] = [{"id": i, "rank": n} for w, i, n in _SET_RANKS]
                 for w, i, n in _SET_RANKS:
@@ -9802,6 +10272,7 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out["body"] = r.body
             out["links"] = {f: refs(recs, ids) for f, ids in links(r, recs).items()}
             out["backlinks"] = {f: refs(recs, ids) for f, ids in backlinks(recs, r.id).items()}
+            out["stated_in"] = [{k: p[k] for k in ("path", "line", "text")} for p in stated_in(cfg, r)]
             emit(show_text(cfg, recs, r, today))
         elif a.cmd == "state" and a.check:
             problems, checked, undecided = close_check(cfg, recs, today)
@@ -9952,6 +10423,13 @@ def _dispatch(cfg, a, today, as_json, quiet):
             out.update(keys)
             if not quiet and not as_json:
                 print("\n".join(lines))  # the blank lines between the sections are printed, which `emit` leaves out
+        elif a.cmd == "parts":
+            lines, keys, failed = cmd_parts(cfg, recs, a)
+            out.update(keys)
+            for ln in lines:
+                emit(ln)
+            if failed or (a.strict and keys["missing"]):
+                out["ok"] = False
         elif a.cmd == "artifacts" and a.uncited is not None:
             places, cited, unanchored = cmd_uncited(cfg, recs, a.uncited)
             out.update(path=norm_path(a.uncited), uncited=[{k: p[k] for k in ("line", "kind", "anchor", "text")} for p in places], cited=cited, unanchored=unanchored)
@@ -10007,6 +10485,11 @@ def _dispatch(cfg, a, today, as_json, quiet):
                                 f"{lc['cited']} key(s) cited from the records, {lc['records']} record(s) citing"
                                 + (", by read grade: " + ", ".join(f"{n} {g}" for g, n in sorted(lc["grades"].items())) if lc["grades"] else "")
                                 + f"; {lc['excluded']} of them excluded cards; the papers' reference entries and the documents the library's scan binds are not read here; asked through {cfg.library_route}"))
+            if cov["documents"]:
+                dc = cov["documents"]
+                emit(f"documents: {dc['files']} file(s) read, {dc['labelled']} labelled part(s), {dc['unlabelled']} held part(s) with no label "
+                     f"({'a failure' if dc['strict'] else 'not a failure'}: [documents] strict is {str(dc['strict']).lower()}); "
+                     "whether a part's text is its record's claim and whether unlabelled text states a result are not read")
             if problems:
                 out["ok"] = False
                 emit(f"to reproduce: `flow check{' --staged' if a.staged else ''}` at the project root, the flow skill's scripts/flow.py; "

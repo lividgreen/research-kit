@@ -225,6 +225,66 @@ def reference_dirs(root):
     return refs
 
 
+STMT_WORDS = ("Theorem", "Proposition", "Lemma", "Corollary", "Definition", "Remark", "Fact", "Conjecture", "Example")  # the flow's default `[evidence] statement_words`; a selftest holds them equal
+
+
+def flow_toml(root):
+    """The project's flow.toml as a dict; empty where it is absent or unreadable."""
+    try:
+        return tomllib.loads((root / "flow.toml").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def statement_files(root, bound):
+    """The Markdown files of the tree holding a numbered statement, a line opening with one of `[evidence] statement_words` (the
+    flow's own when unbound) and a number, after optional `#` or `**` marks, outside code fences: the documents that may be compiled
+    from findings.  The records directory is not one."""
+    ev = bound.get("evidence", {}).get("statement_words")
+    words = [w for w in ev if isinstance(w, str) and w] if isinstance(ev, list) else list(STMT_WORDS)
+    if not words:
+        return []
+    rec = bound.get("paths", {}).get("records", "records") if isinstance(bound.get("paths"), dict) else "records"
+    stmt = re.compile(r"^ {0,3}(?:#{1,6}[ \t]+)?(?:\*\*)?(?:%s) ?\d+(?:\.\d+)*\b" % "|".join(map(re.escape, words)))
+    out = []
+    for f in md_files(root):
+        rel = f.relative_to(root).as_posix()
+        if isinstance(rec, str) and (rel == rec or rel.startswith(rec.rstrip("/") + "/")):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        fence = False
+        for line in text.split("\n"):
+            if re.match(r"^ {0,3}(```|~~~)", line):
+                fence = not fence
+            elif not fence and stmt.match(line):
+                out.append(rel)
+                break
+    return out
+
+
+def documents_item(root):
+    """The project item `documents compiled from findings`: information only, never a required item.  `[documents] globs`
+    bound, it says what they name; unbound, where the tree holds Markdown files with numbered statements, it says `[documents]` is
+    unset and the setup's question (step 2) asks whether they are compiled from the project's findings."""
+    bound = flow_toml(root)
+    docs = bound.get("documents")
+    globs = [g for g in docs.get("globs", []) if isinstance(g, str)] if isinstance(docs, dict) and isinstance(docs.get("globs"), list) else []
+    if globs:
+        return {"item": "documents compiled from findings", "need": "present", "ok": True,
+                "detail": f"[documents] globs binds {', '.join(globs)}; `flow parts` lists the parts a label names"}
+    files = statement_files(root, bound)
+    if files:
+        shown = ", ".join(files[:5]) + (f" and {len(files) - 5} more" if len(files) > 5 else "")
+        return {"item": "documents compiled from findings", "need": "found", "ok": True,
+                "detail": f"[documents] is unset in flow.toml and {len(files)} Markdown file(s) hold numbered statements ({shown}); information only: "
+                          "the setup asks whether they are compiled from the project's findings, and on yes writes `[documents] globs` and `must`"}
+    return {"item": "documents compiled from findings", "need": "none", "ok": True,
+            "detail": "none: no Markdown file with a numbered statement, and [documents] is unset; set when a project compiles documents from its findings"}
+
+
 def instructions_items(root, found, refs):
     """The two project items read from what the instructions file holds, not from its existence alone."""
     parts = instructions_parts(root, found)
@@ -281,6 +341,7 @@ def project(root):
     globs = [f"{d}/*.md" if d != "." else "*.md" for d in sorted(refs)]
     items.append({"item": "documents with a References section", "need": "found" if refs else "none", "ok": True,
                   "detail": "; ".join(f"{g} ({len(refs[d])} file(s))" for g, d in zip(globs, sorted(refs))) if refs else "none; `library init --documents` binds them when they exist"})
+    items.append(documents_item(root))
     lake = []
     for dirpath, dirnames, filenames in walk(root):
         if Path(dirpath).relative_to(root).parts.__len__() > 2:
@@ -1328,6 +1389,34 @@ def selftest():
         (root / "flow.toml").write_text("", encoding="utf-8")
         expect("the proposed file is JSON with comment lines, and holds the flow's rules", MARKDOWNLINT_TEXT.startswith("//")
                and json.loads("".join(l for l in MARKDOWNLINT_TEXT.splitlines(True) if not l.startswith("//")))["MD013"] is False)
+        # the documents compiled from findings: information only, never a required item
+        docs_item = lambda r: next(it for it in project(r)[0] if it["item"] == "documents compiled from findings")
+        expect("a project with no numbered statement reports the documents item as none, ok", docs_item(root)["need"] == "none" and docs_item(root)["ok"])
+        (root / "notes" / "n.md").write_text("# Notes\n\n**Theorem 1.** A claim.\n", encoding="utf-8")
+        (root / "records").mkdir()
+        (root / "records" / "r.md").write_text("Lemma 2. In a record.\n", encoding="utf-8")
+        (root / "notes" / "code.md").write_text("```\nTheorem 3. in a fence\n```\n", encoding="utf-8")
+        item = docs_item(root)
+        expect("a tree holding Markdown files with numbered statements reports [documents] unset as information: found, never required, the files named, no fence and no record read",
+               item["need"] == "found" and item["ok"] and "[documents] is unset" in item["detail"] and "notes/n.md" in item["detail"] and "code.md" not in item["detail"]
+               and "r.md" not in item["detail"] and "1 Markdown file(s)" in item["detail"] and mark(item).strip() == "ok")
+        rep3 = probe(root)
+        expect("the probe counts it neither as a missing required item nor as a proposal",
+               "documents compiled from findings" not in [p["item"] for p in rep3["proposals"]] and "every required item is present" in render(rep3).splitlines()[-1]
+               and "documents compiled from findings [found]: [documents] is unset" in render(rep3))
+        (root / "flow.toml").write_text('[evidence]\nstatement_words = ["Claim"]\n', encoding="utf-8")
+        expect("[evidence] statement_words binds the words read: Theorem no longer, Claim is", docs_item(root)["need"] == "none")
+        (root / "notes" / "n.md").write_text("Claim 4.2. A claim.\n", encoding="utf-8")
+        expect("a numbered statement of a bound word is found", docs_item(root)["need"] == "found")
+        (root / "flow.toml").write_text('[documents]\nglobs = ["notes/*.md"]\n', encoding="utf-8")
+        expect("[documents] globs bound: the item says what they name and is present", docs_item(root)["need"] == "present" and "notes/*.md" in docs_item(root)["detail"])
+        (root / "flow.toml").write_text("", encoding="utf-8")
+        for f in ("notes/n.md", "notes/code.md", "records/r.md"):
+            (root / f).unlink()
+        (root / "records").rmdir()
+        if FLOW.is_file():
+            kept = re.search(r"^STMT_WORDS = \((.*?)\)", FLOW.read_text(encoding="utf-8"), re.M)
+            expect("the statement words are the flow's own default", kept is not None and tuple(re.findall(r'"([^"]+)"', kept.group(1))) == STMT_WORDS)
         bare = Path(tmp) / "bare"
         bare.mkdir()
         rep3 = probe(bare)

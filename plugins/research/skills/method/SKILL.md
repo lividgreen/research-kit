@@ -33,6 +33,7 @@ These are one project's rules, earned over a research programme that pairs writt
 
 - Where the documents form a dependency graph, a core document never cites the sink: a citation of the capstone that imports the others runs against the direction; if the citing sentence is load-bearing, the documents are reorganized — the content moves to the capstone or the dependency is cut — and that is put to the owner; if it is not, the citation goes.
 - One document holds a class and its generalization, never two siblings; when two documents fit a result, the later one in the graph takes it and cites the earlier, or the statement is split so each part lands where it is owned.
+- A document states results the records hold as findings and names each by its label (`<!-- finding-0090 -->`, the flow skill's "Documents compiled from findings"); a result is minted as a finding before a document states it.
 - Where the project has no rule of its own, a landed result enters a document when it:
   - changes a sentence the document already has — settles or narrows a stated open, falsifies a negative-coverage sentence, closes a gap a boundary names;
   - is a step on an open the document names, registered as a step with one sentence saying how it falls short;
