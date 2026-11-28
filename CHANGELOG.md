@@ -4,6 +4,21 @@ Each release is a tag; the version is read from the tag and the version fields `
 
 ## Unreleased
 
+**Upgrading**: nothing is to be done in a project beyond moving the plugins and the hooks' `rev` as [Install](docs/install.md#following-the-releases) says.
+Move `research` and, where the `formal` plugin is set up, `formal` to the same release, and restart.
+
+The `research` plugin:
+
+- `flow evidence --replace-from FILE` (`-` for the standard input) swaps evidence items in many findings in one run, from one JSON object a line, `{"id": "finding-0012", "old": "form:target", "new": "form:target"}`: each row is checked as `flow evidence ID --replace OLD NEW` checks it, over the items as the earlier rows left them, and one bad row refuses the run with every bad row reported by its row number, id and reason.
+  Under `--json` the keys `written`, `replaced`, `refused` and `changed`.
+- `flow evidence --move OLD NEW`, repeatable, or `--move-from FILE` with rows `{"old": "form:path", "new": "form:path"}`, moves a path in the evidence of every standing finding, as after a reorganization of a prover's library: each item whose target before any `#` is OLD's path or lies under it, by whole path components, is swapped for the same item under NEW, the longest OLD winning and the pairs applied at once, never chained.
+  Every new item is resolved as an added one is and no finding is left holding one twice, all or none; a run in which no pair matches an item is refused, and a pair that matches nothing beside others is listed.
+  The output is a summary, not a line a finding; under `--json` the keys `replaced`, `unchecked`, `unmatched`, `refused` and `changed`.
+- A run that swaps items writes one dated note a finding naming each of its swaps.
+- `flow evidence --from` and the two forms above ask each form's resolver once for all the run's new items and the library's `keys` once, run markdownlint once over the written findings before and once after, undo the whole run where a write or the lint fails, and rebuild the index once.
+  Each of `--replace-from`, `--move` and `--move-from` takes no finding, item or other flag of the command beside it.
+- A write that is undone restores every file it can, where before the first file that could not be put back left the rest changed.
+
 ## v0.13.0 — 2026-11-28
 
 **Upgrading**: a release that asks a step of a project that ran the kit's scripts through a wrapper, and one of a project whose documents are compiled from its findings.

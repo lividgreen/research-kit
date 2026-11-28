@@ -60,6 +60,12 @@ no --summary, a goal and a direction may have none:
   flow evidence F FORM:TARGET... evidence added to a standing finding: its trust raised
   flow evidence F --replace OLD NEW  |  flow evidence F --retire OLD --reason R    an item whose file is gone, swapped
                                  or retired, the dated note in the body keeping what it was
+  flow evidence --from FILE | --replace-from FILE  many findings in one run, FILE or `-` for the standard input holding
+                                 one JSON object a line: {"id", "evidence"} adds items, {"id", "old", "new"} swaps one;
+                                 every row checked first, one bad row writes nothing
+  flow evidence --move OLD NEW | --move-from FILE  in every standing finding, each item under the path OLD, form:path,
+                                 swapped for the same item under NEW (--move repeatable; FILE's rows {"old", "new"}):
+                                 whole path components, the longest OLD winning, the pairs applied at once, all or none
   flow park ID --reason R --revival V [--tag T]  |  flow unpark ID [--note N]     an open question or an open task
   flow block ID --on X... --reason R     |  flow unblock ID [--on X] [--note N]
                                  X a task's or a question's id, a date alone (YYYY-MM-DD) or words
@@ -985,9 +991,11 @@ def mdlint_relative(cfg, path):
         return str(path)
 
 
-def mdlint_many(cfg, paths, chunk=20000):
+def mdlint_many(cfg, paths, chunk=20000, unread=None):
     """markdownlint over many files in one run (more only where the command line would be too long): {path: (a Counter
-    of its codes, its report lines)}, or None where markdownlint is absent."""
+    of its codes, its report lines)}, or None where markdownlint is absent.  `unread`, a list, gains the files of a run
+    whose report cannot be trusted file by file: a line with a code names none of them (a project's own output format),
+    the exit is neither 0 nor 1, or it is 1 and no line names a file (a linter that failed)."""
     cmd = mdlint_cmd(cfg)
     if not cmd:
         return None
@@ -1005,13 +1013,19 @@ def mdlint_many(cfg, paths, chunk=20000):
                 r = subprocess.run(cmd + [str(p) for p in group], capture_output=True, text=True, cwd=cfg.root)
             except OSError:
                 return None
+            named = stray = False
             for ln in (r.stdout + r.stderr).splitlines():
+                codes = re.findall(r"\b(MD\d{3})\b", ln)
                 for p in group:
                     if ln.startswith(f"{p}:") or ln.startswith(f"{mdlint_relative(cfg, p)}:"):  # markdownlint-cli2 names a file from the root
-                        codes = re.findall(r"\b(MD\d{3})\b", ln)
                         found[p][0].update(codes[:1])
                         found[p][1].append(ln)
+                        named = True
                         break
+                else:
+                    stray = stray or bool(codes)
+            if unread is not None and (stray or r.returncode not in (0, 1) or r.returncode == 1 and not named):
+                unread.extend(group)
     finally:
         mdlint_done()
     return found
@@ -1023,19 +1037,26 @@ _JOURNAL = []
 
 
 def rollback():
-    """Undo what the journal records, newest first, and empty it."""
+    """Undo what the journal records, newest first, and empty it.  A file that cannot be put back stops no other from
+    being restored: the first such error is raised at the end."""
+    failed = None
     while _JOURNAL:
         entry = _JOURNAL.pop()
-        if entry[0] == "file":
-            _, path, old = entry
-            if old is None:
-                path.unlink(missing_ok=True)
+        try:
+            if entry[0] == "file":
+                _, path, old = entry
+                if old is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    write_whole(path, old)
             else:
-                write_whole(path, old)
-        else:
-            _, src, dest = entry
-            if dest.exists() and not src.exists():
-                shutil.move(str(dest), str(src))
+                _, src, dest = entry
+                if dest.exists() and not src.exists():
+                    shutil.move(str(dest), str(src))
+        except OSError as e:
+            failed = failed or e
+    if failed:
+        raise failed
 
 
 def record_text(cfg, rec, reflow=True):
@@ -1058,34 +1079,51 @@ MDLINT_FIXES = {"MD032": "MD032: a list needs a blank line before it and after i
                 "MD033": "MD033: angle brackets in prose are read as HTML: put the text between backticks, as `<id>`."}
 
 
-def write_linted(cfg, texts):
+def lint_files(cfg, paths, at_once):
+    """markdownlint over `paths`, a run a file or, `at_once`, one run over them all: {path: (a Counter of its codes, its
+    report)}, or None where markdownlint is absent.  The files of a run over many that cannot be read file by file are
+    linted again a run each, so a bulk write refuses what a single one does."""
+    found, each = {}, paths
+    if at_once and paths:
+        each = []
+        many = mdlint_many(cfg, paths, unread=each)
+        if many is None:
+            return None
+        found = {p: (codes, "\n".join(lines)) for p, (codes, lines) in many.items()}
+    found.update({p: mdlint(cfg, p) for p in each})
+    return None if None in found.values() else found
+
+
+def write_linted(cfg, texts, at_once=False):
     """Write each path's text, journaled, then refuse (and revert every one) when markdownlint reports more of
-    a code over the files together than before: a violation moved verbatim from one to another is not new."""
-    before, after, olds, reports = Counter(), Counter(), {}, []
-    for path in texts:
-        b = mdlint(cfg, path) if path.is_file() else (Counter(), "")
-        before = None if b is None or before is None else before + b[0]
+    a code over the files together than before: a violation moved verbatim from one to another is not new.  `at_once`, a
+    bulk write's: markdownlint runs once over the files before and once after, and the refusal names only those whose own
+    count of such a code rose."""
+    olds = {}
+    before = lint_files(cfg, [path for path in texts if path.is_file()], at_once)
     for path, text in texts.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         olds[path] = path.read_text(encoding="utf-8") if path.is_file() else None
         _JOURNAL.append(("file", path, olds[path]))
         write_whole(path, text)
-    for path in texts:
-        r = mdlint(cfg, path)
-        after = None if r is None or after is None else after + r[0]
-        if r and r[1]:
-            reports.append(r[1])
-    if after is not None and before is not None and any(v > before.get(k, 0) for k, v in after.items()):
+    after = lint_files(cfg, list(texts), at_once) if before is not None else None
+    if after is None:
+        return
+    was, now = (sum((codes for codes, _ in found.values()), Counter()) for found in (before, after))
+    failed = sorted(k for k, v in now.items() if v > was[k])
+    if failed:
+        named = [path for path in texts
+                 if not at_once or any(after[path][0][k] > (before[path][0][k] if path in before else 0) for k in failed)]
+        reports = [after[path][1] for path in named if after[path][1]]
         for path, old in olds.items():
             if old is None:
                 path.unlink()
             else:
                 write_whole(path, old)
-        failed = sorted(k for k, v in after.items() if v > before.get(k, 0))
         minted = [m.group(1) + "-" + m.group(2) for p, old in olds.items() if old is None for m in [cfg.id_re.match(p.name)] if m]
         said = "nothing was written" + (f", and {', '.join(minted)} {'is' if len(minted) == 1 else 'are'} not taken (the next mint may get "
                                         f"{'it' if len(minted) == 1 else 'them'})" if minted else "")
-        raise Refused(f"markdownlint reports NEW violations in {', '.join(rel(cfg, p) for p in texts)}: {said}:\n" + "\n".join(reports)
+        raise Refused(f"markdownlint reports NEW violations in {', '.join(rel(cfg, p) for p in named)}: {said}:\n" + "\n".join(reports)
                       + "".join(f"\n{MDLINT_FIXES[k]}" for k in failed if k in MDLINT_FIXES))
 
 
@@ -1520,11 +1558,20 @@ def resolve_evidence(cfg, item, cache, lib=None):
     return f"unchecked: a form of the project's ({form})"
 
 
-def resolve_items(cfg, items, have=()):
-    """Every item of a mint or an append resolved, or the first reason refused; an item already held refused."""
-    cache, seen = {}, set(have)
+def ask_once(cfg, items):
+    """What a run asks before it resolves `items`: each form's resolver once for all of them, and the library's `keys` once
+    where one is the library's.  Returns (the cache, that answer), as `resolve_evidence` takes them."""
+    cache = {}
     lib = library_keys(cfg) if any(evidence_form(e) == "peer-reviewed" for e in items) else None
     ask_resolvers(cfg, items, cache)
+    return cache, lib
+
+
+def resolve_items(cfg, items, have=(), asked=None):
+    """Every item of a mint or an append resolved, or the first reason refused; an item already held refused.  `asked` is a
+    bulk run's `ask_once` over the new items of all its rows; these items are asked about here where there is none."""
+    cache, lib = asked or ask_once(cfg, items)
+    seen = set(have)
     for e in items:
         if e in seen:
             raise Refused(f"evidence {e} is there already")
@@ -2326,14 +2373,33 @@ def cmd_finding(cfg, recs, a, today):
     return [f], [q] + ideas
 
 
+def standing_evidence(recs, ident):
+    """The finding whose evidence is to change: a standing one."""
+    f = get(recs, ident, "finding")
+    if f["state"] != "standing":
+        raise Refused(f"{f.id} is {f['state']}: its evidence is history, kept as it was")
+    return f
+
+
+def item_place(ident, held, old):
+    """Where OLD, matched as written, stands among the finding's items; refused where it is not one.  A hand-edited finding
+    may hold an item twice: one occurrence is acted on."""
+    if old not in held:
+        raise Refused(f"evidence {old} is not among {ident}'s items, which are {', '.join(held) or 'none'}")
+    return held.index(old)
+
+
+def swap_note(swaps):
+    """The words of the dated note for the swaps (OLD, NEW) one run makes in a finding."""
+    return "evidence " + "; ".join(f"`{old}` replaced by `{new}`" for old, new in swaps)
+
+
 def cmd_evidence(cfg, recs, a, today):
     """Evidence added to a finding: the way its trust is raised, a proof formalized, a probe run, a work cited;
     each item resolved as at the mint.  An item whose file a later change deleted is swapped (`--replace OLD NEW`,
     NEW resolved as an added item is) or retired (`--retire OLD --reason R`, refused where it leaves the finding
     none, which V6 fails), the dated note in the body keeping what the evidence was."""
-    f = get(recs, a.finding, "finding")
-    if f["state"] != "standing":
-        raise Refused(f"{f.id} is {f['state']}: its evidence is history, kept as it was")
+    f = standing_evidence(recs, a.finding)
     held = list(f["evidence"] or [])
     if (bool(a.evidence) + (a.replace is not None) + (a.retire is not None)) != 1:
         raise Refused("flow evidence takes one of the items to add, --replace OLD NEW or --retire OLD --reason R")
@@ -2344,17 +2410,14 @@ def cmd_evidence(cfg, recs, a, today):
         f.fm["evidence"] = held + list(a.evidence)
     else:
         old, new = a.replace if a.replace is not None else (a.retire, None)
-        if old not in held:
-            raise Refused(f"evidence {old} is not among {f.id}'s items, which are {', '.join(held) or 'none'}")
+        at = item_place(f.id, held, old)
         if new is not None:
             resolve_items(cfg, [new], have=held)
-            at = held.index(old)  # a hand-edited finding may hold an item twice: one occurrence is acted on
             f.fm["evidence"] = held[:at] + [new] + held[at + 1:]
-            append_note(f, today, f"evidence `{old}` replaced by `{new}`")
+            append_note(f, today, swap_note([(old, new)]))
         else:
             if not (a.reason or "").strip():
                 raise Refused("--retire needs --reason: the words kept in the note")
-            at = held.index(old)  # one occurrence only, as with --replace
             left = held[:at] + held[at + 1:]
             if not left:
                 raise Refused(f"evidence {old} is {f.id}'s only item, and a finding with none fails V6: --replace it")
@@ -2379,36 +2442,92 @@ def read_rows(source, what="rows"):
         raise Refused(f"{source}: not UTF-8 ({e.reason} at byte {e.start})")
 
 
-EVIDENCE_ROW_KEYS = ("id", "evidence")
+def json_row(line, keys, example):
+    """A row of a rows file as a JSON object holding each of `keys` and no other; refused, saying what is wrong, for a line
+    that is not one."""
+    try:
+        row = json.loads(line)
+    except ValueError as e:
+        raise Refused(f"not valid JSON ({e})")
+    if not isinstance(row, dict):
+        raise Refused(f"a row is a JSON object: {example}")
+    for k in keys:
+        if k not in row:
+            raise Refused(f"the row has no \"{k}\"")
+    unknown = [k for k in row if k not in keys]
+    if unknown:
+        raise Refused(f"the row has no key {', '.join(map(json.dumps, unknown))}; its keys are {', '.join(keys)}")
+    return row
 
 
 def evidence_row(line):
-    """A row of `flow evidence --from` as (id, items); refused, the refusal saying what is wrong, for a line that is not a JSON
-    object, a key it lacks or does not know, a value of the wrong type.  The id the row names is `.ident`."""
-    ident = None
+    """A row of `flow evidence --from` as (id, items)."""
+    row = json_row(line, ("id", "evidence"), "{\"id\": \"finding-0012\", \"evidence\": [\"form:target\", …]}")
+    if not isinstance(row["id"], str):
+        raise Refused("\"id\" is a string")
+    items = row["evidence"]
+    if not isinstance(items, list) or not items or not all(isinstance(i, str) and i.strip() for i in items):
+        raise Refused("\"evidence\" is a list of one item or more, each a string FORM:TARGET")
+    return row["id"], items
+
+
+def string_row(line, keys, example):
+    """A row whose keys hold a string each, as the strings in the order of `keys`."""
+    row = json_row(line, keys, example)
+    for k in keys:
+        if not isinstance(row[k], str):
+            raise Refused(f"\"{k}\" is a string")
+    return tuple(row[k] for k in keys)
+
+
+def replace_row(line):
+    """A row of `flow evidence --replace-from` as (id, OLD, NEW)."""
+    return string_row(line, ("id", "old", "new"), "{\"id\": \"finding-0012\", \"old\": \"form:target\", \"new\": \"form:target\"}")
+
+
+def move_row(line):
+    """A row of `flow evidence --move-from` as (OLD, NEW)."""
+    return string_row(line, ("old", "new"), "{\"old\": \"form:path\", \"new\": \"form:path\"}")
+
+
+def file_rows(source, read):
+    """The rows of FILE (`-`, the standard input), each read by `read`: [(number, what it read)] for those that read, and
+    [(number, the line, why)] for those refused.  A row's number is its line's in the file; a blank line is no row."""
+    good, bad = [], []
+    for n, line in enumerate(read_rows(source).splitlines(), 1):
+        if line.strip():
+            try:
+                good.append((n, read(line)))
+            except Refused as e:
+                bad.append((n, line, str(e)))
+    return good, bad
+
+
+def row_said(line, key):
+    """The string a refused row holds under `key`, for its refusal; None where it holds none."""
     try:
-        try:
-            row = json.loads(line)
-        except ValueError as e:
-            raise Refused(f"not valid JSON ({e})")
-        if not isinstance(row, dict):
-            raise Refused("a row is a JSON object: {\"id\": \"finding-0012\", \"evidence\": [\"form:target\", …]}")
-        ident = row.get("id") if isinstance(row.get("id"), str) else None
-        for k in EVIDENCE_ROW_KEYS:
-            if k not in row:
-                raise Refused(f"the row has no \"{k}\"")
-        unknown = [k for k in row if k not in EVIDENCE_ROW_KEYS]
-        if unknown:
-            raise Refused(f"the row has no key {', '.join(map(json.dumps, unknown))}; its keys are {', '.join(EVIDENCE_ROW_KEYS)}")
-        if not isinstance(row["id"], str):
-            raise Refused("\"id\" is a string")
-        items = row["evidence"]
-        if not isinstance(items, list) or not items or not all(isinstance(i, str) and i.strip() for i in items):
-            raise Refused("\"evidence\" is a list of one item or more, each a string FORM:TARGET")
-        return row["id"], items
-    except Refused as e:
-        e.ident = ident
-        raise
+        value = json.loads(line).get(key)
+    except (ValueError, AttributeError):  # not JSON, or no object
+        return None
+    return value if isinstance(value, str) else None
+
+
+def write_together(cfg, changed):
+    """The findings a bulk run changed, written as one: markdownlint once over them before and once after, and a new
+    violation reverts them all."""
+    write_linted(cfg, {r.path: record_text(cfg, r) for r in changed}, at_once=True)
+
+
+def write_swapped(cfg, recs, held, swaps, today):
+    """Each finding of `swaps`, {id: its (OLD, NEW) in the run's order}, given its items `held[id]` and one dated note
+    naming them, all written together; returns the findings changed."""
+    changed = []
+    for i, done in swaps.items():
+        recs[i].fm["evidence"] = held[i]
+        append_note(recs[i], today, swap_note(done))
+        changed.append(recs[i])
+    write_together(cfg, changed)
+    return changed
 
 
 def batch_evidence(cfg, recs, source, today):
@@ -2416,37 +2535,144 @@ def batch_evidence(cfg, recs, source, today):
     checks its own, the items an earlier row gave a finding counted as held; then, no row refused, every finding written
     and the whole undone if a write fails.  Returns the answer's fields, `written` the rows written (as `set --from`'s is) and
     `added` the items: nothing is written where `refused` is not empty."""
-    text = read_rows(source)
-    refused, added, order, n_rows = [], {}, [], 0  # n_rows: the rows read
-    for n, line in enumerate(text.splitlines(), 1):  # a row's number is its line's in the file; blank lines are no rows
-        if not line.strip():
-            continue
-        n_rows += 1
-        ident = None
+    good, bad = file_rows(source, evidence_row)
+    refused = [{"row": n, "id": row_said(line, "id"), "msg": msg} for n, line, msg in bad]
+    asked = ask_once(cfg, [e for _, (_, items) in good for e in items])
+    added = {}
+    for n, (ident, items) in good:
         try:
-            ident, items = evidence_row(line)
-        except Refused as e:
-            refused.append({"row": n, "id": getattr(e, "ident", None), "msg": str(e)})
-            continue
-        try:
-            f = get(recs, ident, "finding")
-            if f["state"] != "standing":
-                raise Refused(f"{f.id} is {f['state']}: its evidence is history, kept as it was")
-            resolve_items(cfg, items, have=list(f["evidence"] or []) + added.get(ident, []))
-            if ident not in added:
-                order.append(ident)
+            f = standing_evidence(recs, ident)
+            resolve_items(cfg, items, have=list(f["evidence"] or []) + added.get(ident, []), asked=asked)
             added.setdefault(ident, []).extend(items)
         except Refused as e:
             refused.append({"row": n, "id": ident, "msg": str(e)})
     if refused:
-        return {"written": 0, "added": 0, "refused": refused, "changed": []}
+        return {"written": 0, "added": 0, "refused": sorted(refused, key=lambda x: x["row"]), "changed": []}
     changed = []
-    for i in order:
-        recs[i].fm["evidence"] = list(recs[i]["evidence"] or []) + added[i]
+    for i, items in added.items():
+        recs[i].fm["evidence"] = list(recs[i]["evidence"] or []) + items
         changed.append(recs[i])
-    if changed:
-        write_linted(cfg, {r.path: record_text(cfg, r) for r in changed})
-    return {"written": n_rows, "added": sum(len(added[i]) for i in order), "refused": [], "changed": changed}
+    write_together(cfg, changed)
+    return {"written": len(good), "added": sum(map(len, added.values())), "refused": [], "changed": changed}
+
+
+def batch_replace(cfg, recs, source, today):
+    """`flow evidence --replace-from FILE`: the rows of FILE (`-`, the standard input) checked first, each as `flow evidence
+    ID --replace OLD NEW` checks its own, over the items as the earlier rows left them; then, no row refused, every finding
+    written with one note naming its swaps.  Returns the answer's fields, `written` the rows and `replaced` the items."""
+    good, bad = file_rows(source, replace_row)
+    refused = [{"row": n, "id": row_said(line, "id"), "msg": msg} for n, line, msg in bad]
+    asked = ask_once(cfg, [new for _, (_, _, new) in good])
+    held, swaps = {}, {}
+    for n, (ident, old, new) in good:
+        try:
+            f = standing_evidence(recs, ident)
+            items = held.get(ident, list(f["evidence"] or []))
+            at = item_place(ident, items, old)
+            resolve_items(cfg, [new], have=items, asked=asked)
+            held[ident] = items[:at] + [new] + items[at + 1:]
+            swaps.setdefault(ident, []).append((old, new))
+        except Refused as e:
+            refused.append({"row": n, "id": ident, "msg": str(e)})
+    if refused:
+        return {"written": 0, "replaced": 0, "refused": sorted(refused, key=lambda x: x["row"]), "changed": []}
+    changed = write_swapped(cfg, recs, held, swaps, today)
+    return {"written": len(good), "replaced": len(good), "refused": [], "changed": changed}
+
+
+def move_pair(old, new):
+    """A pair of `--move` as ((its form, OLD's path), NEW's path), a trailing `/` dropped from each; refused where the two are
+    no two paths of one form."""
+    ends = []
+    for word, item in (("OLD", old), ("NEW", new)):
+        s = split_evidence(item)
+        path = s[1].rstrip("/") if s else ""
+        if not path:
+            raise Refused(f"{word} is not form:path, as `formal:Lib/Old`")
+        if "#" in path:
+            raise Refused(f"{word} holds `#`: a move names paths and keeps what follows `#`; one item is swapped by --replace")
+        ends.append((s[0], path))
+    if ends[0][0] != ends[1][0]:
+        raise Refused(f"OLD and NEW are of two forms, {ends[0][0]} and {ends[1][0]}: a move keeps the form")
+    if ends[0] == ends[1]:
+        raise Refused("OLD and NEW are one path: nothing would move")
+    return ends[0], ends[1][1]
+
+
+def moved_item(item, pairs):
+    """An item as `pairs`, {(form, old path): (new path, …)}, move it, with the key of the pair that does; None where none
+    does.  A pair moves an item of its form whose target before any `#` is its old path or lies under it, by whole path
+    components; the longest old path wins, and the rest of the target is kept."""
+    s = split_evidence(item)
+    if s is None:
+        return None
+    form, target = s
+    parts = target.split("#", 1)[0].split("/")
+    for k in range(len(parts), 0, -1):
+        old = "/".join(parts[:k])
+        if (form, old) in pairs:
+            return f"{form}:{pairs[form, old][0]}{target[len(old):]}", (form, old)
+    return None
+
+
+def batch_move(cfg, recs, given, source, today):
+    """`flow evidence --move OLD NEW` (`given`, the command's pairs) or `--move-from FILE` (`source`): every item of a standing
+    finding under an OLD path swapped for the same item under its NEW, the pairs applied at once and so never chained.  Every
+    pair is checked, every new item resolved as an added one is and no finding left holding one twice; then, nothing
+    refused, the findings are written, each with one note.  Returns the answer's fields: `replaced` the items, `unchecked`
+    the new items no resolver answered for (`why`, the first one's reason), `unmatched` the pairs that moved nothing."""
+    rows, refused = [(None, pair) for pair in given or []], []
+
+    def bad_pair(n, old, new, msg):
+        return {**({} if n is None else {"row": n}), "old": old, "new": new, "msg": msg}
+
+    if source is not None:
+        rows, bad = file_rows(source, move_row)
+        refused = [bad_pair(n, row_said(line, "old"), row_said(line, "new"), msg) for n, line, msg in bad]
+    pairs = {}  # (form, old path) -> (new path, the row, OLD and NEW as written)
+    for n, (old, new) in rows:
+        try:
+            key, to = move_pair(old, new)
+            if key in pairs:
+                raise Refused(f"OLD {key[0]}:{key[1]} is given twice: a path moves to one place")
+            pairs[key] = (to, n, old, new)
+        except Refused as e:
+            refused.append(bad_pair(n, old, new, str(e)))
+    refused.sort(key=lambda x: x.get("row", 0))  # a file's refusals in its order; the command's pairs as they were given
+    if not pairs and not refused:
+        raise Refused(f"{'the standard input' if source == '-' else source} holds no row, so no pair matches an item: nothing was written")
+    moves, matched = {}, set()  # a finding's id -> its items, and (place, new item) for each that moves
+    for i, f in sorted(recs.items()):
+        if f.type != "finding" or f["state"] != "standing":
+            continue
+        items = list(f["evidence"] or [])
+        hits = [(at, *m) for at, e in enumerate(items) if (m := moved_item(e, pairs))]
+        if hits:
+            moves[i] = items, [(at, new) for at, new, _ in hits]
+            matched.update(key for _, _, key in hits)
+    unmatched = [{"old": old, "new": new} for key, (_, _, old, new) in pairs.items() if key not in matched]
+    if not matched and not refused:
+        refused = [bad_pair(n, old, new, "no item of a standing finding is under OLD, and no other pair of the run matches one")
+                   for _, n, old, new in pairs.values()]
+    asked = ask_once(cfg, [new for _, hits in moves.values() for _, new in hits])
+    held, swaps, unchecked = {}, {}, []
+    for i, (items, hits) in moves.items():
+        after = list(items)
+        for at, new in hits:
+            after[at] = new
+        times = Counter(map(str, after))
+        for at, new in hits:
+            why = "the finding would hold it twice" if times[new] > 1 else resolve_evidence(cfg, new, *asked)
+            if why and why.startswith("unchecked"):
+                unchecked.append(why)
+            elif why:
+                refused.append({"id": i, "old": items[at], "new": new, "msg": why})
+        held[i], swaps[i] = after, [(items[at], new) for at, new in hits]
+    if refused:
+        return {"replaced": 0, "unchecked": 0, "why": None, "unmatched": unmatched, "refused": refused, "changed": []}
+    changed = write_swapped(cfg, recs, held, swaps, today)
+    return {"replaced": sum(map(len, swaps.values())), "unchecked": len(unchecked), "why": unchecked[0] if unchecked else None,
+            "unmatched": unmatched, "refused": [], "changed": changed}
 
 
 def cmd_goal(cfg, recs, a, today):
@@ -8929,6 +9155,287 @@ def selftest():
             expect("markdownlint is on PATH in CI, where the batch's lint is tested", False)
         else:
             print("  --  the batch's lint not tested: no markdownlint on PATH")
+    # `flow evidence --replace-from`, `--move` and `--move-from`, and what the bulk forms ask and lint once
+    with tempfile.TemporaryDirectory() as t10:
+        r10 = Path(t10)
+        do_init(r10, build_parser().parse_args(["init"]))
+        (r10 / "resolver.py").write_text(SELFTEST_RESOLVER)
+        declared = [("Lib.A.One", "one"), ("Lib.A.Sub.Two", "two"), ("Lib.AB", "ab"), ("Lib.C.One", "one"), ("Lib.D.Two", "two")] \
+            + [(f"Lib.{d}.M", "p") for d in ("P", "Q", "H1", "H2", "H3", "R", "S", "T")]
+        (r10 / "decls.txt").write_text("module Lib.A 1\nmodule Lib.C 1\n" + "".join(f"{m} {n}\n" for m, n in declared))
+        (r10 / "lib.py").write_text("import json\nopen('lib.log', 'a').write('keys\\n')\n"
+                                    "print(json.dumps({'cite_prefix': 'lib:', 'cards': {k: {} for k in ('k1', 'k2', 'k3', 'k4')}}))\n")
+        for n in ("a", "b", "c", "d", "x/e", "y/e"):
+            (r10 / n).parent.mkdir(exist_ok=True)
+            (r10 / f"{n}.csv").write_text(f"{n}\n", encoding="utf-8")
+        c10 = Config(r10)
+        c10.resolvers["formal"] = ([sys.executable, "resolver.py"], "flow.toml's [evidence.resolvers]")
+        c10.library_cmd = [sys.executable, "lib.py"]
+        say10 = lambda argv: dispatched(c10, argv, today=today, as_json=True, quiet=True)
+        formal = lambda m: f"formal:Lib/{m}"
+        csv = lambda n: f"reference:{n}.csv"
+        mk10 = lambda *items: say10(["finding", f"Held {items[0][-12:]}", "--summary", "S.", "--evidence", *items])[1]["created"][0]
+        held = lambda i: load_all(c10)[i]["evidence"]
+        noted = lambda i: [ln.partition(" — ")[2] for ln in load_all(c10)[i].body.splitlines() if " — evidence " in ln]
+        tree10 = lambda: {x: x.read_text(encoding="utf-8") for x in sorted((r10 / "records").rglob("*.md"))}
+        rows10 = r10 / "rows.jsonl"
+
+        def asked10(argv, stdin=None):
+            """The command's answer, the targets of each resolver run it made, and the library runs it made."""
+            for name in ("resolver.log", "lib.log"):
+                (r10 / name).unlink(missing_ok=True)
+            had = sys.stdin
+            sys.stdin = io.StringIO(stdin) if stdin is not None else had
+            try:
+                rc, p = say10(argv)
+            finally:
+                sys.stdin = had
+            runs = [json.loads(ln) for ln in (r10 / "resolver.log").read_text().splitlines()] if (r10 / "resolver.log").is_file() else []
+            keys = (r10 / "lib.log").read_text().count("keys") if (r10 / "lib.log").is_file() else 0
+            return rc, p, runs, keys
+
+        jsonl = lambda lines: "".join((x if isinstance(x, str) else json.dumps(x)) + "\n" for x in lines)
+
+        def rowed(flag, lines):
+            rows10.write_text(jsonl(lines), encoding="utf-8")
+            return asked10(["evidence", flag, str(rows10)])
+
+        def usage10(argv):
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    say10(argv)
+                return False
+            except SystemExit as e:
+                return e.code == 2
+
+        swap = lambda i, old, new: {"id": i, "old": old, "new": new}
+        g1, g2, g3 = mk10(csv("a"), csv("b")), mk10(csv("a")), mk10(csv("a"))
+        gone = mk10(csv("a"))
+        say10(["remove", gone, "--reason", "planted"])
+        task10 = say10(["task", "A chore", "--summary", "S."])[1]["created"][0]
+        rc, p, runs, keys = rowed("--replace-from", [swap(g1, csv("a"), csv("c")), "", swap(g2, csv("a"), csv("b")), swap(g1, csv("c"), csv("d"))])
+        say10(["evidence", g3, "--replace", csv("a"), csv("b")])
+        expect("evidence --replace-from swaps each row's item over the items the earlier rows left, rebuilding the index once",
+               rc == 0 and p["written"] == 3 and p["replaced"] == 3 and p["refused"] == [] and sorted(p["changed"]) == sorted([g1, g2])
+               and held(g1) == [csv("d"), csv("b")] and held(g2) == [csv("b")]
+               and (r10 / "records" / "INDEX.md").read_text(encoding="utf-8") == render_index(c10, load_all(c10)))
+        expect("one dated note a finding a run names its swaps, and one swap reads as --replace's note does",
+               noted(g1) == [f"evidence `{csv('a')}` replaced by `{csv('c')}`; `{csv('c')}` replaced by `{csv('d')}`"]
+               and noted(g2) == noted(g3) == [f"evidence `{csv('a')}` replaced by `{csv('b')}`"] and f"{today} — evidence" in load_all(c10)[g1].body)
+        before10 = tree10()
+        rc, p, runs, keys = rowed("--replace-from", [
+            "not json", "[1]", {"id": g1, "old": csv("b")}, {**swap(g1, csv("b"), csv("a")), "x": 1}, {"id": g1, "old": csv("b"), "new": 3},
+            swap("finding-9999", csv("a"), csv("b")), swap(task10, csv("a"), csv("b")), swap(gone, csv("a"), csv("b")),
+            swap(g1, csv("c"), csv("a")), swap(g1, csv("d"), csv("c")), swap(g1, csv("d"), csv("a")), swap(g1, csv("b"), "reference:nowhere.csv"),
+            swap(g1, csv("b"), csv("c")), swap(g2, csv("b"), csv("b"))])
+        bad10 = {x["row"]: x["msg"] for x in p["refused"]}
+        expect("planted: every bad row of --replace-from is reported with its number, id and reason, and one writes nothing",
+               rc == 1 and p["written"] == p["replaced"] == 0 and p["changed"] == [] and sorted(bad10) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14]
+               and "not valid JSON" in bad10[1] and "JSON object" in bad10[2] and 'no "new"' in bad10[3] and "no key" in bad10[4]
+               and '"new" is a string' in bad10[5] and "does not exist" in bad10[6] and "not a finding" in bad10[7] and "removed" in bad10[8]
+               and "not among" in bad10[9] and "not among" in bad10[11] and "not in the tree" in bad10[12] and "there already" in bad10[13]
+               and "there already" in bad10[14] and [x["id"] for x in p["refused"][:4]] == [None, None, g1, g1] and tree10() == before10)
+        rows10.write_text(jsonl([swap(g2, csv("b"), csv("b"))]), encoding="utf-8")
+        txt = text_of(c10, ["evidence", "--replace-from", str(rows10)])
+        expect("a refused --replace-from says so in a line, then one line a bad row", "0 row(s) written, 1 refused, nothing written" in txt
+               and f"  row 1, {g2}: evidence {csv('b')} is there already" in txt)
+        rc, p, runs, keys = asked10(["evidence", "--replace-from", "-"], jsonl([swap(g2, csv("b"), csv("a"))]))
+        expect("`--replace-from -` reads the rows from the standard input", rc == 0 and p["replaced"] == 1 and held(g2) == [csv("a")])
+        index10 = r10 / "records" / "INDEX.md"
+        index10.write_text("stale\n", encoding="utf-8")
+        before10 = tree10()
+        rc, p, runs, keys = rowed("--replace-from", ["", " "])
+        expect("a --replace-from file with no row writes nothing, the index neither, and is no refusal",
+               rc == 0 and p["written"] == 0 and p["changed"] == [] and p["refused"] == [] and tree10() == before10)
+        rc, p, runs, keys = rowed("--from", ["", " "])
+        expect("a --from file with no row rebuilds a stale index, as it did", rc == 0 and p["written"] == 0 and p["index"] == "records/INDEX.md"
+               and index10.read_text(encoding="utf-8") == render_index(c10, load_all(c10)))
+
+        # one resolver run, one `keys` run
+        m1, m2 = mk10(csv("a")), mk10(csv("b"))
+        rc, p, runs, keys = rowed("--from", [{"id": m1, "evidence": [formal("R/M.lean#p"), "peer-reviewed:k1"]},
+                                             {"id": m2, "evidence": [formal("S/M.lean#p"), "peer-reviewed:k2"]}])
+        expect("evidence --from asks the formal resolver once and the library's keys once for all its rows' items",
+               rc == 0 and runs == [["Lib/R/M.lean#p", "Lib/S/M.lean#p"]] and keys == 1)
+        rc, p, runs, keys = rowed("--replace-from", [swap(m1, formal("R/M.lean#p"), formal("T/M.lean#p")), swap(m2, formal("S/M.lean#p"), formal("R/M.lean#p")),
+                                                     swap(m1, "peer-reviewed:k1", "peer-reviewed:k3"), swap(m2, "peer-reviewed:k2", "peer-reviewed:k4")])
+        expect("evidence --replace-from asks the same once", rc == 0 and runs == [["Lib/T/M.lean#p", "Lib/R/M.lean#p"]] and keys == 1)
+
+        # the moves
+        f1 = mk10(formal("A/One.lean#one"), formal("A/Sub/Two.lean#two"), csv("a"))
+        f2 = mk10(formal("A.lean"), formal("AB.lean#ab"))
+        f3 = mk10(formal("P/M.lean#p"), formal("Q/M.lean#p"))
+        f4 = mk10(formal("A/One.lean#one"))
+        say10(["remove", f4, "--reason", "planted"])
+        f5 = mk10("reference:x/e.csv", "reference:y/e.csv")
+        mv = lambda *pairs: ["evidence"] + [x for old, new in pairs for x in ("--move", old, new)]
+        before10 = tree10()
+        planted = ((("Lib/A", formal("C")), "OLD is not form:path"), ((formal("A"), "formal:/"), "NEW is not form:path"),
+                   ((formal("A"), "reference:Lib/C"), "of two forms"), ((formal("A#x"), formal("C")), "OLD holds `#`"),
+                   ((formal("A"), formal("C#y")), "NEW holds `#`"), ((formal("A"), formal("A/")), "one path"),
+                   ((formal("P"), formal("R")), None), ((formal("P/"), formal("S")), "given twice"))
+        rc, p = say10(mv(*(pair for pair, _ in planted)))
+        expect("planted: each bad pair of --move is refused with its words, a trailing `/` dropped first, and nothing is written",
+               rc == 1 and p["replaced"] == 0 and len(p["refused"]) == 7 and tree10() == before10
+               and all(why in x["msg"] and (x["old"], x["new"]) == pair and set(x) == {"old", "new", "msg"}
+                       for x, (pair, why) in zip(p["refused"], [(pr, w) for pr, w in planted if w])))
+        rc, p, runs, keys = rowed("--move-from", ["not json", "", {"old": formal("A")}, {"old": formal("A"), "new": formal("C"), "id": f1},
+                                                  {"old": formal("A"), "new": 1}, {"old": formal("A"), "new": "reference:C"}, "oops"])
+        bad10 = {x["row"]: x for x in p["refused"]}
+        expect("planted: a bad row of --move-from is refused with its row number, in the file's order",
+               rc == 1 and [x["row"] for x in p["refused"]] == [1, 3, 4, 5, 6, 7] and "not valid JSON" in bad10[1]["msg"] and bad10[1]["old"] is None
+               and 'no "new"' in bad10[3]["msg"] and bad10[3]["old"] == formal("A") and "no key" in bad10[4]["msg"]
+               and '"new" is a string' in bad10[5]["msg"] and "two forms" in bad10[6]["msg"] and tree10() == before10)
+        rc, p = say10(mv((formal("A"), formal("Nowhere"))))
+        expect("planted: a new item that does not resolve is refused with the finding's id and the two items, and nothing is written",
+               rc == 1 and p["replaced"] == 0 and [(x["id"], x["old"], x["new"]) for x in p["refused"]]
+               == [(f1, formal("A/One.lean#one"), formal("Nowhere/One.lean#one")), (f1, formal("A/Sub/Two.lean#two"), formal("Nowhere/Sub/Two.lean#two"))]
+               and all("not in the manifest" in x["msg"] and "row" not in x for x in p["refused"]) and tree10() == before10)
+        rc, p = say10(mv(("reference:x", "reference:y")))
+        expect("planted: a finding that would hold an item twice is refused",
+               rc == 1 and [(x["id"], x["new"]) for x in p["refused"]] == [(f5, "reference:y/e.csv")] and "twice" in p["refused"][0]["msg"] and tree10() == before10)
+        rc, p = say10(mv((formal("Zed"), formal("Yed")), (formal("A/On"), formal("C"))))
+        expect("planted: a run in which no pair matches an item is refused",
+               rc == 1 and p["replaced"] == 0 and len(p["refused"]) == 2 == len(p["unmatched"]) and "no item of a standing finding" in p["refused"][0]["msg"]
+               and tree10() == before10)
+        txt = text_of(c10, mv((formal("Zed"), formal("Yed"))))
+        expect("its text names each such pair once", "0 item(s) swapped, 1 refused, nothing written" in txt and txt.count(formal("Zed")) == 1)
+        rc, p, runs, keys = rowed("--move-from", [""])
+        expect("planted: a --move-from file with no row is refused", rc == 1 and "no row" in p["problems"][0]["msg"] and p["replaced"] == 0)
+        rc, p, runs, keys = asked10(mv((formal("A/"), formal("C/")), (formal("A/Sub"), formal("D")), (formal("Zed"), formal("Yed"))))
+        expect("--move swaps the items under OLD by whole components, so Lib/A moves neither Lib/AB.lean nor Lib/A.lean, the longest OLD winning; "
+               "a removed finding is left, a pair that matches nothing listed, and the resolver asked once",
+               rc == 0 and p["replaced"] == 2 and p["changed"] == [f1] and p["refused"] == [] and p["unchecked"] == 0
+               and p["unmatched"] == [{"old": formal("Zed"), "new": formal("Yed")}]
+               and held(f1) == [formal("C/One.lean#one"), formal("D/Two.lean#two"), csv("a")] and held(f2) == [formal("A.lean"), formal("AB.lean#ab")]
+               and held(f4) == [formal("A/One.lean#one")] and runs == [["Lib/C/One.lean#one", "Lib/D/Two.lean#two"]])
+        expect("a move writes one note a finding, naming its swaps",
+               noted(f1) == [f"evidence `{formal('A/One.lean#one')}` replaced by `{formal('C/One.lean#one')}`; "
+                             f"`{formal('A/Sub/Two.lean#two')}` replaced by `{formal('D/Two.lean#two')}`"])
+        rows10.write_text(jsonl([{"old": formal("A.lean"), "new": formal("C.lean")}, {"old": formal("Zed"), "new": formal("Yed")}]), encoding="utf-8")
+        txt = text_of(c10, ["evidence", "--move-from", str(rows10)]).splitlines()
+        expect("--move-from moves a root file by a pair of its own, and its text is a summary and the pairs that matched nothing, no line a finding",
+               held(f2) == [formal("C.lean"), formal("AB.lean#ab")]
+               and txt == [f"flow evidence --move-from {rows10}: 1 item(s) swapped in 1 finding(s)", f"  matched nothing: {formal('Zed')} → {formal('Yed')}"])
+        rc, p, runs, keys = asked10(["evidence", "--move-from", "-"], jsonl([{"old": formal("P"), "new": formal("Q")}, {"old": formal("Q"), "new": formal("P")}]))
+        expect("two paths are swapped by one run, read from the standard input",
+               rc == 0 and p["replaced"] == 2 and held(f3) == [formal("Q/M.lean#p"), formal("P/M.lean#p")] and len(runs) == 1)
+        h1, h2 = mk10(formal("H1/M.lean#p")), mk10(formal("H2/M.lean#p"))
+        rc, p = say10(mv((formal("H1"), formal("H2")), (formal("H2"), formal("H3"))))
+        expect("the pairs apply at once and never chain", rc == 0 and held(h1) == [formal("H2/M.lean#p")] and held(h2) == [formal("H3/M.lean#p")])
+        rc, p = say10(["check"])
+        expect("flow check passes after the swaps", rc == 0 and p["problems"] == [])
+        (r10 / "resolver.mode").write_text("exit1")
+        txt = text_of(c10, mv((formal("H2"), formal("R")), (formal("H3"), formal("S"))))
+        (r10 / "resolver.mode").unlink()
+        expect("a move whose resolver does not answer is written, the unchecked items counted with the first reason",
+               held(h1) == [formal("R/M.lean#p")] and "2 item(s) swapped in 2 finding(s)" in txt
+               and "  2 new item(s) unchecked, the first: the resolver for formal did not answer: exit 1" in txt)
+
+        for flag in (["--replace-from", str(rows10)], ["--move", formal("A"), formal("C")], ["--move-from", str(rows10)]):
+            others = [x for x in (["--replace-from", "r"], ["--move", "a", "b"], ["--move-from", "r"]) if x[0] != flag[0]] \
+                + [["--from", "r"], ["--replace", "a", "b"], ["--retire", "a"], ["--reason", "x"]]
+            expect(f"planted: {flag[0]} beside a finding, an item or another of evidence's flags is a usage error",
+                   usage10(["evidence", f1, *flag]) and usage10(["evidence", f1, csv("a"), *flag]) and all(usage10(["evidence", *flag, *o]) for o in others))
+
+        # the whole run undone: a write that fails, and a lint that does
+        before10, calls, real_whole = tree10(), [], write_whole
+
+        def failing10(path, text):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("no space left")
+            return real_whole(path, text)
+
+        globals()["write_whole"] = failing10
+        try:
+            say10(mv((formal("R"), formal("H1")), (formal("S"), formal("H2"))))
+            broke = False
+        except OSError:
+            broke = True
+        finally:
+            globals()["write_whole"] = real_whole
+        expect("planted: a write that fails halfway through a move leaves every record as it was", broke and tree10() == before10)
+        (r10 / "w").mkdir()
+        (r10 / "v").mkdir()
+        for n in ("1", "2", "3"):
+            (r10 / "w" / f"{n}.csv").write_text(f"{n}\n", encoding="utf-8")
+            (r10 / "v" / f"{n}.csv").write_text(f"{n}\n", encoding="utf-8")
+        w = [mk10(f"reference:w/{n}.csv") for n in ("1", "2", "3")]
+        w_move = mv(("reference:w", "reference:v"))
+
+        def broken10(argv, refuses):
+            """The command run with `write_whole` raising where `refuses(path, the paths written so far)`: whether it raised."""
+            seen = []
+
+            def write(path, text):
+                seen.append(path)
+                if refuses(path, seen):
+                    raise OSError("read-only")
+                return real_whole(path, text)
+
+            globals()["write_whole"] = write
+            try:
+                say10(argv)
+                return False
+            except OSError:
+                return True
+            finally:
+                globals()["write_whole"] = real_whole
+
+        before10 = tree10()
+        broke = broken10(w_move, lambda path, seen: w[1] + "-" in path.name and (seen.count(path) > 1 or any(w[2] + "-" in x.name for x in seen))
+                         or w[2] + "-" in path.name)
+        left = [x.name for x, text in tree10().items() if before10[x] != text]
+        expect("planted: a record that cannot be put back stops no other from being restored",
+               broke and len(left) == 1 and left[0].startswith(w[1] + "-"))
+        for x, text in before10.items():
+            real_whole(x, text)
+        rows10.write_text(jsonl([swap(w[0], "reference:w/1.csv", csv("a")), swap(w[1], "reference:w/2.csv", formal("R/M.lean#p"))]), encoding="utf-8")
+        broke = broken10(["evidence", "--replace-from", str(rows10)], lambda path, seen: path == c10.index)
+        expect("planted: an index that cannot be written undoes the whole run", broke and tree10() == before10)
+        (r10 / "fakelint.py").write_text(
+            "import sys\n"
+            "mode, files = open('lint.mode').read(), sys.argv[1:]\n"
+            "if mode == 'crash' and len(files) > 1:\n"
+            "    sys.exit('the linter failed')\n"
+            "bad = [f for f in files if ' replaced by ' in open(f, encoding='utf-8').read()]\n"
+            "for f in bad:\n"
+            "    print(f + '\\n  line 1: MD013')\n"
+            "sys.exit(1 if bad else 0)\n", encoding="utf-8")
+        real_cmd = mdlint_cmd
+        globals()["mdlint_cmd"] = lambda cfg: [sys.executable, str(r10 / "fakelint.py")]
+        try:
+            for mode, what in (("grouped", "names a file on a line of its own"), ("crash", "fails over many files and not over one")):
+                (r10 / "lint.mode").write_text(mode)
+                rc, p = say10(w_move)
+                expect(f"planted: a bulk run under a linter that {what} is refused as a single write is, the files linted a run each",
+                       rc == 1 and p["replaced"] == 0 and "MD013" in p["problems"][0]["msg"] and all(f"{i}-" in p["problems"][0]["msg"] for i in w)
+                       and tree10() == before10)
+        finally:
+            globals()["mdlint_cmd"] = real_cmd
+        if shutil.which("markdownlint"):
+            runs10, real_one, real_many = [], mdlint, mdlint_many
+            globals()["mdlint"] = lambda *a: (runs10.append("one"), real_one(*a))[1]
+            globals()["mdlint_many"] = lambda *a, **k: (runs10.append(len(a[1])), real_many(*a, **k))[1]
+            try:
+                rc, p = say10(mv((formal("R"), formal("H1")), (formal("S"), formal("H2"))))
+            finally:
+                globals()["mdlint"], globals()["mdlint_many"] = real_one, real_many
+            expect("a bulk run runs markdownlint once over all its files before and once after, never a run a file",
+                   rc == 0 and len(p["changed"]) == 3 and runs10 == [3, 3])
+            (r10 / "short.json").write_text('{"default": false, "MD013": {"line_length": 60, "strict": true}}', encoding="utf-8")
+            c10.mdlint_config, before10 = "short.json", tree10()
+            rc, p = say10(mv((formal("H1"), formal("R")), (formal("H2"), formal("S"))))
+            c10.mdlint_config = None
+            expect("planted: a move the lint fails is undone whole, the refusal naming the files",
+                   rc == 1 and p["replaced"] == 0 and p["changed"] == [] and "MD013" in p["problems"][0]["msg"]
+                   and all(f"{i}-" in p["problems"][0]["msg"] for i in (h1, h2)) and tree10() == before10)
+        elif os.environ.get("CI"):
+            expect("markdownlint is on PATH in CI, where a bulk run's lint is tested", False)
+        else:
+            print("  --  a bulk run's lint not tested: no markdownlint on PATH")
+
     # the bounded views, several ids in one call, `flow evidence --from`, the parameters line, the notice at a finding's mint
     with tempfile.TemporaryDirectory() as t9, tempfile.TemporaryDirectory() as tmp9:
         r9 = Path(t9)
@@ -9523,6 +10030,16 @@ def build_parser():
     p.add_argument("--replace", nargs=2, metavar=("OLD", "NEW"), help="the item OLD, as written, swapped for NEW, resolved as an added item is; a dated note in the body")
     p.add_argument("--retire", metavar="OLD", help="the item OLD removed, with --reason; a dated note in the body")
     p.add_argument("--reason", help="with --retire: why the item goes, kept in the note")
+    p.add_argument("--replace-from", dest="replace_from", metavar="FILE",
+                   help="many swaps in one run, alone: FILE (`-` for the standard input) holds one JSON object a line, "
+                        "{\"id\": \"finding-0012\", \"old\": \"form:target\", \"new\": \"form:target\"}, each checked as --replace checks it; "
+                        "one bad row refuses the run")
+    p.add_argument("--move", nargs=2, action="append", metavar=("OLD", "NEW"),
+                   help="a path's move, alone, OLD and NEW each form:path with no `#`: in every standing finding, each item under OLD, by whole "
+                        "path components, is swapped for the same item under NEW; repeatable, the longest OLD winning and the pairs applied at once; "
+                        "all or none")
+    p.add_argument("--move-from", dest="move_from", metavar="FILE",
+                   help="--move's pairs from FILE (`-` for the standard input), one JSON object a line, {\"old\": \"form:path\", \"new\": \"form:path\"}")
     p = sp.add_parser("reach"); p.add_argument("goal"); p.add_argument("--reason", required=True, help="what shows it reached")
     p = sp.add_parser("giveup"); p.add_argument("goal"); p.add_argument("--reason", required=True)
     p = sp.add_parser("drop"); p.add_argument("direction"); p.add_argument("--reason", required=True)
@@ -10076,6 +10593,17 @@ def staged_selftest(expect):
             ok("where git knows no repository the refusal names it", r.returncode == 2 and "in no git repository" in r.stderr, r.stdout + r.stderr)
 
 
+def refresh_index(cfg, recs):
+    """The index written where it differs from what the records render, after a run of many writes: its path, or None where
+    it stood."""
+    text = render_index(cfg, recs)
+    if cfg.index.is_file() and cfg.index.read_text(encoding="utf-8") == text:
+        return None
+    cfg.index.parent.mkdir(parents=True, exist_ok=True)
+    write_whole(cfg.index, text)
+    return rel(cfg, cfg.index)
+
+
 def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
     a = build_parser().parse_args(argv)
     if a.cmd == "set":  # ID FIELD VALUE, or --from FILE: one of the two
@@ -10083,11 +10611,13 @@ def dispatch(cfg, argv, today=None, as_json=False, quiet=False):
             a.set_parser.error("set takes ID FIELD VALUE (with --note, --to-summary) or --from FILE, whose rows carry their own, not both")
         if a.from_file is None and (a.id is None or a.field is None or a.value is None):
             a.set_parser.error("set takes ID FIELD VALUE, or --from FILE for many")
-    if a.cmd == "evidence":  # FINDING ITEM…, --replace, --retire, or --from FILE: one of the four
-        if a.from_file is not None and (a.finding or a.evidence or a.replace is not None or a.retire is not None or a.reason is not None):
-            a.evidence_parser.error("evidence takes FINDING ITEM…, --replace, --retire, or --from FILE, whose rows carry their own, not together")
-        if a.from_file is None and a.finding is None:
-            a.evidence_parser.error("evidence takes FINDING ITEM…, or --from FILE for many")
+    if a.cmd == "evidence":  # a FINDING's items, --replace or --retire, or one of the forms for many, alone
+        many = sum(v is not None for v in (a.from_file, a.replace_from, a.move, a.move_from))
+        if many and (many > 1 or a.finding or a.evidence or a.replace is not None or a.retire is not None or a.reason is not None):
+            a.evidence_parser.error("evidence takes FINDING ITEM…, --replace, --retire, or one of --from, --replace-from, --move and --move-from "
+                                    "alone, not together")
+        if not many and a.finding is None:
+            a.evidence_parser.error("evidence takes FINDING ITEM…, or for many --from FILE, --replace-from FILE, --move OLD NEW or --move-from FILE")
     writes = a.cmd in TRANSITIONS or a.cmd == "log" or (a.cmd == "index" and not a.print_ and not a.check) or (a.cmd == "reflow" and a.write)
     with project_lock(cfg, cfg.research, "flow") if writes else contextlib.nullcontext():
         return _dispatch(cfg, a, today, as_json, quiet)
@@ -10120,49 +10650,59 @@ def _dispatch(cfg, a, today, as_json, quiet):
                 out[k] = res[k]
             out["changed"] = [r.id for r in res["changed"]]
             out["records"] = [summary_of(cfg, r, recs, today) for r in res["changed"]]
-            index_text = render_index(cfg, recs)
-            index_new = not cfg.index.is_file() or cfg.index.read_text(encoding="utf-8") != index_text
-            if index_new:
-                cfg.index.parent.mkdir(parents=True, exist_ok=True)
-                write_whole(cfg.index, index_text)
-            out["index"] = rel(cfg, cfg.index) if index_new else None
+            out["index"] = refresh_index(cfg, recs)
             emit(f"flow set --from {a.from_file}: {res['written']} row(s) written, {res['unchanged']} unchanged, {len(res['refused'])} refused; "
-                 f"{len(res['changed'])} record(s) changed" + (f"; index refreshed: {rel(cfg, cfg.index)}" if index_new else ""))
+                 f"{len(res['changed'])} record(s) changed" + (f"; index refreshed: {out['index']}" if out["index"] else ""))
             for x in res["refused"]:
                 emit(f"  row {x['row']}" + (f", {x['id']}" if x["id"] else "") + (f", {x['field']}" if x["field"] else "") + f": {x['msg']}")
             if res["half"]:
                 emit(f"  left half written (a row written, another refused): {', '.join(res['half'])}")
             if res["refused"]:
                 out["ok"] = False
-        elif a.cmd == "evidence" and a.from_file is not None:
-            out.update(written=0, added=0, refused=[])  # on every path, a refusal of the whole file's too
+        elif a.cmd == "evidence" and a.finding is None:  # many findings in one run: --from, --replace-from, --move, --move-from
+            moving = a.move is not None or a.move_from is not None
+            keys = {"replaced": 0, "unchecked": 0, "unmatched": [], "refused": []} if moving else \
+                {"written": 0, "added" if a.from_file is not None else "replaced": 0, "refused": []}
+            out.update(keys)  # on every path, a refusal of the whole file's too
             _JOURNAL.clear()
             try:
-                res = batch_evidence(cfg, recs, a.from_file, today)
+                res = batch_move(cfg, recs, a.move, a.move_from, today) if moving \
+                    else batch_evidence(cfg, recs, a.from_file, today) if a.from_file is not None \
+                    else batch_replace(cfg, recs, a.replace_from, today)
+                if not res["refused"]:  # inside the run, so an index that cannot be written undoes it; a swap of nothing leaves it alone
+                    out["index"] = refresh_index(cfg, recs) if res["changed"] or a.from_file is not None else None
             except BaseException:  # the run happens whole or not at all
                 rollback()
                 raise
             _JOURNAL.clear()
-            for k in ("written", "added", "refused"):
-                out[k] = res[k]
+            out.update({k: res[k] for k in keys})
             out["changed"] = [r.id for r in res["changed"]]
             out["records"] = [summary_of(cfg, r, recs, today) for r in res["changed"]]
             if res["refused"]:
                 out["ok"] = False
-                emit(f"flow evidence --from {a.from_file}: 0 row(s) written, {len(res['refused'])} refused, nothing written")
+            run = next((f"{flag} {source}" for flag, source in (("--from", a.from_file), ("--replace-from", a.replace_from), ("--move-from", a.move_from))
+                        if source is not None), "--move")
+            refreshed = f"; index refreshed: {out['index']}" if out.get("index") else ""
+            if res["refused"]:
+                emit(f"flow evidence {run}: {'0 item(s) swapped' if moving else '0 row(s) written'}, {len(res['refused'])} refused, nothing written")
                 for x in res["refused"]:
-                    emit(f"  row {x['row']}" + (f", {x['id']}" if x["id"] else "") + f": {x['msg']}")
+                    where = (f"row {x['row']}" if x.get("row") else None, x.get("id"),
+                             f"{x['old']} → {x['new']}" if x.get("old") is not None and x.get("new") is not None else None)
+                    emit(f"  {', '.join(w for w in where if w)}: {x['msg']}")
+            elif moving:
+                emit(f"flow evidence {run}: {res['replaced']} item(s) swapped in {len(res['changed'])} finding(s){refreshed}")
             else:
-                index_text = render_index(cfg, recs)
-                index_new = not cfg.index.is_file() or cfg.index.read_text(encoding="utf-8") != index_text
-                if index_new:
-                    cfg.index.parent.mkdir(parents=True, exist_ok=True)
-                    write_whole(cfg.index, index_text)
-                out["index"] = rel(cfg, cfg.index) if index_new else None
-                emit(f"flow evidence --from {a.from_file}: {res['written']} row(s) written, 0 refused; {res['added']} item(s) added to "
-                     f"{len(res['changed'])} record(s)" + (f"; index refreshed: {rel(cfg, cfg.index)}" if index_new else ""))
+                done = f"{res['added']} item(s) added to" if a.from_file is not None else f"{res['replaced']} item(s) replaced in"
+                emit(f"flow evidence {run}: {res['written']} row(s) written, 0 refused; {done} {len(res['changed'])} record(s){refreshed}")
                 for r in res["changed"]:
                     emit(f"changed {r.id} ({changed_words(cfg, recs, r, today)}; {rel(cfg, r.path)}){dash_title(recs, r.id)}")
+            if moving:
+                named = [(x["old"], x["new"]) for x in res["refused"] if "id" not in x]  # a pair its refusal's line already names
+                for x in res["unmatched"]:
+                    if (x["old"], x["new"]) not in named:
+                        emit(f"  matched nothing: {x['old']} → {x['new']}")
+                if res["unchecked"]:
+                    emit(f"  {res['unchecked']} new item(s) unchecked, the first: {res['why'].removeprefix('unchecked: ')}")
         elif a.cmd in TRANSITIONS:
             if a.cmd == "rank" and not a.set and not a.id:
                 raise Refused("rank takes ID N, --set ID..., or ID --clear")
