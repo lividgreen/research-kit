@@ -163,7 +163,7 @@ A finding is a checkable claim, and its trust is read off the forms its evidence
 | Field | Holds | Written by |
 | --- | --- | --- |
 | `state` | `standing` or `removed` | minted; `remove` |
-| `evidence` | one or more items `form:target`, each resolved when it is written and at every check while the finding stands, no item twice; the set of forms present is the finding's trust, shown where a status stood, and `removed` shows instead on a removed one | minted (`flow finding TITLE --summary S --evidence ITEM…`); `evidence`, which adds items, swaps one for another (`--replace OLD NEW`) or retires one (`--retire OLD --reason R`, refused where it leaves none), the last two with a dated note in the body; refused on a removed finding |
+| `evidence` | one or more items `form:target`, each resolved when it is written and at every check while the finding stands, no item twice; the set of forms present is the finding's trust, shown where a status stood, and `removed` shows instead on a removed one | minted (`flow finding TITLE --summary S --evidence ITEM…`); `evidence`, which adds items, swaps one for another (`--replace OLD NEW`) or retires one (`--retire OLD --reason R`, refused where it leaves none), the last two with a dated note in the body; over many findings in one run, `--from` adds, `--replace-from` swaps and `--move`, `--move-from` move a path; refused on a removed finding, which a move leaves as it is |
 | `closed` | `date` and `reason` once removed | `remove` |
 
 What a finding came from or rests on, a task, an idea, a question, another finding, is in its `references`; the question it answers (`--answers`) names it in `answered_by`.
@@ -284,7 +284,7 @@ A follow-up is minted after the make, `flow task "…" --summary "…" --ref T`;
 | — | `standing` | `finding --evidence ITEM…`, the one mint whatever produced it; `--answers Q` closes Q answered by it | `title`, `summary`, `evidence`, `references`, `tags`, a body where `--body` gives one |
 | `standing` | `removed` | `remove --reason`, when it is found false | `closed` with its date and reason; the card kept, out of the index's lists and counts |
 
-A task's finding is minted after the task is made or aborted, referencing it, as the skill's practice; `flow evidence` adds items to a standing finding's evidence, and replaces or retires one whose file is gone with a dated note in the body.
+A task's finding is minted after the task is made or aborted, referencing it, as the skill's practice; `flow evidence` adds items to a standing finding's evidence, and replaces or retires one whose file is gone with a dated note in the body; over many findings in one run it adds and swaps items from rows (`--from`, `--replace-from`) and moves a path (`--move`, `--move-from`).
 A finding found false is removed and never reopened: what rested on it is reviewed by hand, a question it answered reopened, re-answered or left, and the finding that replaces it references it; a finding removed by mistake is restored from git.
 
 ### A goal's
